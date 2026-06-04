@@ -146,12 +146,13 @@ Research references before writing: `github.com/dontriskit/awesome-ai-system-pro
 - [ ] Sandbox idle timeout: 30 min → pause + snapshot. On resume: "Resuming your project..." message
 
 ### 3c. Error Handling
-- [ ] Intercept sandbox stderr/non-zero exit codes
-- [ ] Show "Overcoming a hurdle..." in chat
-- [ ] Pass raw error to AI with instruction to fix silently
+- [ ] Show "Overcoming a hurdle..." friendly popup — never show raw errors to user
+- [ ] Send full raw error + logs to AI silently in background
+- [ ] AI tells user in plain language what it is fixing ("Fixing a small issue with the navigation...")
+- [ ] Disable chat send button while AI is working (status !== 'ready')
 - [ ] Max 3 retries per error
-- [ ] After 3 failures: show error + "Report Issue" button
-- [ ] Log errors to console (for debugging)
+- [ ] After 3 failures: show friendly "Hit a snag — our team has been notified" + Report button
+- [ ] Log raw errors to console only (never to user)
 
 ---
 
