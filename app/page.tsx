@@ -50,7 +50,7 @@ export default async function Page() {
             left={<Chat className="flex-1 overflow-hidden" />}
             right={
               <Vertical
-                defaultLayout={verticalSizes ?? [33.33, 33.33, 33.33]}
+                defaultLayout={verticalSizes ?? [34, 33, 33]}
                 top={<Preview className="flex-1 overflow-hidden" />}
                 middle={<FileExplorer className="flex-1 overflow-hidden" />}
                 bottom={<Logs className="flex-1 overflow-hidden" />}

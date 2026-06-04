@@ -25,7 +25,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     () =>
       new Chat<ChatUIMessage>({
         onToolCall: () => mutate('/api/auth/info'),
-        onData: (data: DataUIPart<DataPart>) => mapDataToStateRef.current(data),
+        // Defer Zustand state updates to the next event loop tick.
+        // Calling setState synchronously while the AI SDK processes stream events
+        // causes React to hit the maximum update depth limit.
+        onData: (data: DataUIPart<DataPart>) => {
+          setTimeout(() => mapDataToStateRef.current(data), 0)
+        },
         onError: (error) => {
           toast.error(`Communication error with the AI: ${error.message}`)
           console.error('Error sending message:', error)

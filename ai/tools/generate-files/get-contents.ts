@@ -58,18 +58,10 @@ export async function* getContents(
 
   void result
 
-  if (generated.length === 0) {
-    yield { files: [], paths: params.paths, written: [] }
-    return
-  }
-
-  const written: string[] = []
-  for (const file of generated) {
-    written.push(file.path)
-    yield {
-      files: [file],
-      paths: params.paths,
-      written: [...written],
-    }
+  // Yield all files in one batch — avoids rapid-fire stream writes that cause React update loops
+  yield {
+    files: generated,
+    paths: generated.map((f) => f.path),
+    written: [],
   }
 }

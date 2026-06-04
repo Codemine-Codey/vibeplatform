@@ -6,7 +6,7 @@ import {
   stepCountIs,
   streamText,
 } from 'ai'
-import { DEFAULT_MODEL, MODEL_NAMES } from '@/ai/constants'
+import { DEFAULT_MODEL } from '@/ai/constants'
 import { NextResponse } from 'next/server'
 import { getModelOptions } from '@/ai/gateway'
 import { checkBotId } from 'botid/server'
@@ -70,9 +70,6 @@ export async function POST(req: Request) {
           result.toUIMessageStream({
             sendReasoning: false,
             sendStart: false,
-            messageMetadata: () => ({
-              model: MODEL_NAMES[DEFAULT_MODEL] ?? 'Builder',
-            }),
           })
         )
       },
