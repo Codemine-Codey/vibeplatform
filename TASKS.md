@@ -22,14 +22,21 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] components/settings/use-settings.ts — removed modelId/reasoningEffort from hook
 - [x] app/chat.tsx — removed ModelSelector component and model/reasoning from sendMessage body
 - [x] TypeScript check: PASSING — zero errors
-- [ ] Create .env.local with real API keys and test locally
-- [ ] Test: submit a simple prompt, confirm DeepSeek connects and sandbox boots
-- [ ] Test: confirm sandbox preview URL loads in browser
-- [ ] **CRITICAL TEST**: Submit a 5-6 min generation. If Vercel Function times out → add SSE heartbeat
+- [x] .env.local created with DEEPSEEK_API_KEY + VERCEL_OIDC_TOKEN (via vercel env pull)
+- [x] DeepSeek API confirmed working — .chat() forces Chat Completions endpoint
+- [x] get-contents.ts rewritten — tool-call based file generation (no Output.object, DeepSeek compatible)
+- [x] errors/route.ts rewritten — tool-call based error analysis (no Output.object)
+- [x] API test: POST /api/chat 200, DeepSeek connected, sandbox created ✅
+- [x] TypeScript: zero errors ✅
+- [ ] Test full generation in browser UI (snake game prompt)
+- [ ] Confirm sandbox preview URL loads in iframe
+- [ ] **CRITICAL TEST**: Submit a 5-6 min generation, confirm no timeout
 - [ ] Get Cloudflare API token with Pages:Edit permission
 - [ ] Get Unsplash API key (free tier, 50 req/hr)
 - [ ] Deploy to Vercel (vercel --prod, add env vars in Vercel dashboard)
-- [ ] Confirm live deploy works end-to-end
+
+> NOTE: AI Gateway deferred until launch (requires Pro plan). Direct DeepSeek is used.
+> At launch: set AI_GATEWAY_BASE_URL env var — zero code changes needed.
 
 ---
 

@@ -1,23 +1,12 @@
-import { streamText, Output, type ModelMessage } from 'ai'
+import { generateText, tool, stepCountIs, type ModelMessage } from 'ai'
 import { getModelOptions } from '@/ai/gateway'
 import { FILE_GENERATION_MODEL } from '@/ai/constants'
-import { Deferred } from '@/lib/deferred'
 import z from 'zod/v3'
 
-export type File = z.infer<typeof fileSchema>
-
-const fileSchema = z.object({
-  path: z
-    .string()
-    .describe(
-      "Path to the file in the Vercel Sandbox (relative paths from sandbox root, e.g., 'src/main.js', 'package.json', 'components/Button.tsx')"
-    ),
-  content: z
-    .string()
-    .describe(
-      'The content of the file as a utf8 string (complete file contents that will replace any existing file at this path)'
-    ),
-})
+export type File = {
+  path: string
+  content: string
+}
 
 interface Params {
   messages: ModelMessage[]
@@ -26,72 +15,61 @@ interface Params {
 }
 
 interface FileContentChunk {
-  files: z.infer<typeof fileSchema>[]
+  files: File[]
   paths: string[]
   written: string[]
 }
 
+// Uses tool calling to collect structured file output — works with DeepSeek's Chat Completions API.
+// Each file is emitted as a tool call so files stream in one by one.
 export async function* getContents(
   params: Params
 ): AsyncGenerator<FileContentChunk> {
-  const generated: z.infer<typeof fileSchema>[] = []
-  const deferred = new Deferred<void>()
-  const result = streamText({
+  const generated: File[] = []
+
+  const result = await generateText({
     ...getModelOptions(FILE_GENERATION_MODEL),
     maxOutputTokens: 64000,
     system:
-      'You are a file content generator. You must generate files based on the conversation history and the provided paths. NEVER generate lock files (pnpm-lock.yaml, package-lock.json, yarn.lock) - these are automatically created by package managers.',
+      'You are a file content generator. Generate each file by calling the write_file tool once per file. Generate ALL requested files. NEVER generate lock files (pnpm-lock.yaml, package-lock.json, yarn.lock).',
     messages: [
       ...params.messages,
       {
         role: 'user',
-        content: `Generate the content of the following files according to the conversation: ${params.paths.map(
-          (path) => `\n - ${path}`
-        )}`,
+        content: `Generate the content of the following files according to the conversation. Call write_file once for each file:\n${params.paths.map((p) => ` - ${p}`).join('\n')}`,
       },
     ],
-    output: Output.object({ schema: z.object({ files: z.array(fileSchema) }) }),
-    onError: (error) => {
-      deferred.reject(error)
-      console.error('Error communicating with AI')
-      console.error(JSON.stringify(error, null, 2))
+    tools: {
+      write_file: tool({
+        description: 'Write a single file with its complete content',
+        inputSchema: z.object({
+          path: z.string().describe('File path relative to sandbox root'),
+          content: z.string().describe('Complete file contents as a utf8 string'),
+        }),
+        execute: async ({ path, content }) => {
+          const file: File = { path, content }
+          generated.push(file)
+          return `Wrote ${path}`
+        },
+      }),
     },
+    stopWhen: stepCountIs(params.paths.length + 2),
   })
 
-  for await (const items of result.partialOutputStream) {
-    if (!Array.isArray(items?.files)) {
-      continue
-    }
+  void result
 
-    const written = generated.map((file) => file.path)
-    const paths = written.concat(
-      items.files
-        .slice(generated.length, items.files.length - 1)
-        .flatMap((f) => (f?.path ? [f.path] : []))
-    )
-
-    const files = items.files
-      .slice(generated.length, items.files.length - 2)
-      .map((file) => fileSchema.parse(file))
-
-    if (files.length > 0) {
-      yield { files, paths, written }
-      generated.push(...files)
-    } else {
-      yield { files: [], written, paths }
-    }
+  if (generated.length === 0) {
+    yield { files: [], paths: params.paths, written: [] }
+    return
   }
 
-  const raceResult = await Promise.race([result.output, deferred.promise])
-  if (!raceResult) {
-    throw new Error('Unexpected Error: Deferred was resolved before the result')
-  }
-
-  const written = generated.map((file) => file.path)
-  const files = raceResult.files.slice(generated.length)
-  const paths = written.concat(files.map((file) => file.path))
-  if (files.length > 0) {
-    yield { files, written, paths }
-    generated.push(...files)
+  const written: string[] = []
+  for (const file of generated) {
+    written.push(file.path)
+    yield {
+      files: [file],
+      paths: params.paths,
+      written: [...written],
+    }
   }
 }

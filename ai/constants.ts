@@ -1,7 +1,7 @@
-// Orchestration model — used by the main agent to plan, decide tools, and direct the build
+// Orchestration model — DeepSeek v4 Pro via direct API
 export const DEFAULT_MODEL = 'deepseek-v4-pro'
 
-// File generation model — used by the nested generateFiles LLM call (cheaper + fast)
+// File generation model — cheaper + faster, used for nested file generation calls
 export const FILE_GENERATION_MODEL = 'deepseek-v4-flash'
 
 // Only one model exposed — users do not pick the model
