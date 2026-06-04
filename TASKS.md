@@ -1,219 +1,209 @@
 # VibePlatform — Build Tasks
 
-Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
+Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` known issue
 
 ---
 
-## PHASE 0 — Foundation & Fork Setup ✅ MOSTLY DONE
+## PHASE 0 — Foundation ✅ COMPLETE
 
-- [x] Repo created: github.com/Codemine-Codey/vibeplatform
-- [x] OSS vibe-coding-platform files copied (119 files, sparse checkout from vercel/examples)
-- [x] CLAUDE.md, TASKS.md, .env.example committed
-- [x] pnpm install — dependencies installed
-- [x] ai/constants.ts — replaced Claude/GPT/Grok with DeepSeek v4 Pro + Flash
-- [x] ai/gateway.ts — replaced createGatewayProvider with createOpenAI pointing to DeepSeek
-- [x] ai/tools/generate-files/get-contents.ts — uses FILE_GENERATION_MODEL (Flash) for nested file gen
-- [x] app/api/chat/route.ts — removed modelId/reasoningEffort from body, added maxDuration=300, stepCountIs(25)
-- [x] app/api/chat/prompt.md — full rewrite: VibePlatform identity, confidentiality, design rules, skill types, workflow
-- [x] app/api/errors/route.ts — switched from GPT-5 to DeepSeek Flash for error analysis
-- [x] app/header.tsx — removed Vercel logo + "OSS Vibe Coding Platform", replaced with ZapIcon + "VibePlatform"
-- [x] components/settings/reasoning-effort.tsx — removed GPT-only reasoning toggle (returns null)
-- [x] components/settings/model-selector.tsx — hidden from users (returns null)
-- [x] components/settings/use-settings.ts — removed modelId/reasoningEffort from hook
-- [x] app/chat.tsx — removed ModelSelector component and model/reasoning from sendMessage body
-- [x] TypeScript check: PASSING — zero errors
-- [x] .env.local created with DEEPSEEK_API_KEY + VERCEL_OIDC_TOKEN (via vercel env pull)
-- [x] DeepSeek API confirmed working — .chat() forces Chat Completions endpoint
-- [x] get-contents.ts rewritten — tool-call based file generation (no Output.object, DeepSeek compatible)
-- [x] errors/route.ts rewritten — tool-call based error analysis (no Output.object)
-- [x] API test: POST /api/chat 200, DeepSeek connected, sandbox created ✅
-- [x] TypeScript: zero errors ✅
-- [ ] Test full generation in browser UI (snake game prompt)
-- [ ] Confirm sandbox preview URL loads in iframe
-- [ ] **CRITICAL TEST**: Submit a 5-6 min generation, confirm no timeout
-- [ ] Get Cloudflare API token with Pages:Edit permission
-- [ ] Get Unsplash API key (free tier, 50 req/hr)
-- [ ] Deploy to Vercel (vercel --prod, add env vars in Vercel dashboard)
+### Repo & Fork
+- [x] Repo created: github.com/Codemine-Codey/vibeplatform (Codemine-Codey account)
+- [x] OSS vibe-coding-platform files sparse-checked from vercel/examples (119 files)
+- [x] CLAUDE.md, TASKS.md, .env.example added and committed
+- [x] pnpm install — all dependencies installed
 
-> NOTE: AI Gateway deferred until launch (requires Pro plan). Direct DeepSeek is used.
-> At launch: set AI_GATEWAY_BASE_URL env var — zero code changes needed.
+### Model Swap (OSS used Claude/GPT/Grok → we use DeepSeek)
+- [x] ai/constants.ts — DEFAULT_MODEL='deepseek-v4-pro', FILE_GENERATION_MODEL='deepseek-v4-flash'
+- [x] ai/gateway.ts — createOpenAI with .chat() to force Chat Completions (DeepSeek doesn't support Responses API)
+- [x] ai/tools/generate-files/get-contents.ts — rewritten: generateText + tool calls (Output.object requires Responses API)
+- [x] app/api/errors/route.ts — rewritten: tool-call based error analysis
+- [x] app/api/chat/route.ts — maxDuration=300, stopWhen stepCountIs(25), removed messageMetadata spam, simplified body
+
+### System Prompt
+- [x] app/api/chat/prompt.md — full rewrite: VibePlatform identity, confidentiality rules, design rules, 3 skill types, workflow, error UX rules
+- [x] Added: all files in ONE generateFiles call (prevents missing component errors)
+- [x] Added: never show raw errors to user — plain English only
+- [x] Added: strict code quality — production-ready on first attempt
+
+### UI Cleanup
+- [x] app/header.tsx — VibePlatform branding (ZapIcon), Vercel logo removed
+- [x] components/settings/model-selector.tsx — returns null (users don't pick model)
+- [x] components/settings/reasoning-effort.tsx — returns null (GPT-only feature)
+- [x] components/settings/use-settings.ts — simplified (fixErrors only)
+- [x] app/chat.tsx — removed ModelSelector, removed modelId/reasoningEffort from sendMessage
+- [x] components/modals/welcome.tsx — VibePlatform copy, no Vercel/Claude/GPT mentions
+- [x] components/banner.tsx — VibePlatform Beta copy
+- [x] app/page.tsx — panel layout 34/33/33 (was 33.33×3=99.99, caused console warning)
+
+### Bug Fixes (Phase 0 compatibility)
+- [x] React max update depth — chat-context.tsx onData wrapped in setTimeout(fn,0)
+- [x] File generation batch — get-contents.ts yields ALL files in one chunk (not per-file loop)
+- [x] messageMetadata removed from toUIMessageStream (was firing per token, not per message)
+
+### Verified Working
+- [x] TypeScript: zero errors
+- [x] DeepSeek API connects (POST /api/chat 200)
+- [x] Vercel Sandbox spins up (createSandbox tool executes)
+- [x] Files generate (generateFiles tool executes)
+- [x] Commands run (pnpm install, pnpm dev execute in sandbox)
+- [x] Preview URL returned (getSandboxUrl tool executes)
+- [x] Full generation: 2.9 min, no server errors
+- [x] No React update depth error in browser
+
+### Remaining Phase 0 Items
+- [ ] Verify preview loads correctly in browser iframe after fixing system prompt
+- [ ] Get Cloudflare API token (Pages:Edit permission) — needed for Phase 2
+- [ ] Get Unsplash API key (free tier) — needed for Phase 1
+- [ ] Deploy to Vercel production (vercel --prod)
+
+> AI Gateway: deferred to launch (requires Pro plan). At launch: set AI_GATEWAY_BASE_URL in Vercel dashboard — zero code changes.
+> OIDC token expires periodically — re-run `vercel env pull .env.local --yes` then re-add DEEPSEEK_API_KEY if sandbox auth fails.
 
 ---
 
-## PHASE 1 — Three Skill System
+## PHASE 1 — Three Skill System [ ] NEXT
 
 ### 1a. Intent Classifier
-- [ ] Create `ai/classifier.ts`
-  - [ ] Takes user prompt string
-  - [ ] Uses DeepSeek Flash (single call, no streaming)
-  - [ ] Returns `{ skill: 'website' | 'webapp' | 'game', clarify: false }` or `{ skill: null, clarify: true, question: string }`
-  - [ ] Clear cases: "website for X", "landing page", "portfolio" → website; "game like Y", "flappy bird" → game; "chatbot", "todo app", "dashboard" → webapp
-  - [ ] Test with 20 different prompts before moving on
+- [ ] Create ai/classifier.ts
+  - [ ] Input: user prompt string
+  - [ ] Model: DeepSeek Flash (single non-streaming call)
+  - [ ] Output: `{ skill: 'website'|'webapp'|'game', clarify: false }` or `{ skill: null, clarify: true, question: string }`
+  - [ ] Test with 20+ diverse prompts before moving on
 
 ### 1b. New Tools
-- [ ] Create `ai/tools/read-file.ts` — wraps `runCommand(cat <path>)`, returns file content string
-- [ ] Create `ai/tools/patch-file.ts` — targeted string replace: `(sandboxId, path, oldString, newString)` → reads file, replaces, writes back
-- [ ] Create `ai/tools/get-unsplash.ts` — `(keyword: string)` → Unsplash search API → returns best photo URL in format: `https://images.unsplash.com/photo-{id}?auto=format&fit=crop&w=1200&q=80`
-- [ ] Add all three new tools to `ai/tools/index.ts`
-- [ ] Register new tools in the main agent tool list
+- [ ] ai/tools/read-file.ts — runCommand(cat <path>), returns content for AI to read before editing
+- [ ] ai/tools/patch-file.ts — targeted string replace (path, oldString, newString) — for edit mode
+- [ ] ai/tools/get-unsplash.ts — keyword → best Unsplash URL (format: photo-ID?auto=format&fit=crop&w=1200&q=80)
+- [ ] Register all new tools in ai/tools/index.ts
 
-### 1c. Project Context System
-- [ ] Create `ai/context.ts` with:
-  - [ ] `readProjectContext(sandboxId)` — reads `_project_context.md` from sandbox
-  - [ ] `writeProjectContext(sandboxId, context)` — writes/updates context file
-  - [ ] `initProjectContext(sandboxId, skill, userIntent)` — creates fresh context at generation start
-- [ ] Inject context read as a mandatory first step in the agent system prompt
+### 1c. Project Context Memory
+- [ ] Create ai/context.ts
+  - [ ] readProjectContext(sandboxId) — reads _project_context.md from sandbox root
+  - [ ] writeProjectContext(sandboxId, context) — writes/updates context file
+  - [ ] initProjectContext(sandboxId, skill, userIntent) — creates fresh context
+- [ ] Context schema: type, userIntent, stack, styleDecisions, sectionsBuilt, changelog (last 5), fileTree
+- [ ] Inject context read as mandatory first step in system prompt
 
-### 1d. Skill System Prompts
-Research references before writing: `github.com/dontriskit/awesome-ai-system-prompts` (Lovable, v0, same.new, Bolt.new prompts)
+### 1d. Three Skill System Prompts
+Research: github.com/dontriskit/awesome-ai-system-prompts (Lovable, v0, same.new, Bolt.new prompts)
 
-- [ ] Create `ai/skills/website.ts`
-  - [ ] Sections: hero (full-viewport, real Unsplash image, not grey), about/story, services/features, visual gallery or stats section, social proof (testimonials or logos), strong CTA section, footer with links
-  - [ ] Minimum 2 sub-pages (derive from context: a restaurant → /menu; a business → /about + /contact)
-  - [ ] Scroll reveal animations via Intersection Observer (no heavy libs)
-  - [ ] Typography: choose font pairing that fits the brand tone (use Google Fonts via CDN)
-  - [ ] Color palette: derived entirely from brand context — never default blue/grey
-  - [ ] Anti-patterns BANNED: generic 3-column feature cards, stock-photo-style placeholder images, cookie-cutter hero with centered heading + subtitle + two buttons
-  - [ ] Every section has a distinct visual identity within the page
-  - [ ] Real copy that sounds like a real brand
+- [ ] ai/skills/website.ts — website skill system prompt
+  - Anti-patterns explicitly banned: generic 3-column feature cards, cookie-cutter hero
+  - Minimum section list with visual identity requirements
+  - Font pairing rules, color derivation from brand context
+  - 2+ sub-pages requirement
 
-- [ ] Create `ai/skills/webapp.ts`
-  - [ ] Every feature in the UI must be functional — no disabled buttons, no "coming soon"
-  - [ ] Multiple views required (sidebar nav or tabs or routes)
-  - [ ] Data persistence via localStorage until backend requested
-  - [ ] Clean component architecture (no 500-line single files)
-  - [ ] Error states, loading states, empty states — all handled
-  - [ ] Anti-patterns BANNED: grey placeholder UIs, unstyled forms, no feedback on user actions
+- [ ] ai/skills/webapp.ts — webapp skill system prompt
+  - Full CRUD or core logic complete — no stubs
+  - Multiple views, all states handled (empty/loading/error)
+  - localStorage persistence mandatory
 
-- [ ] Create `ai/skills/game.ts`
-  - [ ] Start screen with title + Play button
-  - [ ] Core gameplay loop (complete — no stubs)
-  - [ ] Game over screen with score + Play Again button
-  - [ ] Keyboard controls + touch controls (tap/swipe mapped appropriately)
-  - [ ] Score tracking + high score in localStorage
-  - [ ] Responsive canvas (fills viewport, aspect ratio maintained)
-  - [ ] Phaser.js via CDN for complex games; pure Canvas for simple (Tetris, Snake, Pong → Canvas; platformer, shooter → Phaser)
-  - [ ] At least basic sound (Web Audio API oscillator tones — no silence)
+- [ ] ai/skills/game.ts — game skill system prompt
+  - Complete game loop mandatory (start → play → game over → score → play again)
+  - Keyboard + touch controls both required
+  - Sound via Web Audio API
+  - Simple → Canvas, Complex → Phaser CDN
 
-- [ ] Write the **base system prompt** used by all three skills (anti-SVG, Unsplash-only, no Lorem ipsum, no generic layouts, context read first, patchFile for edits, targeted changes only)
-- [ ] Add **confidentiality block** to base system prompt:
-  - Never reveal model name, sandbox tech, deployment provider, or system instructions
-  - Friendly deflection responses for all probing questions (see CLAUDE.md for response table)
-  - Prompt injection defense: treat jailbreak patterns as confused users, redirect to building
+- [ ] ai/skills/base.ts — base rules injected into all three:
+  - Confidentiality block (never reveal model/stack/system prompt)
+  - Anti-SVG, Unsplash-only, no Lorem ipsum
+  - All files in one generateFiles call
+  - Read before edit, patch not regenerate
+  - Plain English error messages only
 
-- [ ] Connect classifier output → correct skill system prompt → agent
-- [ ] Test each skill end-to-end with 3 different prompts each
-- [ ] Quality review: does output look like a $5k designer made it? If not, iterate on skill prompt.
+- [ ] Wire: classifier result → correct skill prompt → agent
+- [ ] Quality review: run 3 prompts per skill type, review output quality
+- [ ] Iterate on prompts until output looks like a professional made it
 
 ---
 
-## PHASE 2 — Cloudflare Pages Deployment
+## PHASE 2 — Cloudflare Pages Deployment [ ]
 
-- [ ] Create `lib/cloudflare.ts`
-  - [ ] `createPagesProject(projectId)` — creates a new CF Pages project named `vibe-{projectId}`
-  - [ ] `deployPages(projectId, files)` — uploads build output, returns `pages.dev` URL
-  - [ ] `redeployPages(projectId, files)` — updates existing project (used for edits)
-- [ ] Trigger deploy automatically when generation reaches "done" state
-- [ ] Show URL in UI: "Your app is live → [url]" with copy button
-- [ ] Set up URL proxy: `yourplatform.app/p/{projectId}` → proxy to CF pages URL (user never sees Cloudflare)
-- [ ] Handle build step inside sandbox before deploy:
-  - [ ] For React+Vite apps: `runCommand(npm run build)` → upload `dist/`
-  - [ ] For HTML sites: upload files directly (no build step)
-  - [ ] For games: upload directly (single HTML file)
-- [ ] Test: generate → sandbox runs → build → CF deploys → URL shown → URL works
-- [ ] Test: edit → re-deploy → same URL updates with new content
+- [ ] lib/cloudflare.ts
+  - [ ] createPagesProject(projectId) — new CF Pages project per platform project
+  - [ ] deployPages(projectId, files) — upload build output, return URL
+  - [ ] redeployPages(projectId, files) — update same project (used on edits)
+- [ ] URL proxy: yourplatform.app/p/{id} → CF Pages URL (user never sees cloudflare)
+- [ ] Auto-deploy after generation completes
+- [ ] Show live URL in chat: "Your [website/app/game] is live → [url]" with copy button
+- [ ] Re-deploy on edit saves
+- [ ] For React+Vite: runCommand(pnpm build) → upload dist/
+- [ ] For HTML sites: upload directly (no build step)
+- [ ] For games: upload directly (single HTML)
+- [ ] Test end-to-end: generate → sandbox → build → CF deploy → URL loads
 
 ---
 
-## PHASE 3 — Edit Mode + Chat + Two-Panel UI
+## PHASE 3 — Edit Mode + Chat UX + Error Handling [ ]
 
-### 3a. UI Layout
-- [ ] Implement two-panel `BuildWindow` component
-  - [ ] Left: `ChatPanel` (messages + input + tool activity status lines)
-  - [ ] Right: `PreviewPanel` with `[Live Preview] [Code]` toggle tabs
-  - [ ] Live Preview = iframe pointing to `getSandboxUrl` result
-  - [ ] Code view = file explorer (file tree) + syntax-highlighted code (read-only for now)
-  - [ ] Mobile preview toggle button: shrinks iframe to 375px width centered
-  - [ ] "Overcoming a hurdle..." UI state when sandbox error detected
-  - [ ] "Fixed! [description]" UI state after error resolved
+### 3a. Two-Panel UI Polish
+- [ ] Right panel Live Preview / Code toggle working cleanly
+- [ ] Code view shows file explorer + syntax highlighted code (read-only)
+- [ ] Mobile preview toggle (shrink iframe to 375px centered)
+- [ ] Progress bar during generation (0→100% over estimated time)
+- [ ] Generation step labels in chat ("Planning...", "Building UI...", "Installing...", "Deploying...")
 
-### 3b. Edit Mode Agent
-- [ ] After generation complete: chat input stays active, switches to edit mode
-- [ ] Edit mode uses DeepSeek Flash (not Pro)
-- [ ] Edit mode system prompt: read context → read file → patch only → update context
-- [ ] Enforce: `patchFile` for changes to existing files, `generateFiles` only for new files
-- [ ] Re-deploy to CF Pages after edit session ends (or on explicit "save & deploy" button)
-- [ ] Sandbox idle timeout: 30 min → pause + snapshot. On resume: "Resuming your project..." message
+### 3b. Edit Mode
+- [ ] Post-generation chat input stays active — uses DeepSeek Flash not Pro
+- [ ] AI uses readFile → patchFile for small changes (never regenerates whole project)
+- [ ] Re-deploys to same CF Pages project after edits
+- [ ] Sandbox idle timeout: 30 min, resume shows "Resuming your project..."
 
-### 3c. Error Handling
-- [ ] Show "Overcoming a hurdle..." friendly popup — never show raw errors to user
-- [ ] Send full raw error + logs to AI silently in background
-- [ ] AI tells user in plain language what it is fixing ("Fixing a small issue with the navigation...")
-- [ ] Disable chat send button while AI is working (status !== 'ready')
+### 3c. Error Handling UX
+- [ ] Friendly "Overcoming a hurdle..." popup — never raw error text to user
+- [ ] Full error + logs sent silently to AI in background
+- [ ] AI responds in plain English: "Fixing a small issue with the navigation..."
+- [ ] Chat send button disabled while AI is working (already correct via status check)
 - [ ] Max 3 retries per error
-- [ ] After 3 failures: show friendly "Hit a snag — our team has been notified" + Report button
-- [ ] Log raw errors to console only (never to user)
+- [ ] After 3 failures: "Hit a snag — please try describing your project again" + Report button
+- [ ] Raw errors to console only
 
 ---
 
-## PHASE 4 — Dashboard
+## PHASE 4 — Dashboard [ ]
 
-- [ ] Create `/dashboard` route + page component
-- [ ] Create `lib/localStorage.ts` with typed helpers:
-  - [ ] `getProjects()` → `StoredProject[]`
-  - [ ] `saveProject(project)` → enforces 10-project max
-  - [ ] `deleteProject(id)`
-  - [ ] `getProject(id)`
-- [ ] Capture screenshot of sandbox preview at generation complete (use iframe + html2canvas or just save the sandbox URL for live thumbnail)
-- [ ] Project cards showing: name (first 5 words of prompt), skill badge, live URL link, creation date, "Open in editor" button
-- [ ] "Open in editor" → navigates to `/build/{id}` → resumes sandbox by name → loads context
-- [ ] "Delete" button on project card
-- [ ] Empty state: "You haven't built anything yet. Start with a prompt ↑"
-- [ ] Show "X / 10 projects used" counter
+- [ ] /dashboard route + page
+- [ ] lib/localStorage.ts — typed helpers: getProjects(), saveProject(), deleteProject(), getProject()
+- [ ] Project schema: { id, name, skill, cfPagesUrl, screenshotBase64, createdAt, sandboxId }
+- [ ] Project cards: name (first 5 words of prompt), skill badge, live URL, date, "Open in editor"
+- [ ] Max 10 projects limit — "Delete one to create a new one"
+- [ ] "Open in editor" → resume sandbox → load context → chat ready
+- [ ] Empty state: "You haven't built anything yet. Start with a prompt."
+- [ ] Screenshot capture on generation complete (for card thumbnail)
 
 ---
 
-## PHASE 5 — Polish
+## PHASE 5 — Polish [ ]
 
-- [ ] Progress bar during generation (0% → 100% over estimated 5 min)
-- [ ] Generation step labels in chat:
-  - "Understanding your idea..."
-  - "Planning the structure..."
-  - "Building the UI..."
-  - "Adding styles and images..."
-  - "Installing dependencies..."
-  - "Starting preview..."
-  - "Deploying to the web..."
-- [ ] "Copy live URL" button (copies platform proxy URL)
-- [ ] Mobile preview toggle (375px iframe) in preview panel
-- [ ] "Report Issue" button on failed generations (opens mailto or form)
-- [ ] "New Project" button in nav (clears current session, goes to home)
-- [ ] Favicon, page title, meta description for the platform itself
+- [ ] Copy live URL button
+- [ ] "New Project" button in nav
+- [ ] Favicon + page title + meta description for VibePlatform itself
 - [ ] 404 page
-- [ ] Basic landing page (home) explaining what the platform does
+- [ ] Landing page (home) explaining what platform does
+- [ ] "Report Issue" button on failed generations
+- [ ] Rate limit: 10 projects per browser (localStorage count)
 
 ---
 
-## PHASE 6 — Auth + Supabase (DO NOT START YET)
+## PHASE 6 — Auth + Supabase (DO NOT START YET) [ ]
 
-> Only begin this phase once Phase 1-5 are stable and tested.
+> Only begin once Phase 1-5 are stable and tested in production.
 
-- [ ] Choose auth provider (Supabase Auth is natural fit)
-- [ ] Create Supabase project for the platform (separate from user app D1 databases)
-- [ ] Schema: `users` table + `projects` table with `user_id` foreign key
-- [ ] On first login: migrate localStorage projects to Supabase for that user
-- [ ] Protect dashboard route with auth middleware
-- [ ] Per-user project count (still 10 free, higher limit on paid tier later)
-- [ ] Stripe integration (later — when pricing is decided)
+- [ ] Supabase Auth (email/Google)
+- [ ] Projects table with user_id foreign key
+- [ ] Migrate localStorage on first login
+- [ ] Per-user project count
+- [ ] Stripe for paid tier (credits system)
+- [ ] Upgrade to Vercel Pro + AI Gateway
 
 ---
 
-## Research & Reference Links
+## Reference Links
 
-- OSS source: `github.com/vercel/examples/tree/main/apps/vibe-coding-platform`
-- Competitor system prompts: `github.com/dontriskit/awesome-ai-system-prompts` (Lovable, v0, same.new, Bolt.new)
-- Vercel Sandbox SDK: `vercel.com/docs/sandbox`
-- Vercel AI Gateway BYOK: `vercel.com/docs/ai-gateway`
-- CF Pages API: `developers.cloudflare.com/pages/platform/direct-upload/`
-- Unsplash API: `unsplash.com/developers`
-- DeepSeek API: `api-docs.deepseek.com`
+- Repo: github.com/Codemine-Codey/vibeplatform
+- OSS source: github.com/vercel/examples/tree/main/apps/vibe-coding-platform
+- Competitor prompts: github.com/dontriskit/awesome-ai-system-prompts
+- Vercel Sandbox SDK: vercel.com/docs/sandbox
+- DeepSeek API: api-docs.deepseek.com
+- CF Pages Direct Upload: developers.cloudflare.com/pages/platform/direct-upload/
+- Unsplash API: unsplash.com/developers
