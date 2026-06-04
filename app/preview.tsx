@@ -8,13 +8,14 @@ interface Props {
 }
 
 export function Preview({ className }: Props) {
-  const { status, url, urlUUID } = useSandboxStore()
+  const { status, url, urlUUID, lastFilesUploadedAt } = useSandboxStore()
   return (
     <PreviewComponent
       key={urlUUID}
       className={className}
       disabled={status === 'stopped'}
       url={url}
+      lastFilesUploadedAt={lastFilesUploadedAt}
     />
   )
 }

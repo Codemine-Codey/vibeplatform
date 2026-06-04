@@ -10,10 +10,11 @@ import { cn } from '@/lib/utils'
 interface Props {
   className?: string
   disabled?: boolean
+  lastFilesUploadedAt?: number
   url?: string
 }
 
-export function Preview({ className, disabled, url }: Props) {
+export function Preview({ className, disabled, lastFilesUploadedAt, url }: Props) {
   const [currentUrl, setCurrentUrl] = useState(url)
   const [error, setError] = useState<string | null>(null)
   const [inputValue, setInputValue] = useState(url || '')
@@ -25,6 +26,15 @@ export function Preview({ className, disabled, url }: Props) {
     setCurrentUrl(url)
     setInputValue(url || '')
   }, [url])
+
+  // Auto-refresh preview when AI uploads new files.
+  // 3s delay gives the sandbox dev server time to detect changes and rebuild.
+  useEffect(() => {
+    if (!lastFilesUploadedAt || !currentUrl) return
+    const timer = setTimeout(() => refreshIframe(), 3000)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastFilesUploadedAt])
 
   const refreshIframe = () => {
     if (iframeRef.current && currentUrl) {

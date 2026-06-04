@@ -13,9 +13,11 @@ interface SandboxStore {
   clearGeneratedFiles: () => void
   commands: Command[]
   generatedFiles: Set<string>
+  lastFilesUploadedAt?: number
   paths: string[]
   sandboxId?: string
   setChatStatus: (status: ChatStatus) => void
+  setLastFilesUploadedAt: (t: number) => void
   setSandboxId: (id: string) => void
   setStatus: (status: 'running' | 'stopped') => void
   setUrl: (url: string, uuid: string) => void
@@ -69,11 +71,13 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
   clearGeneratedFiles: () => set(() => ({ generatedFiles: new Set<string>() })),
   commands: [],
   generatedFiles: new Set<string>(),
+  lastFilesUploadedAt: undefined,
   paths: [],
   setChatStatus: (status) =>
     set((state) =>
       state.chatStatus === status ? state : { chatStatus: status }
     ),
+  setLastFilesUploadedAt: (t) => set(() => ({ lastFilesUploadedAt: t })),
   setSandboxId: (sandboxId) =>
     set(() => ({
       sandboxId,
@@ -115,7 +119,7 @@ export const useFileExplorerStore = create<FileExplorerStore>()((set) => ({
 }))
 
 export function useDataStateMapper() {
-  const { addPaths, setSandboxId, setUrl, upsertCommand, addGeneratedFiles } =
+  const { addPaths, setSandboxId, setUrl, upsertCommand, addGeneratedFiles, setLastFilesUploadedAt } =
     useSandboxStore()
   const { errors } = useCommandErrorsLogs()
   const { setCursor } = useMonitorState()
@@ -132,6 +136,11 @@ export function useDataStateMapper() {
           setCursor(errors.length)
           addPaths(data.data.paths)
           addGeneratedFiles(data.data.paths)
+        }
+        // When all files are done uploading, schedule a preview refresh.
+        // Delay gives the sandbox dev server time to detect changes and restart.
+        if (data.data.status === 'done') {
+          setLastFilesUploadedAt(Date.now())
         }
         break
       case 'data-run-command':

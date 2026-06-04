@@ -111,6 +111,7 @@ Minimum requirements:
 - At least basic sound via Web Audio API oscillator tones
 - For simple games (snake, pong, tetris, tic-tac-toe, memory): pure HTML5 Canvas plus vanilla JS
 - For complex games (platformer, shooter, physics-based): Phaser.js via CDN
+- CRITICAL for canvas games: ALL colors, speeds, sizes, and game constants must be declared as named constants at the TOP of the file (e.g. `const PIPE_COLOR = '#22c55e'`). Never hardcode a value inline in a draw function. Every draw call must reference the named constant. This ensures that when users ask to change a color, editing the constant changes it everywhere including resize handlers.
 
 ---
 
