@@ -6,32 +6,28 @@ import {
   stepCountIs,
   streamText,
 } from 'ai'
-import { DEFAULT_MODEL, MODEL_NAMES, SUPPORTED_MODELS } from '@/ai/constants'
+import { DEFAULT_MODEL, MODEL_NAMES } from '@/ai/constants'
 import { NextResponse } from 'next/server'
 import { getModelOptions } from '@/ai/gateway'
 import { checkBotId } from 'botid/server'
 import { tools } from '@/ai/tools'
 import prompt from './prompt.md'
 
+// Allow up to 300s (Vercel Pro max) for long generations
+export const maxDuration = 300
+
 interface BodyData {
   messages: ChatUIMessage[]
-  modelId?: string
-  reasoningEffort?: 'low' | 'medium'
 }
 
 export async function POST(req: Request) {
-  const [checkResult, { messages, modelId = DEFAULT_MODEL, reasoningEffort }] =
-    await Promise.all([checkBotId(), req.json() as Promise<BodyData>])
+  const [checkResult, { messages }] = await Promise.all([
+    checkBotId(),
+    req.json() as Promise<BodyData>,
+  ])
 
   if (checkResult.isBot) {
     return NextResponse.json({ error: `Bot detected` }, { status: 403 })
-  }
-
-  if (!SUPPORTED_MODELS.includes(modelId)) {
-    return NextResponse.json(
-      { error: `Model ${modelId} not found.` },
-      { status: 400 }
-    )
   }
 
   return createUIMessageStreamResponse({
@@ -39,7 +35,7 @@ export async function POST(req: Request) {
       originalMessages: messages,
       execute: async ({ writer }) => {
         const result = streamText({
-          ...getModelOptions(modelId, { reasoningEffort }),
+          ...getModelOptions(DEFAULT_MODEL),
           system: prompt,
           messages: await convertToModelMessages(
             messages.map((message) => {
@@ -62,8 +58,8 @@ export async function POST(req: Request) {
               return message
             })
           ),
-          stopWhen: stepCountIs(20),
-          tools: tools({ modelId, writer }),
+          stopWhen: stepCountIs(25),
+          tools: tools({ modelId: DEFAULT_MODEL, writer }),
           onError: (error) => {
             console.error('Error communicating with AI')
             console.error(JSON.stringify(error, null, 2))
@@ -72,14 +68,14 @@ export async function POST(req: Request) {
         result.consumeStream()
         writer.merge(
           result.toUIMessageStream({
-            sendReasoning: true,
+            sendReasoning: false,
             sendStart: false,
             messageMetadata: () => ({
-              model: MODEL_NAMES[modelId] ?? modelId,
+              model: MODEL_NAMES[DEFAULT_MODEL] ?? 'Builder',
             }),
           })
         )
       },
     }),
-  });
+  })
 }

@@ -1,5 +1,6 @@
 import { streamText, Output, type ModelMessage } from 'ai'
 import { getModelOptions } from '@/ai/gateway'
+import { FILE_GENERATION_MODEL } from '@/ai/constants'
 import { Deferred } from '@/lib/deferred'
 import z from 'zod/v3'
 
@@ -36,7 +37,7 @@ export async function* getContents(
   const generated: z.infer<typeof fileSchema>[] = []
   const deferred = new Deferred<void>()
   const result = streamText({
-    ...getModelOptions(params.modelId, { reasoningEffort: 'low' }),
+    ...getModelOptions(FILE_GENERATION_MODEL),
     maxOutputTokens: 64000,
     system:
       'You are a file content generator. You must generate files based on the conversation history and the provided paths. NEVER generate lock files (pnpm-lock.yaml, package-lock.json, yarn.lock) - these are automatically created by package managers.',

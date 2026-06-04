@@ -1,29 +1,19 @@
-import { type GatewayModelId } from '@ai-sdk/gateway'
+// Orchestration model — used by the main agent to plan, decide tools, and direct the build
+export const DEFAULT_MODEL = 'deepseek-v4-pro'
 
-export enum Models {
-  AnthropicClaudeOpus46 = 'anthropic/claude-opus-4.6',
-  AnthropicClaudeSonnet46 = 'anthropic/claude-sonnet-4.6',
-  OpenAIGPT53Codex = 'openai/gpt-5.3-codex',
-  XaiGrok41Reasoning = 'xai/grok-4.1-fast-reasoning',
-}
+// File generation model — used by the nested generateFiles LLM call (cheaper + fast)
+export const FILE_GENERATION_MODEL = 'deepseek-v4-flash'
 
-export const DEFAULT_MODEL = Models.AnthropicClaudeOpus46
-
-export const SUPPORTED_MODELS: GatewayModelId[] = [
-  Models.AnthropicClaudeOpus46,
-  Models.AnthropicClaudeSonnet46,
-  Models.OpenAIGPT53Codex,
-  Models.XaiGrok41Reasoning,
-]
+// Only one model exposed — users do not pick the model
+export const SUPPORTED_MODELS: string[] = [DEFAULT_MODEL]
 
 export const MODEL_NAMES: Record<string, string> = {
-  [Models.AnthropicClaudeOpus46]: 'Claude Opus 4.6',
-  [Models.AnthropicClaudeSonnet46]: 'Claude Sonnet 4.6',
-  [Models.OpenAIGPT53Codex]: 'GPT-5.3 Codex',
-  [Models.XaiGrok41Reasoning]: 'Grok 4.1 Reasoning',
+  [DEFAULT_MODEL]: 'Builder',
+  [FILE_GENERATION_MODEL]: 'Builder',
 }
 
 export const TEST_PROMPTS = [
-  'Generate a Next.js app that allows to list and search Pokemons',
-  'Create a `golang` server that responds with "Hello World" to any request',
+  'Build a landing page for a Japanese sushi restaurant called Sakura',
+  'Make a flappy bird game',
+  'Create a task manager app with drag and drop',
 ]

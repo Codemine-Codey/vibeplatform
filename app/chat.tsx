@@ -11,36 +11,32 @@ import {
 } from '@/components/ai-elements/conversation'
 import { Input } from '@/components/ui/input'
 import { Message } from '@/components/chat/message'
-import { ModelSelector } from '@/components/settings/model-selector'
 import { Panel, PanelHeader } from '@/components/panels/panels'
 import { Settings } from '@/components/settings/settings'
 import { useChat } from '@ai-sdk/react'
 import { useLocalStorageValue } from '@/lib/use-local-storage-value'
 import { useCallback, useEffect } from 'react'
 import { useSharedChatContext } from '@/lib/chat-context'
-import { useSettings } from '@/components/settings/use-settings'
 import { useSandboxStore } from './state'
 
 interface Props {
   className: string
-  modelId?: string
 }
 
 export function Chat({ className }: Props) {
   const [input, setInput] = useLocalStorageValue('prompt-input')
   const { chat } = useSharedChatContext()
-  const { modelId, reasoningEffort } = useSettings()
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat })
   const { setChatStatus } = useSandboxStore()
 
   const validateAndSubmitMessage = useCallback(
     (text: string) => {
       if (text.trim()) {
-        sendMessage({ text }, { body: { modelId, reasoningEffort } })
+        sendMessage({ text })
         setInput('')
       }
     },
-    [sendMessage, modelId, setInput, reasoningEffort]
+    [sendMessage, setInput]
   )
 
   useEffect(() => {
@@ -96,7 +92,6 @@ export function Chat({ className }: Props) {
         }}
       >
         <Settings />
-        <ModelSelector />
         <Input
           className="w-full font-mono text-sm rounded-sm border-0 bg-background"
           disabled={status === 'streaming' || status === 'submitted'}

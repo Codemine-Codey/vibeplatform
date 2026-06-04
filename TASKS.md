@@ -4,25 +4,31 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ---
 
-## PHASE 0 — Foundation & Fork Setup
+## PHASE 0 — Foundation & Fork Setup ✅ MOSTLY DONE
 
-- [ ] Fork `vercel/examples` (or just copy `apps/vibe-coding-platform`) into your GitHub as a new repo
-- [ ] Clone locally to `C:\Users\shazi\OneDrive\Desktop\VibePlatform\` (or rename folder to match repo)
-- [ ] Run `pnpm install` and confirm it boots with the default GPT-5 model
-- [ ] Open `ai/constants.ts` — remove all existing model entries, add:
-  ```ts
-  DeepSeekV4Pro = 'deepseek/deepseek-v4-pro'
-  DeepSeekV4Flash = 'deepseek/deepseek-v4-flash'
-  ```
-- [ ] Open `ai/gateway.ts` — wire BYOK DeepSeek API key via AI Gateway
-- [ ] Set `DEFAULT_MODEL = Models.DeepSeekV4Pro` in constants.ts
-- [ ] Add all required env vars to `.env.local` (see CLAUDE.md env vars section)
-- [ ] Test: submit a simple prompt, confirm DeepSeek generates code and sandbox boots
+- [x] Repo created: github.com/Codemine-Codey/vibeplatform
+- [x] OSS vibe-coding-platform files copied (119 files, sparse checkout from vercel/examples)
+- [x] CLAUDE.md, TASKS.md, .env.example committed
+- [x] pnpm install — dependencies installed
+- [x] ai/constants.ts — replaced Claude/GPT/Grok with DeepSeek v4 Pro + Flash
+- [x] ai/gateway.ts — replaced createGatewayProvider with createOpenAI pointing to DeepSeek
+- [x] ai/tools/generate-files/get-contents.ts — uses FILE_GENERATION_MODEL (Flash) for nested file gen
+- [x] app/api/chat/route.ts — removed modelId/reasoningEffort from body, added maxDuration=300, stepCountIs(25)
+- [x] app/api/chat/prompt.md — full rewrite: VibePlatform identity, confidentiality, design rules, skill types, workflow
+- [x] app/api/errors/route.ts — switched from GPT-5 to DeepSeek Flash for error analysis
+- [x] app/header.tsx — removed Vercel logo + "OSS Vibe Coding Platform", replaced with ZapIcon + "VibePlatform"
+- [x] components/settings/reasoning-effort.tsx — removed GPT-only reasoning toggle (returns null)
+- [x] components/settings/model-selector.tsx — hidden from users (returns null)
+- [x] components/settings/use-settings.ts — removed modelId/reasoningEffort from hook
+- [x] app/chat.tsx — removed ModelSelector component and model/reasoning from sendMessage body
+- [x] TypeScript check: PASSING — zero errors
+- [ ] Create .env.local with real API keys and test locally
+- [ ] Test: submit a simple prompt, confirm DeepSeek connects and sandbox boots
 - [ ] Test: confirm sandbox preview URL loads in browser
-- [ ] **CRITICAL TEST**: Submit a prompt that takes 5+ minutes. Confirm no Vercel Function timeout. If timeout occurs → implement SSE heartbeat before continuing.
-- [ ] Get Cloudflare API token with `Pages:Edit` permission
+- [ ] **CRITICAL TEST**: Submit a 5-6 min generation. If Vercel Function times out → add SSE heartbeat
+- [ ] Get Cloudflare API token with Pages:Edit permission
 - [ ] Get Unsplash API key (free tier, 50 req/hr)
-- [ ] Deploy to Vercel (create new Vercel project, add env vars in Vercel dashboard)
+- [ ] Deploy to Vercel (vercel --prod, add env vars in Vercel dashboard)
 - [ ] Confirm live deploy works end-to-end
 
 ---

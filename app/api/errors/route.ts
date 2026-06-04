@@ -1,9 +1,12 @@
-import { Models } from '@/ai/constants'
+import { FILE_GENERATION_MODEL } from '@/ai/constants'
+import { getModelOptions } from '@/ai/gateway'
 import { NextResponse } from 'next/server'
 import { checkBotId } from 'botid/server'
 import { generateText, Output } from 'ai'
 import { linesSchema, resultSchema } from '@/components/error-monitor/schemas'
 import prompt from './prompt.md'
+
+export const maxDuration = 60
 
 export async function POST(req: Request) {
   const checkResult = await checkBotId()
@@ -18,16 +21,8 @@ export async function POST(req: Request) {
   }
 
   const result = await generateText({
+    ...getModelOptions(FILE_GENERATION_MODEL),
     system: prompt,
-    model: Models.OpenAIGPT53Codex,
-    providerOptions: {
-      openai: {
-        include: ['reasoning.encrypted_content'],
-        reasoningEffort: 'low',
-        reasoningSummary: 'auto',
-        serviceTier: 'priority',
-      },
-    },
     messages: [{ role: 'user', content: JSON.stringify(parsedBody.data) }],
     output: Output.object({ schema: resultSchema }),
   })
