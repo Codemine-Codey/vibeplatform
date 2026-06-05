@@ -10,7 +10,7 @@
 
 **Phase 0 is complete.** Full pipeline working: DeepSeek v4 Pro → Vercel Sandbox → files generated → dev server runs → preview URL live in browser. All compatibility bugs resolved. Auto-refresh on file upload working.
 
-**UI redesign done.** New 30/70 layout: chat on left, tabbed right panel (Preview / Code / Logs) — all panels stay mounted (display:none toggle) to preserve iframe state. Off-white background (#FAF9F7), Inter font via next/font/google.
+**UI redesign done.** New 36/64 layout: chat on left, tabbed right panel (Preview / Code / Logs) — all panels stay mounted (display:none toggle) to preserve iframe state. Off-white background (#FAF9F7), Inter font via Google Fonts CSS @import (next/font/google breaks with Turbopack).
 
 **AI Gateway:** Use Cloudflare AI Gateway (free, OpenAI-compatible, in our CF ecosystem). Set AI_GATEWAY_BASE_URL to CF gateway URL — zero code changes needed.
 
@@ -231,6 +231,28 @@ AI_GATEWAY_BASE_URL=          # set in Vercel dashboard, zero code changes neede
 ```
 
 ---
+
+## Bug Fixes Applied (pre-launch hardening)
+
+- **`CommandLogsStream`**: Root cause of "Maximum update depth exceeded" — was using `commands` array as useEffect dep, causing re-run on every log line. Fixed: use stable `commandIds` string as dep + read commands snapshot via `getState()`. Added: cleanup `activeRef`, error handling, response.ok check, JSON.parse try-catch, `reader.releaseLock()`, `safeParse` for command schema.
+- **`gateway.ts`**: Added startup validation — throws clear error if `DEEPSEEK_API_KEY` is missing. Added `AI_GATEWAY_BASE_URL` fallback (was missing despite CLAUDE.md saying it was wired).
+- **`chat-context.tsx`**: Added try-catch inside the `setTimeout` callback for `onData`. User-facing error message now friendly ("Something went wrong. Please try again.").
+- **`error-monitor.tsx`**: Added `return () => clearSubmitTimeout()` cleanup in useEffect. Added try-catch around `startTransition(async ...)`.
+- **`get-summary.ts`**: Added JSON parse error handling + `safeParse` for schema validation.
+- **`get-sandbox-url.ts`**: Added try-catch around `Sandbox.get()` — sandbox failures now return graceful error string instead of crashing the route.
+- **`preview.tsx`**: Fixed stale `currentUrl` closure in auto-refresh useEffect — added `currentUrl` to dependency array.
+- **Font**: Switched from `next/font/google` (breaks Turbopack) to CSS `@import` for Inter in `globals.css`.
+- **Layout**: Chat panel widened from 30% to 36%.
+
+## Self-Correcting AI (how it works)
+
+The platform already has auto error correction built in (`components/error-monitor/`):
+1. `CommandLogsStream` streams stderr from running commands → `addLog` → Zustand store
+2. `useCommandErrorsLogs` filters for stderr from background processes (the dev server)
+3. `ErrorMonitor` debounces errors (10s), then calls `/api/errors` (DeepSeek Flash) to analyze
+4. If Flash says `shouldBeFixed: true`, it auto-sends the error to the AI chat
+5. The AI reads the error, identifies the broken file, and regenerates only that file
+6. Rate limited: 1 report per unique error per session, 60s minimum between reports
 
 ## AI Gateway — Cloudflare (recommended)
 

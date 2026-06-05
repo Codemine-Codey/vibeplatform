@@ -7,9 +7,19 @@ export async function getSummary(lines: Line[], previous: Line[]) {
   })
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch errors summary: ${response.statusText}`)
+    throw new Error(`Error analysis request failed: ${response.status} ${response.statusText}`)
   }
 
-  const body = await response.json()
-  return resultSchema.parse(body)
+  let body: unknown
+  try {
+    body = await response.json()
+  } catch {
+    throw new Error('Error analysis returned invalid JSON')
+  }
+
+  const result = resultSchema.safeParse(body)
+  if (!result.success) {
+    throw new Error(`Unexpected error analysis response: ${result.error.message}`)
+  }
+  return result.data
 }

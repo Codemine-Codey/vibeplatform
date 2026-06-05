@@ -29,11 +29,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         // Calling setState synchronously while the AI SDK processes stream events
         // causes React to hit the maximum update depth limit.
         onData: (data: DataUIPart<DataPart>) => {
-          setTimeout(() => mapDataToStateRef.current(data), 0)
+          setTimeout(() => {
+            try {
+              mapDataToStateRef.current(data)
+            } catch (err) {
+              console.error('Error processing stream event:', err)
+            }
+          }, 0)
         },
         onError: (error) => {
-          toast.error(`Communication error with the AI: ${error.message}`)
-          console.error('Error sending message:', error)
+          toast.error('Something went wrong. Please try again.')
+          console.error('AI communication error:', error)
         },
       }),
     []

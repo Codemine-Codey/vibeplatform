@@ -46,7 +46,7 @@ export default async function Page() {
         {/* Desktop layout — 30% chat / 70% tabbed right panel */}
         <div className="hidden flex-1 w-full min-h-0 overflow-hidden pt-2 md:flex">
           <Horizontal
-            defaultLayout={horizontalSizes ?? [30, 70]}
+            defaultLayout={horizontalSizes ?? [36, 64]}
             left={<Chat className="flex-1 overflow-hidden" />}
             right={<RightPanel className="flex-1 overflow-hidden" />}
           />

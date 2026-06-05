@@ -76,19 +76,23 @@ export function ErrorMonitor({ children, debounceTimeMs = 10000 }: Props) {
     }
 
     startTransition(async () => {
-      const summary = await getSummary(errors, prev)
-      if (summary.shouldBeFixed) {
-        newErrors.forEach((key) => {
-          errorReportCount.current.set(key, 1)
-        })
+      try {
+        const summary = await getSummary(errors, prev)
+        if (summary.shouldBeFixed) {
+          newErrors.forEach((key) => {
+            errorReportCount.current.set(key, 1)
+          })
 
-        lastReportedErrors.current = newErrors
-        lastErrorReportTime.current = Date.now()
+          lastReportedErrors.current = newErrors
+          lastErrorReportTime.current = Date.now()
 
-        sendMessage({
-          role: 'user',
-          parts: [{ type: 'data-report-errors', data: summary }],
-        })
+          sendMessage({
+            role: 'user',
+            parts: [{ type: 'data-report-errors', data: summary }],
+          })
+        }
+      } catch (err) {
+        console.error('Error analyzing build errors:', err)
       }
     })
   }
@@ -116,6 +120,7 @@ export function ErrorMonitor({ children, debounceTimeMs = 10000 }: Props) {
     } else if (status === 'disabled') {
       clearSubmitTimeout()
     }
+    return () => clearSubmitTimeout()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- This is fine
   }, [clearSubmitTimeout, cursor, errors, status])
 

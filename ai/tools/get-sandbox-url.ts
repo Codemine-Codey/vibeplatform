@@ -31,15 +31,25 @@ export const getSandboxURL = ({ writer }: Params) =>
         data: { status: 'loading' },
       })
 
-      const sandbox = await Sandbox.get({ sandboxId })
-      const url = sandbox.domain(port)
+      try {
+        const sandbox = await Sandbox.get({ sandboxId })
+        const url = sandbox.domain(port)
 
-      writer.write({
-        id: toolCallId,
-        type: 'data-get-sandbox-url',
-        data: { url, status: 'done' },
-      })
+        writer.write({
+          id: toolCallId,
+          type: 'data-get-sandbox-url',
+          data: { url, status: 'done' },
+        })
 
-      return { url }
+        return { url }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        writer.write({
+          id: toolCallId,
+          type: 'data-get-sandbox-url',
+          data: { status: 'done' },
+        })
+        return { error: `Could not retrieve sandbox URL: ${message}` }
+      }
     },
   })

@@ -53,8 +53,9 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` known issue
 ### Remaining Phase 0 Items
 - [x] Preview auto-refreshes after AI uploads files (3s delay, state.ts + preview.tsx)
 - [x] Universal code quality rules strengthened (single source of truth, resize consistency)
-- [x] UI redesign: 30/70 split, tabbed right panel (Preview/Code/Logs), off-white bg, Inter font
+- [x] UI redesign: 36/64 split, tabbed right panel (Preview/Code/Logs), off-white bg, Inter font
 - [x] Skill-specific system prompts: website, webapp, game — Bolt/Lovable-level detail with explicit anti-patterns
+- [x] Pre-launch bug hardening: update depth fix, error handling, cleanup, API key validation, stale closure fix
 - [ ] Set up Cloudflare AI Gateway (free, no Pro plan needed) — see CLAUDE.md for steps
 - [ ] Get Unsplash API key (free tier, 50 req/hr) — needed for Phase 1
 - [ ] Get Cloudflare API token (Pages:Edit permission) — needed for Phase 2

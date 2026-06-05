@@ -33,8 +33,7 @@ export function Preview({ className, disabled, lastFilesUploadedAt, url }: Props
     if (!lastFilesUploadedAt || !currentUrl) return
     const timer = setTimeout(() => refreshIframe(), 3000)
     return () => clearTimeout(timer)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastFilesUploadedAt])
+  }, [lastFilesUploadedAt, currentUrl]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshIframe = () => {
     if (iframeRef.current && currentUrl) {
