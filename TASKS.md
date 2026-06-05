@@ -51,30 +51,52 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` known issue
 - [x] No React update depth error in browser
 
 ### Remaining Phase 0 Items
-- [ ] Verify preview loads correctly in browser iframe after fixing system prompt
+- [x] Preview auto-refreshes after AI uploads files (3s delay, state.ts + preview.tsx)
+- [x] Universal code quality rules strengthened (single source of truth, resize consistency)
+- [x] UI redesign: 30/70 split, tabbed right panel (Preview/Code/Logs), off-white bg, Inter font
+- [x] Skill-specific system prompts: website, webapp, game — Bolt/Lovable-level detail with explicit anti-patterns
+- [ ] Set up Cloudflare AI Gateway (free, no Pro plan needed) — see CLAUDE.md for steps
+- [ ] Get Unsplash API key (free tier, 50 req/hr) — needed for Phase 1
 - [ ] Get Cloudflare API token (Pages:Edit permission) — needed for Phase 2
-- [ ] Get Unsplash API key (free tier) — needed for Phase 1
-- [ ] Deploy to Vercel production (vercel --prod)
+- [ ] Deploy to Vercel production (vercel --prod) — do after Phase 1 is stable
 
-> AI Gateway: deferred to launch (requires Pro plan). At launch: set AI_GATEWAY_BASE_URL in Vercel dashboard — zero code changes.
-> OIDC token expires periodically — re-run `vercel env pull .env.local --yes` then re-add DEEPSEEK_API_KEY if sandbox auth fails.
+> AI Gateway: Use Cloudflare AI Gateway (free). Set AI_GATEWAY_BASE_URL env var — zero code changes needed.
+> OIDC token expires — re-run `vercel env pull .env.local --yes` then re-add DEEPSEEK_API_KEY after pulling if sandbox auth fails.
 
 ---
 
-## PHASE 1 — Three Skill System [ ] NEXT
+## PHASE 1 — Prompt Intelligence + Skill System ⏳ NEXT
 
-### 1a. Intent Classifier
-- [ ] Create ai/classifier.ts
-  - [ ] Input: user prompt string
-  - [ ] Model: DeepSeek Flash (single non-streaming call)
-  - [ ] Output: `{ skill: 'website'|'webapp'|'game', clarify: false }` or `{ skill: null, clarify: true, question: string }`
-  - [ ] Test with 20+ diverse prompts before moving on
+### 1a. Prompt Expansion Pipeline (NEW — highest priority)
+
+The full pre-generation flow before any tool calls:
+
+```
+User prompt
+    ↓ Flash (~1s)
+Intent Classifier → { skill, clarify?, question? }
+    ↓ (if clarify → show question → get answer)
+    ↓ Flash (~2s)
+Prompt Expander → ProjectBrief { name, skill, colors, typography, sections[], features[], techNotes }
+    ↓
+Show user: "Building [X] with [Y] — starting now..."
+    ↓
+Main generation (v4 Pro) with full ProjectBrief as context
+```
+
+Tasks:
+- [ ] Create `ai/classifier.ts` — DeepSeek Flash, returns `{ skill, clarify, question? }`
+- [ ] Create `ai/expander.ts` — DeepSeek Flash, turns prompt → `ProjectBrief` object
+- [ ] Define `ProjectBrief` type (name, skill, colorPalette, fontStyle, sections/features, tone, specialNotes)
+- [ ] Wire pipeline in `app/api/chat/route.ts`: classify → expand → inject brief into system prompt
+- [ ] Show confirmation line in chat before generation starts
+- [ ] Test with 20 diverse prompts (cafe website, chess game, budget tracker, accountancy firm, etc.)
 
 ### 1b. New Tools
-- [ ] ai/tools/read-file.ts — runCommand(cat <path>), returns content for AI to read before editing
-- [ ] ai/tools/patch-file.ts — targeted string replace (path, oldString, newString) — for edit mode
-- [ ] ai/tools/get-unsplash.ts — keyword → best Unsplash URL (format: photo-ID?auto=format&fit=crop&w=1200&q=80)
-- [ ] Register all new tools in ai/tools/index.ts
+- [ ] `ai/tools/read-file.ts` — `runCommand(cat <path>)`, returns content string for AI to read before editing
+- [ ] `ai/tools/patch-file.ts` — targeted string replace `(sandboxId, path, oldString, newString)` — edits without full rewrite
+- [ ] `ai/tools/get-unsplash.ts` — `(keyword)` → Unsplash search → returns best URL `photo-{ID}?auto=format&fit=crop&w=1200&q=80`
+- [ ] Register all new tools in `ai/tools/index.ts`
 
 ### 1c. Project Context Memory
 - [ ] Create ai/context.ts

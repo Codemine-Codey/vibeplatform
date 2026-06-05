@@ -3,9 +3,9 @@
 @source "../node_modules/streamdown/dist/*.js";
 
 :root {
-  --background: rgb(255, 255, 255);
+  --background: rgb(250, 249, 247);
   --foreground: rgb(10, 10, 10);
-  --card: rgb(255, 255, 255);
+  --card: rgb(255, 255, 253);
   --card-foreground: rgb(10, 10, 10);
   --popover: rgb(255, 255, 255);
   --popover-foreground: rgb(10, 10, 10);

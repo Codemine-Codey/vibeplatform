@@ -8,9 +8,43 @@
 
 ## Current Build Status (as of 2026-06-05)
 
-**Phase 0 is complete.** DeepSeek v4 Pro is connected and generating. Sandbox spins up, files generate, dev server runs, preview URL is returned. Core pipeline is working.
+**Phase 0 is complete.** Full pipeline working: DeepSeek v4 Pro → Vercel Sandbox → files generated → dev server runs → preview URL live in browser. All compatibility bugs resolved. Auto-refresh on file upload working.
 
-**Phase 1 is next.** Three-skill system (website / webapp / game), intent classifier, Unsplash tool, project context memory, and system prompt quality pass.
+**UI redesign done.** New 30/70 layout: chat on left, tabbed right panel (Preview / Code / Logs) — all panels stay mounted (display:none toggle) to preserve iframe state. Off-white background (#FAF9F7), Inter font via next/font/google.
+
+**AI Gateway:** Use Cloudflare AI Gateway (free, OpenAI-compatible, in our CF ecosystem). Set AI_GATEWAY_BASE_URL to CF gateway URL — zero code changes needed.
+
+**Phase 1 is next.** Prompt expansion, three-skill system (website / webapp / game), intent classifier, Unsplash tool, project context memory.
+
+---
+
+## Architecture Decision: Prompt Expansion (Phase 1)
+
+Before any generation, the AI runs a two-step pre-processing pipeline:
+
+**Step 1 — Intent classification** (DeepSeek Flash, ~1s)
+- Reads user prompt
+- Returns: `{ skill: 'website'|'webapp'|'game', clarify: false }` or `{ skill: null, clarify: true, question: string }`
+- If `clarify: true` → show one question to user, wait for answer, then proceed
+
+**Step 2 — Prompt expansion** (DeepSeek Flash, ~2s)
+- Takes prompt (+ clarification answer if any)
+- Expands into a rich internal brief: brand name, color direction, typography tone, feature list, section structure, tech choices, special requirements
+- Returns a structured `ProjectBrief` object
+
+**Step 3 — Confirmation line** (shown to user before building)
+- One plain-English line: "Building a warm specialty coffee website with hero, menu, gallery, and contact — starting now..."
+- User sees this before any tool calls
+
+**Step 4 — Main generation** (DeepSeek v4 Pro)
+- Receives the expanded brief as additional context
+- Generates with full context, not just the raw 3-word prompt
+
+This pattern:
+- Eliminates the "AI guessed wrong" problem
+- Zero friction for clear prompts (no questions)
+- Only one clarifying question for genuinely ambiguous prompts ("make something")
+- Output quality dramatically higher because AI has a complete brief to work from
 
 ---
 
@@ -70,14 +104,19 @@ Vercel AI Gateway requires Pro plan. We use direct DeepSeek API with `provider.c
 │   ├── api/
 │   │   ├── chat/
 │   │   │   ├── route.ts      maxDuration=300, stepCountIs(25), no messageMetadata spam
-│   │   │   └── prompt.md     FULL REWRITE — VibePlatform identity + design rules
+│   │   │   └── prompt.md     FULL REWRITE — VibePlatform identity, 3 skill types with full rules
 │   │   ├── errors/
 │   │   │   └── route.ts      REWRITTEN — tool-call based (not Output.object)
 │   │   └── models/route.tsx  Returns single model entry
 │   ├── chat.tsx              Removed model selector + model/reasoning from sendMessage body
 │   ├── header.tsx            VibePlatform branding, ZapIcon, no Vercel logo
-│   └── page.tsx              Panel layout 34/33/33 (was 33.33x3=99.99 warning)
+│   ├── layout.tsx            Inter font (next/font/google), VibePlatform metadata
+│   ├── globals.css           Off-white background rgb(250,249,247), Inter via CSS var
+│   └── page.tsx              30/70 split — Chat (30%) | RightPanel (70%)
 ├── components/
+│   ├── layout/
+│   │   ├── panels.tsx        Horizontal 2-panel (unchanged)
+│   │   └── right-panel.tsx   NEW — tabbed Preview/Code/Logs, CSS display:none preserves iframe
 │   ├── settings/
 │   │   ├── use-settings.ts   Simplified — fixErrors only, no modelId/reasoningEffort
 │   │   ├── model-selector.tsx Returns null (hidden from users)
@@ -193,6 +232,34 @@ AI_GATEWAY_BASE_URL=          # set in Vercel dashboard, zero code changes neede
 
 ---
 
+## AI Gateway — Cloudflare (recommended)
+
+Cloudflare AI Gateway is free (no Pro plan), OpenAI-compatible, and we're already in the CF ecosystem:
+1. In CF Dashboard → AI → AI Gateway → Create a Gateway
+2. Get URL: `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_name}/openai`
+3. Set `AI_GATEWAY_BASE_URL` env var in `.env.local` and Vercel dashboard
+4. Zero code changes — `gateway.ts` already uses `?? process.env.AI_GATEWAY_BASE_URL`
+
+Benefits: request caching (reduces API costs), rate limiting, analytics dashboard.
+
+## UI Layout (as of 2026-06-05)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  ⚡ VibePlatform                         [settings]      │
+├──────────────────┬──────────────────────────────────────┤
+│                  │ [Preview] [Code] [Logs]               │
+│  CHAT (30%)      ├──────────────────────────────────────┤
+│                  │                                       │
+│  [messages]      │  Active tab content                   │
+│  [tool activity] │  (all mounted, display:none toggles)  │
+│                  │                                       │
+│  [input] [send]  │                                       │
+└──────────────────┴──────────────────────────────────────┘
+```
+
+RightPanel (`components/layout/right-panel.tsx`) uses CSS `hidden` class (display:none) to toggle tabs. All three panels stay mounted — iframe preserves state and URL when switching tabs.
+
 ## Known Patterns & Gotchas
 
 - `provider.chat(modelId)` NOT `provider(modelId)` — the latter uses Responses API
@@ -202,7 +269,7 @@ AI_GATEWAY_BASE_URL=          # set in Vercel dashboard, zero code changes neede
 - `vercel env pull` overwrites `.env.local` — always re-add DEEPSEEK_API_KEY after pulling
 - `VERCEL_OIDC_TOKEN` expires — re-run `vercel env pull` if sandbox auth fails
 - Hot reload does NOT reinitialize module-level provider — full server restart needed after gateway.ts changes
-- Panel layout must sum to exactly 100 — use 34/33/33 not 33.33x3
+- Panel layout must sum to exactly 100
 
 ---
 
