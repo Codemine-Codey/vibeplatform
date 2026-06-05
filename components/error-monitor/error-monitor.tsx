@@ -23,7 +23,10 @@ interface Props {
 
 export function ErrorMonitor({ children, debounceTimeMs = 10000 }: Props) {
   const [pending, startTransition] = useTransition()
-  const { cursor, scheduled, setCursor, setScheduled } = useMonitorState()
+  const cursor = useMonitorState((s) => s.cursor)
+  const scheduled = useMonitorState((s) => s.scheduled)
+  const setCursor = useMonitorState((s) => s.setCursor)
+  const setScheduled = useMonitorState((s) => s.setScheduled)
   const { errors } = useCommandErrorsLogs()
   const { fixErrors } = useSettings()
   const { chat } = useSharedChatContext()

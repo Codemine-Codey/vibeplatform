@@ -8,7 +8,9 @@ interface Props {
 }
 
 export function FileExplorer({ className }: Props) {
-  const { sandboxId, status, paths } = useSandboxStore()
+  const sandboxId = useSandboxStore((s) => s.sandboxId)
+  const status = useSandboxStore((s) => s.status)
+  const paths = useSandboxStore((s) => s.paths)
   return (
     <FileExplorerComponent
       className={className}

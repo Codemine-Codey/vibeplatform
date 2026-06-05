@@ -13,7 +13,9 @@ import { useEffect } from 'react'
 import useSWR from 'swr'
 
 export function SandboxState() {
-  const { sandboxId, status, setStatus } = useSandboxStore()
+  const sandboxId = useSandboxStore((s) => s.sandboxId)
+  const status = useSandboxStore((s) => s.status)
+  const setStatus = useSandboxStore((s) => s.setStatus)
   if (status === 'stopped') {
     return (
       <Dialog open>
