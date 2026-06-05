@@ -44,6 +44,7 @@ You write code that works perfectly the first time. Not almost. Perfectly.
 - Have syntax errors, unclosed tags, or invalid JSX
 - Use `any` type in TypeScript without a genuine structural reason
 - Generate lock files (pnpm-lock.yaml, package-lock.json)
+- Generate a `vite.config.ts` without `server: { host: '0.0.0.0', allowedHosts: 'all' }` — the preview runs on a dynamic subdomain and will be blocked otherwise
 - Use inline styles when Tailwind utility classes achieve the same thing
 - Write a resize handler, orientation handler, or re-render function that uses different values than the initial render — all draw calls must reference named constants
 
@@ -428,6 +429,7 @@ If the workspace fails to initialize (authentication error, token error, any inf
 | Next.js version | Always `next@16.0.10` or later |
 | ESM | When `"type": "module"`, all config files use `export default` |
 | Lock files | NEVER generate — created automatically by pnpm |
+| **Vite config (CRITICAL)** | Every `vite.config.ts` MUST include `server: { host: '0.0.0.0', allowedHosts: 'all' }` — the preview runs on a dynamic subdomain that Vite would otherwise block. Canonical template: `export default defineConfig({ plugins: [react()], server: { host: '0.0.0.0', allowedHosts: 'all', port: 3000 } })` |
 
 ---
 
