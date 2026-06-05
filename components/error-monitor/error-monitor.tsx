@@ -40,7 +40,11 @@ export function ErrorMonitor({ children, debounceTimeMs = 10000 }: Props) {
 
   const { fixErrors } = useSettings()
   const { chat } = useSharedChatContext()
-  const { sendMessage, status: chatStatus, messages } = useChat({ chat })
+  // Throttle stream-driven re-renders (see chat.tsx) — DeepSeek streams raw/fast
+  const { sendMessage, status: chatStatus, messages } = useChat({
+    chat,
+    experimental_throttle: 50,
+  })
   const submitTimeout = useRef<NodeJS.Timeout | null>(null)
   const inspectedErrors = useRef<number>(0)
   const lastReportedErrors = useRef<string[]>([])

@@ -42,7 +42,14 @@ function BuildingIndicator() {
 export function Chat({ className }: Props) {
   const [input, setInput] = useLocalStorageValue('prompt-input')
   const { chat } = useSharedChatContext()
-  const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat })
+  // experimental_throttle caps React state updates to once per 50ms during
+  // streaming. DeepSeek streams raw tokens (hundreds/sec) with no buffering,
+  // unlike the AI Gateway the OSS used. Without this, the per-token render storm
+  // overwhelms React's update budget -> "Maximum update depth exceeded".
+  const { messages, sendMessage, status } = useChat<ChatUIMessage>({
+    chat,
+    experimental_throttle: 50,
+  })
   const setChatStatus = useSandboxStore((s) => s.setChatStatus)
 
   const isWorking = status === 'streaming' || status === 'submitted'

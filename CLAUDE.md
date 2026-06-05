@@ -258,6 +258,29 @@ AI_GATEWAY_BASE_URL=          # set in Vercel dashboard, zero code changes neede
 
 ---
 
+## Maximum Update Depth — ROOT CAUSE (resolved)
+
+The recurring "Maximum update depth exceeded" error has its PRIMARY root cause in
+**DeepSeek's raw token streaming**. The OSS vibe-coding-platform was built for AI
+Gateway, which buffers/chunks tokens. DeepSeek's direct API streams every token
+(hundreds/sec), so `useChat` updated React state on every token → render storm →
+exceeded React's update budget.
+
+**THE FIX:** `experimental_throttle: 50` on every `useChat({ chat })` call
+(app/chat.tsx + components/error-monitor/error-monitor.tsx). Caps message+data
+updates to 20/sec. This is the actual OSS-vs-DeepSeek difference.
+
+Secondary loops also found and fixed (all kept):
+1. `use-stick-to-bottom` auto-scroll lib ran rAF+setState loop on ResizeObserver →
+   replaced with controlled imperative-scroll Conversation (ai-elements/conversation.tsx)
+2. Zustand full-store subscriptions (no selector) in many components → `s => s.field` selectors
+3. `useDataStateMapper`/`ChatProvider` whole-store subscription → stable action selectors
+4. `ErrorMonitor` `useCommandErrorsLogs()` re-rendered per log → `useSandboxStore.subscribe()` callback
+5. `Message` reasoning effect depended on new array every render → primitive index dep
+
+RULE: any component calling useChat MUST pass `experimental_throttle: 50`. Never
+subscribe to a Zustand store without a selector in a streaming-active component.
+
 ## Bug Fixes Applied (pre-launch hardening)
 
 - **"terminated" error**: AI SDK throws "terminated" when stream ends abruptly (session timeout, network drop). Filtered in `onError` — no toast shown, just a console.warn.
