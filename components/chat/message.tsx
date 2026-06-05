@@ -25,17 +25,19 @@ export const Message = memo(function Message({ message }: Props) {
     number | null
   >(null)
 
-  const reasoningParts = message.parts
-    .map((part, index) => ({ part, index }))
-    .filter(({ part }) => part.type === 'reasoning')
+  // Compute the latest reasoning part index as a primitive so the effect below
+  // depends on a stable number, not a freshly-allocated array every render
+  // (which would fire the effect — and its setState — on every render).
+  let latestReasoningIndex: number | null = null
+  for (let i = 0; i < message.parts.length; i++) {
+    if (message.parts[i].type === 'reasoning') latestReasoningIndex = i
+  }
 
   useEffect(() => {
-    if (reasoningParts.length > 0) {
-      const latestReasoningIndex =
-        reasoningParts[reasoningParts.length - 1].index
+    if (latestReasoningIndex !== null) {
       setExpandedReasoningIndex(latestReasoningIndex)
     }
-  }, [reasoningParts])
+  }, [latestReasoningIndex])
 
   return (
     <ReasoningContext.Provider

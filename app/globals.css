@@ -163,3 +163,35 @@
   --shadow-xl: var(--shadow-xl);
   --shadow-2xl: var(--shadow-2xl);
 }
+
+/* Chat "building" indicator — bouncing typing dots */
+@keyframes vp-typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
+}
+
+.typing-dot {
+  animation: vp-typing-bounce 1.2s ease-in-out infinite;
+}
+
+/* Chat input shimmer bar — sweeps left to right while the AI works */
+@keyframes vp-shimmer-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+.chat-shimmer {
+  animation: vp-shimmer-sweep 1.4s linear infinite;
+}

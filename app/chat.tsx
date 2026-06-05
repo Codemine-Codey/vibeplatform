@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Message } from '@/components/chat/message'
 import { Panel, PanelHeader } from '@/components/panels/panels'
 import { Settings } from '@/components/settings/settings'
+import { cn } from '@/lib/utils'
 import { useChat } from '@ai-sdk/react'
 import { useLocalStorageValue } from '@/lib/use-local-storage-value'
 import { useCallback, useEffect } from 'react'
@@ -23,12 +24,28 @@ interface Props {
   className: string
 }
 
+function BuildingIndicator() {
+  return (
+    <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-secondary border border-primary/12 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="flex gap-1.5 shrink-0">
+        <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '0ms' }} />
+        <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '200ms' }} />
+        <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '400ms' }} />
+      </div>
+      <span className="text-xs font-mono text-foreground/70 leading-none">
+        Building your project...
+      </span>
+    </div>
+  )
+}
+
 export function Chat({ className }: Props) {
   const [input, setInput] = useLocalStorageValue('prompt-input')
   const { chat } = useSharedChatContext()
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat })
-  // Stable selector — avoids re-rendering Chat on every store update
   const setChatStatus = useSandboxStore((s) => s.setChatStatus)
+
+  const isWorking = status === 'streaming' || status === 'submitted'
 
   const validateAndSubmitMessage = useCallback(
     (text: string) => {
@@ -85,23 +102,37 @@ export function Chat({ className }: Props) {
         </Conversation>
       )}
 
+      {/* Building indicator — shows above the input while AI is working */}
+      {isWorking && <BuildingIndicator />}
+
+      {/* Input form */}
       <form
-        className="flex items-center p-2 space-x-1 border-t border-primary/18 bg-background"
+        className={cn(
+          'relative flex items-center p-2 space-x-1 border-t bg-background transition-colors duration-300',
+          isWorking ? 'border-foreground/20' : 'border-primary/18'
+        )}
         onSubmit={async (event) => {
           event.preventDefault()
           validateAndSubmitMessage(input)
         }}
       >
+        {/* Shimmer progress bar at the top of the form when working */}
+        {isWorking && (
+          <div className="absolute top-0 left-0 right-0 h-px overflow-hidden">
+            <div className="chat-shimmer absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-foreground/40 to-transparent" />
+          </div>
+        )}
+
         <Settings />
         <Input
           className="w-full font-mono text-sm rounded-sm border-0 bg-background"
-          disabled={status === 'streaming' || status === 'submitted'}
+          disabled={isWorking}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Type your message..."
+          placeholder={isWorking ? 'VibePlatform is building...' : 'Type your message...'}
           value={input}
         />
         <Button type="submit" disabled={status !== 'ready' || !input.trim()}>
-        <SendIcon className="w-4 h-4" />
+          <SendIcon className="w-4 h-4" />
         </Button>
       </form>
     </Panel>
