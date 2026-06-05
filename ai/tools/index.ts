@@ -3,6 +3,9 @@ import type { DataPart } from '../messages/data-parts'
 import { createSandbox } from './create-sandbox'
 import { generateFiles } from './generate-files'
 import { getSandboxURL } from './get-sandbox-url'
+import { getUnsplash } from './get-unsplash'
+import { patchFile } from './patch-file'
+import { readFile } from './read-file'
 import { runCommand } from './run-command'
 
 interface Params {
@@ -16,6 +19,9 @@ export function tools({ modelId, writer }: Params) {
     generateFiles: generateFiles({ writer, modelId }),
     getSandboxURL: getSandboxURL({ writer }),
     runCommand: runCommand({ writer }),
+    getUnsplash: getUnsplash(),
+    readFile: readFile(),
+    patchFile: patchFile(),
   }
 }
 

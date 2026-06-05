@@ -14,7 +14,7 @@
 
 **AI Gateway:** Use Cloudflare AI Gateway (free, OpenAI-compatible, in our CF ecosystem). Set AI_GATEWAY_BASE_URL to CF gateway URL — zero code changes needed.
 
-**Phase 1 is next.** Prompt expansion, three-skill system (website / webapp / game), intent classifier, Unsplash tool, project context memory.
+**Phase 1 is complete.** Prompt expansion pipeline (classifier + expander), Unsplash tool, readFile/patchFile tools, full skill system prompts wired. stepCountIs raised to 40.
 
 ---
 
@@ -84,6 +84,32 @@ Original `get-contents.ts` used streaming partial objects and yielded one file a
 Vercel AI Gateway requires Pro plan. We use direct DeepSeek API with `provider.chat()`. At launch, set `AI_GATEWAY_BASE_URL` env var — zero code changes needed, the `??` fallback in `gateway.ts` handles it automatically.
 
 ---
+
+## Phase 1 Architecture
+
+### Prompt Expansion Pipeline (runs on every new project turn)
+```
+User message
+  ↓ hasActiveSandbox()? NO → run pipeline
+  ↓ classifyPrompt() [Flash, ~1s]
+    → { skill: 'website'|'webapp'|'game', clarify: false }
+  ↓ expandPrompt() [Flash, ~2s]
+    → ProjectBrief { brandName, tagline, colorPalette, fontPairing, tone, sections, features, techStack }
+  ↓ Inject into system prompt as "## PROJECT BRIEF"
+  ↓ Main generation [Pro] — AI reads brief, says confirmation line, then builds
+```
+- `ai/classifier.ts` — Flash, detect skill + clarify flag
+- `ai/expander.ts` — Flash, build ProjectBrief
+- `ai/types/project-brief.ts` — type + formatBrief() formatter
+- Pattern: capture result in `execute: async (args) => { output = args }` (same as errors/route.ts)
+
+### New Tools
+- `ai/tools/get-unsplash.ts` — keyword → real Unsplash URL via API. Falls back to curated IDs if key missing or API fails.
+- `ai/tools/read-file.ts` — `cat` a file in the sandbox, return content
+- `ai/tools/patch-file.ts` — read → string replace → write back via sandbox.writeFiles
+
+### Key env vars added
+- `UNSPLASH_ACCESS_KEY` — free tier, 50 req/hr. If missing, falls back to curated photo IDs.
 
 ## Project Structure
 

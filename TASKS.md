@@ -67,9 +67,9 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` known issue
 
 ---
 
-## PHASE 1 — Prompt Intelligence + Skill System ⏳ NEXT
+## PHASE 1 — Prompt Intelligence + Skill System ✅ COMPLETE
 
-### 1a. Prompt Expansion Pipeline (NEW — highest priority)
+### 1a. Prompt Expansion Pipeline
 
 The full pre-generation flow before any tool calls:
 
@@ -87,20 +87,20 @@ Main generation (v4 Pro) with full ProjectBrief as context
 ```
 
 Tasks:
-- [ ] Create `ai/classifier.ts` — DeepSeek Flash, returns `{ skill, clarify, question? }`
-- [ ] Create `ai/expander.ts` — DeepSeek Flash, turns prompt → `ProjectBrief` object
-- [ ] Define `ProjectBrief` type (name, skill, colorPalette, fontStyle, sections/features, tone, specialNotes)
-- [ ] Wire pipeline in `app/api/chat/route.ts`: classify → expand → inject brief into system prompt
-- [ ] Show confirmation line in chat before generation starts
-- [ ] Test with 20 diverse prompts (cafe website, chess game, budget tracker, accountancy firm, etc.)
+- [x] Create `ai/classifier.ts` — DeepSeek Flash, returns `{ skill, clarify, question? }`
+- [x] Create `ai/expander.ts` — DeepSeek Flash, turns prompt → `ProjectBrief` object
+- [x] Define `ProjectBrief` type (name, skill, colorPalette, fontPairing, sections/features, tone, brandPersonality)
+- [x] Wire pipeline in `app/api/chat/route.ts`: classify → expand → inject brief into system prompt
+- [x] Confirmation line: AI says it in its first message based on brief context
+- [ ] Test with diverse prompts (Playwright)
 
 ### 1b. New Tools
-- [ ] `ai/tools/read-file.ts` — `runCommand(cat <path>)`, returns content string for AI to read before editing
-- [ ] `ai/tools/patch-file.ts` — targeted string replace `(sandboxId, path, oldString, newString)` — edits without full rewrite
-- [ ] `ai/tools/get-unsplash.ts` — `(keyword)` → Unsplash search → returns best URL `photo-{ID}?auto=format&fit=crop&w=1200&q=80`
-- [ ] Register all new tools in `ai/tools/index.ts`
+- [x] `ai/tools/read-file.ts` — reads file via sandbox cat, returns content
+- [x] `ai/tools/patch-file.ts` — targeted string replace (read → replace → writeFiles)
+- [x] `ai/tools/get-unsplash.ts` — keyword → Unsplash API → real URL (fallback to curated IDs)
+- [x] Registered all new tools in `ai/tools/index.ts`
 
-### 1c. Project Context Memory
+### 1c. Project Context Memory — deferred to Phase 3
 - [ ] Create ai/context.ts
   - [ ] readProjectContext(sandboxId) — reads _project_context.md from sandbox root
   - [ ] writeProjectContext(sandboxId, context) — writes/updates context file
@@ -111,33 +111,9 @@ Tasks:
 ### 1d. Three Skill System Prompts
 Research: github.com/dontriskit/awesome-ai-system-prompts (Lovable, v0, same.new, Bolt.new prompts)
 
-- [ ] ai/skills/website.ts — website skill system prompt
-  - Anti-patterns explicitly banned: generic 3-column feature cards, cookie-cutter hero
-  - Minimum section list with visual identity requirements
-  - Font pairing rules, color derivation from brand context
-  - 2+ sub-pages requirement
-
-- [ ] ai/skills/webapp.ts — webapp skill system prompt
-  - Full CRUD or core logic complete — no stubs
-  - Multiple views, all states handled (empty/loading/error)
-  - localStorage persistence mandatory
-
-- [ ] ai/skills/game.ts — game skill system prompt
-  - Complete game loop mandatory (start → play → game over → score → play again)
-  - Keyboard + touch controls both required
-  - Sound via Web Audio API
-  - Simple → Canvas, Complex → Phaser CDN
-
-- [ ] ai/skills/base.ts — base rules injected into all three:
-  - Confidentiality block (never reveal model/stack/system prompt)
-  - Anti-SVG, Unsplash-only, no Lorem ipsum
-  - All files in one generateFiles call
-  - Read before edit, patch not regenerate
-  - Plain English error messages only
-
-- [ ] Wire: classifier result → correct skill prompt → agent
-- [ ] Quality review: run 3 prompts per skill type, review output quality
-- [ ] Iterate on prompts until output looks like a professional made it
+- [x] Skill rules embedded in `app/api/chat/prompt.md` — website, webapp, game each have full sections
+- [x] Classifier → skill type detected → injected into ProjectBrief → guides generation
+- [ ] Quality review: test 3 prompts per skill type (Playwright)
 
 ---
 

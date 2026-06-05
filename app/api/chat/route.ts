@@ -11,6 +11,9 @@ import { NextResponse } from 'next/server'
 import { getModelOptions } from '@/ai/gateway'
 import { checkBotId } from 'botid/server'
 import { tools } from '@/ai/tools'
+import { classifyPrompt } from '@/ai/classifier'
+import { expandPrompt } from '@/ai/expander'
+import { formatBrief } from '@/ai/types/project-brief'
 import prompt from './prompt.md'
 
 // Allow up to 300s (Vercel Pro max) for long generations
@@ -18,6 +21,23 @@ export const maxDuration = 300
 
 interface BodyData {
   messages: ChatUIMessage[]
+}
+
+function getLastUserText(messages: ChatUIMessage[]): string {
+  const last = [...messages].reverse().find(m => m.role === 'user')
+  if (!last) return ''
+  return last.parts
+    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+    .map(p => p.text)
+    .join(' ')
+    .trim()
+}
+
+function hasActiveSandbox(messages: ChatUIMessage[]): boolean {
+  return messages.some(msg =>
+    Array.isArray(msg.parts) &&
+    msg.parts.some(p => p.type === 'data-create-sandbox')
+  )
 }
 
 export async function POST(req: Request) {
@@ -34,9 +54,31 @@ export async function POST(req: Request) {
     stream: createUIMessageStream({
       originalMessages: messages,
       execute: async ({ writer }) => {
+        let systemPrompt = prompt
+
+        // Run prompt expansion on new project turns only (no sandbox yet)
+        if (!hasActiveSandbox(messages)) {
+          const userText = getLastUserText(messages)
+          if (userText) {
+            try {
+              const { skill, clarify } = await classifyPrompt(userText)
+              if (!clarify && skill) {
+                const brief = await expandPrompt(userText, skill)
+                systemPrompt =
+                  `${prompt}\n\n## PROJECT BRIEF\n` +
+                  `This brief was pre-analyzed from the user's prompt. Use it as the authoritative design spec.\n` +
+                  `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately start the workflow.\n\n` +
+                  formatBrief(brief)
+              }
+            } catch {
+              // Expansion failure is non-fatal — continue with base prompt
+            }
+          }
+        }
+
         const result = streamText({
           ...getModelOptions(DEFAULT_MODEL),
-          system: prompt,
+          system: systemPrompt,
           messages: await convertToModelMessages(
             messages.map((message) => {
               message.parts = message.parts.map((part) => {
@@ -58,7 +100,7 @@ export async function POST(req: Request) {
               return message
             })
           ),
-          stopWhen: stepCountIs(25),
+          stopWhen: stepCountIs(40),
           tools: tools({ modelId: DEFAULT_MODEL, writer }),
           onError: (error) => {
             console.error('Error communicating with AI')
