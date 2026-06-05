@@ -54,8 +54,21 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
     set((state) => {
       const idx = state.commands.findIndex((c) => c.cmdId === data.cmdId)
       if (idx === -1) {
-        console.warn(`Command with ID ${data.cmdId} not found.`)
-        return state
+        // Log arrived before command registration — create a placeholder so no
+        // early log lines are silently dropped.
+        return {
+          commands: [
+            ...state.commands,
+            {
+              startedAt: Date.now(),
+              logs: [data.log],
+              sandboxId: data.sandboxId,
+              cmdId: data.cmdId,
+              command: '',
+              args: [],
+            },
+          ],
+        }
       }
       const updatedCmds = [...state.commands]
       updatedCmds[idx] = {

@@ -38,6 +38,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           }, 0)
         },
         onError: (error) => {
+          // 'terminated' is a normal SDK event when the stream ends abruptly
+          // (sandbox timeout, user navigates away, network drop) — not actionable
+          const msg = error?.message ?? ''
+          if (msg === 'terminated' || msg.includes('terminated')) {
+            console.warn('Stream terminated:', error)
+            return
+          }
           toast.error('Something went wrong. Please try again.')
           console.error('AI communication error:', error)
         },

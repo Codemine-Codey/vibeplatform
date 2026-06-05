@@ -234,6 +234,12 @@ AI_GATEWAY_BASE_URL=          # set in Vercel dashboard, zero code changes neede
 
 ## Bug Fixes Applied (pre-launch hardening)
 
+- **"terminated" error**: AI SDK throws "terminated" when stream ends abruptly (session timeout, network drop). Filtered in `onError` — no toast shown, just a console.warn.
+- **"Sandbox" branding**: All user-visible "Sandbox/Vercel Sandbox" text replaced with "Codemine workspace", "Build Output", "Project Files", "Your session has ended". Internal variable names unchanged.
+- **`command-logs.tsx`**: Same fixes as commands-logs-stream — response.ok, safeParse, try-catch, activeRef cleanup, 15s connection timeout on fetch.
+- **`state.ts` addLog**: No longer silently drops logs when command hasn't registered yet — creates a placeholder command entry so all early log lines are preserved.
+- **Fetch timeouts**: All non-streaming fetches now use AbortController with 15s timeout. Streaming fetches have 15s timeout on connection only (not on read).
+- **`get-summary.ts`**: Added 30s AbortController timeout with friendly error.
 - **`CommandLogsStream`**: Root cause of "Maximum update depth exceeded" — was using `commands` array as useEffect dep, causing re-run on every log line. Fixed: use stable `commandIds` string as dep + read commands snapshot via `getState()`. Added: cleanup `activeRef`, error handling, response.ok check, JSON.parse try-catch, `reader.releaseLock()`, `safeParse` for command schema.
 - **`gateway.ts`**: Added startup validation — throws clear error if `DEEPSEEK_API_KEY` is missing. Added `AI_GATEWAY_BASE_URL` fallback (was missing despite CLAUDE.md saying it was wired).
 - **`chat-context.tsx`**: Added try-catch inside the `setTimeout` callback for `onData`. User-facing error message now friendly ("Something went wrong. Please try again.").

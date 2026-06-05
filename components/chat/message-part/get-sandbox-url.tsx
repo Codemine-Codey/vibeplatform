@@ -1,5 +1,5 @@
 import type { DataPart } from '@/ai/messages/data-parts'
-import { CheckIcon, LinkIcon } from 'lucide-react'
+import { CheckIcon, MonitorIcon } from 'lucide-react'
 import { Spinner } from './spinner'
 import { ToolHeader } from '../tool-header'
 import { ToolMessage } from '../tool-message'
@@ -12,8 +12,8 @@ export function GetSandboxURL({
   return (
     <ToolMessage>
       <ToolHeader>
-        <LinkIcon className="w-3.5 h-3.5" />
-        <span>Get Sandbox URL</span>
+        <MonitorIcon className="w-3.5 h-3.5" />
+        <span>Live Preview</span>
       </ToolHeader>
       <div className="relative pl-6 min-h-5">
         <Spinner
@@ -27,7 +27,7 @@ export function GetSandboxURL({
             {message.url}
           </a>
         ) : (
-          <span>Getting Sandbox URL</span>
+          <span>Starting preview...</span>
         )}
       </div>
     </ToolMessage>

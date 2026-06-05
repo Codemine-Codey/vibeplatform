@@ -78,10 +78,19 @@ const logSchema = z.object({
 })
 
 async function* getCommandLogs(sandboxId: string, cmdId: string) {
-  const response = await fetch(
-    `/api/sandboxes/${sandboxId}/cmds/${cmdId}/logs`,
-    { headers: { 'Content-Type': 'application/json' } }
-  )
+  // Timeout only on the initial connection — not on the stream read itself
+  const controller = new AbortController()
+  const connectionTimeout = setTimeout(() => controller.abort(), 15_000)
+
+  let response: Response
+  try {
+    response = await fetch(`/api/sandboxes/${sandboxId}/cmds/${cmdId}/logs`, {
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(connectionTimeout)
+  }
 
   if (!response.ok) {
     throw new Error(`Failed to fetch logs: ${response.status} ${response.statusText}`)
@@ -130,14 +139,23 @@ const cmdSchema = z.object({
 })
 
 async function getCommand(sandboxId: string, cmdId: string) {
-  const response = await fetch(`/api/sandboxes/${sandboxId}/cmds/${cmdId}`)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch command status: ${response.status}`)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+
+  try {
+    const response = await fetch(`/api/sandboxes/${sandboxId}/cmds/${cmdId}`, {
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to fetch command status: ${response.status}`)
+    }
+    const json = await response.json()
+    const result = cmdSchema.safeParse(json)
+    if (!result.success) {
+      throw new Error(`Unexpected command response shape: ${result.error.message}`)
+    }
+    return result.data
+  } finally {
+    clearTimeout(timeout)
   }
-  const json = await response.json()
-  const result = cmdSchema.safeParse(json)
-  if (!result.success) {
-    throw new Error(`Unexpected command response shape: ${result.error.message}`)
-  }
-  return result.data
 }

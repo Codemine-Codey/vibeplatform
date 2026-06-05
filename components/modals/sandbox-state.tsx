@@ -19,15 +19,19 @@ export function SandboxState() {
       <Dialog open>
         <DialogHeader className="sr-only">
           <DialogTitle className="sr-only">
-            Sandbox max. duration reached
+            Session ended
           </DialogTitle>
           <DialogDescription className="sr-only">
-            The Vercel Sandbox is already stopped. You can start a new session
-            by clicking the button below.
+            Your Codemine session has ended. Start a new session to continue
+            building.
           </DialogDescription>
         </DialogHeader>
         <DialogContent>
-          Sandbox max. duration for this demo has been reached
+          <p className="text-sm font-medium">Your session has ended</p>
+          <p className="text-sm text-muted-foreground">
+            Codemine sessions have a maximum duration. Start a new session to
+            continue building.
+          </p>
           <Button onClick={() => window.location.reload()}>
             Start a new session
           </Button>
