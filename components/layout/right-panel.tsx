@@ -1,11 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { MonitorIcon, FolderOpenIcon, TerminalIcon } from 'lucide-react'
+import { MonitorIcon, FolderOpenIcon, TerminalIcon, LoaderIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Preview } from '@/app/preview'
 import { FileExplorer } from '@/app/file-explorer'
 import { Logs } from '@/app/logs'
+import { useSandboxStore } from '@/app/state'
 
 type Tab = 'preview' | 'files' | 'logs'
 
@@ -21,6 +22,8 @@ interface Props {
 
 export function RightPanel({ className }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('preview')
+  const chatStatus = useSandboxStore((s) => s.chatStatus)
+  const isWorking = chatStatus === 'streaming' || chatStatus === 'submitted'
 
   return (
     <div className={cn('flex flex-col h-full min-h-0', className)}>
@@ -42,6 +45,14 @@ export function RightPanel({ className }: Props) {
             {label}
           </button>
         ))}
+
+        {/* Loading indicator — visible while AI is working */}
+        {isWorking && (
+          <div className="ml-auto mr-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <LoaderIcon className="w-3 h-3 animate-spin" />
+            <span className="font-mono">Building...</span>
+          </div>
+        )}
       </div>
 
       {/* Content — all panels stay mounted; only visibility toggled to preserve iframe state */}

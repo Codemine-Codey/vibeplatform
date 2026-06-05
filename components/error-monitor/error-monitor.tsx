@@ -6,12 +6,14 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
+  useState,
   useTransition,
 } from 'react'
 import { getSummary } from './get-summary'
 import { useChat } from '@ai-sdk/react'
-import { useCommandErrorsLogs } from '@/app/state'
+import { getBackgroundCommandErrorLines, useSandboxStore } from '@/app/state'
 import { useMonitorState } from './state'
 import { useSettings } from '@/components/settings/use-settings'
 import { useSharedChatContext } from '@/lib/chat-context'
@@ -23,11 +25,19 @@ interface Props {
 
 export function ErrorMonitor({ children, debounceTimeMs = 10000 }: Props) {
   const [pending, startTransition] = useTransition()
+
+  // Individual stable selectors — no full-store subscription
   const cursor = useMonitorState((s) => s.cursor)
   const scheduled = useMonitorState((s) => s.scheduled)
   const setCursor = useMonitorState((s) => s.setCursor)
   const setScheduled = useMonitorState((s) => s.setScheduled)
-  const { errors } = useCommandErrorsLogs()
+
+  // Error tick: increments ONLY when new error lines appear.
+  // Replaces useCommandErrorsLogs() which re-rendered on every log line.
+  // Zustand.subscribe() fires a callback without triggering React re-renders.
+  const [errorTick, setErrorTick] = useState(0)
+  const errorsRef = useRef<Line[]>([])
+
   const { fixErrors } = useSettings()
   const { chat } = useSharedChatContext()
   const { sendMessage, status: chatStatus, messages } = useChat({ chat })
@@ -36,6 +46,21 @@ export function ErrorMonitor({ children, debounceTimeMs = 10000 }: Props) {
   const lastReportedErrors = useRef<string[]>([])
   const errorReportCount = useRef<Map<string, number>>(new Map())
   const lastErrorReportTime = useRef<number>(0)
+
+  // Watch for new background stderr errors via Zustand subscribe (not a hook).
+  // This fires on every store update but only schedules a React re-render when
+  // the ERROR count increases — not on every addLog call.
+  useEffect(() => {
+    return useSandboxStore.subscribe((state) => {
+      const errors = getBackgroundCommandErrorLines(state.commands)
+      if (errors.length > errorsRef.current.length) {
+        errorsRef.current = errors
+        // Defer to macrotask so it never fires during a React render phase
+        setTimeout(() => setErrorTick((t) => t + 1), 0)
+      }
+    })
+  }, [])
+
   const clearSubmitTimeout = useCallback(() => {
     if (submitTimeout.current) {
       setScheduled(false)
@@ -51,44 +76,27 @@ export function ErrorMonitor({ children, debounceTimeMs = 10000 }: Props) {
       ? 'pending'
       : 'ready'
 
-  const getErrorKey = (error: Line) => {
-    return `${error.command}-${error.args.join(' ')}-${error.data.slice(
-      0,
-      100
-    )}`
-  }
+  const getErrorKey = (error: Line) =>
+    `${error.command}-${error.args.join(' ')}-${error.data.slice(0, 100)}`
 
   const handleErrors = (errors: Line[], prev: Line[]) => {
     const now = Date.now()
-    const timeSinceLastReport = now - lastErrorReportTime.current
-
-    if (timeSinceLastReport < 60000) {
-      return
-    }
+    if (now - lastErrorReportTime.current < 60000) return
 
     const errorKeys = errors.map(getErrorKey)
     const uniqueErrorKeys = [...new Set(errorKeys)]
-
-    const newErrors = uniqueErrorKeys.filter((key) => {
-      const count = errorReportCount.current.get(key) || 0
-      return count < 1
-    })
-
-    if (newErrors.length === 0) {
-      return
-    }
+    const newErrors = uniqueErrorKeys.filter(
+      (key) => (errorReportCount.current.get(key) || 0) < 1
+    )
+    if (newErrors.length === 0) return
 
     startTransition(async () => {
       try {
         const summary = await getSummary(errors, prev)
         if (summary.shouldBeFixed) {
-          newErrors.forEach((key) => {
-            errorReportCount.current.set(key, 1)
-          })
-
+          newErrors.forEach((key) => errorReportCount.current.set(key, 1))
           lastReportedErrors.current = newErrors
           lastErrorReportTime.current = Date.now()
-
           sendMessage({
             role: 'user',
             parts: [{ type: 'data-report-errors', data: summary }],
@@ -105,10 +113,13 @@ export function ErrorMonitor({ children, debounceTimeMs = 10000 }: Props) {
       errorReportCount.current.clear()
       lastReportedErrors.current = []
       lastErrorReportTime.current = 0
+      errorsRef.current = []
     }
   }, [messages.length])
 
+  // errorTick replaces `errors` as the dependency — only fires when error count changes
   useEffect(() => {
+    const errors = errorsRef.current
     if (status === 'ready' && inspectedErrors.current < errors.length) {
       const prev = errors.slice(0, cursor)
       const pending = errors.slice(cursor)
@@ -124,10 +135,19 @@ export function ErrorMonitor({ children, debounceTimeMs = 10000 }: Props) {
       clearSubmitTimeout()
     }
     return () => clearSubmitTimeout()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- This is fine
-  }, [clearSubmitTimeout, cursor, errors, status])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clearSubmitTimeout, cursor, errorTick, status])
 
-  return <Context.Provider value={{ status }}>{children}</Context.Provider>
+  // Memoize context value so consumers don't re-render when ErrorMonitor
+  // re-renders for unrelated reasons
+  const contextValue = useMemo(
+    () => ({ status } as { status: 'ready' | 'pending' | 'disabled' }),
+    [status]
+  )
+
+  return (
+    <Context.Provider value={contextValue}>{children}</Context.Provider>
+  )
 }
 
 const Context = createContext<{

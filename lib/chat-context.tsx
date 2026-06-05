@@ -6,6 +6,7 @@ import { Chat } from '@ai-sdk/react'
 import { DataPart } from '@/ai/messages/data-parts'
 import { DataUIPart } from 'ai'
 import { createContext, useContext, useMemo, useRef } from 'react'
+import { unstable_batchedUpdates } from 'react-dom'
 import { useDataStateMapper } from '@/app/state'
 import { mutate } from 'swr'
 import { toast } from 'sonner'
@@ -25,22 +26,25 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     () =>
       new Chat<ChatUIMessage>({
         onToolCall: () => mutate('/api/auth/info'),
-        // Defer Zustand state updates to the next event loop tick.
-        // Calling setState synchronously while the AI SDK processes stream events
-        // causes React to hit the maximum update depth limit.
         onData: (data: DataUIPart<DataPart>) => {
+          // Defer to next macrotask so this never runs during a React render phase.
+          // unstable_batchedUpdates ensures all resulting Zustand set() calls are
+          // processed in a single React render cycle, preventing cascading renders
+          // even when useSyncExternalStore (which Zustand uses) is involved.
           setTimeout(() => {
-            try {
-              mapDataToStateRef.current(data)
-            } catch (err) {
-              console.error('Error processing stream event:', err)
-            }
+            unstable_batchedUpdates(() => {
+              try {
+                mapDataToStateRef.current(data)
+              } catch (err) {
+                console.error('Error processing stream event:', err)
+              }
+            })
           }, 0)
         },
         onError: (error) => {
-          // 'terminated' is a normal SDK event when the stream ends abruptly
-          // (sandbox timeout, user navigates away, network drop) — not actionable
           const msg = error?.message ?? ''
+          // 'terminated' is expected when stream ends due to sandbox timeout or
+          // network drop — not a user-visible error
           if (msg === 'terminated' || msg.includes('terminated')) {
             console.warn('Stream terminated:', error)
             return

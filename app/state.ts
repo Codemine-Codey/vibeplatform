@@ -36,6 +36,9 @@ function getBackgroundCommandErrorLines(commands: Command[]) {
     .filter((log) => log.stream === 'stderr' && log.background)
 }
 
+// Exported so ErrorMonitor can use it outside React render cycle
+export { getBackgroundCommandErrorLines }
+
 export function useCommandErrorsLogs() {
   // Targeted selector — only re-renders when commands changes, not on every store update
   const commands = useSandboxStore((s) => s.commands)
