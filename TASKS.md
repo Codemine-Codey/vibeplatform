@@ -158,6 +158,19 @@ Research: github.com/dontriskit/awesome-ai-system-prompts (Lovable, v0, same.new
 - [ ] After 3 failures: "Hit a snag — please try describing your project again" + Report button
 - [ ] Raw errors to console only
 
+### 3d. Auto Preview Error Detection (self-healing)
+Extend auto-fix to catch visual/runtime errors in the generated app itself,
+not just server stderr. Currently the ErrorMonitor catches build errors; this
+catches runtime JS errors inside the preview iframe.
+
+- [ ] Inject `window.onerror` + `window.addEventListener('unhandledrejection')` handler
+      into every generated app's `main.tsx` that POSTs errors to `/api/preview-error`
+- [ ] Create `app/api/preview-error/route.ts` — receives error payload, forwards to
+      AI via the same sendMessage path as ErrorMonitor
+- [ ] AI receives the runtime error and auto-fixes the specific file, same as build errors
+- [ ] "Overcoming a hurdle..." shown to user; no raw error ever visible
+- [ ] Rate limit: max 3 auto-fixes per session to prevent infinite loops
+
 ---
 
 ## PHASE 4 — Dashboard [ ]
