@@ -2,7 +2,7 @@ import type { Command, CommandLog } from '@/components/commands-logs/types'
 import type { DataPart } from '@/ai/messages/data-parts'
 import type { ChatStatus, DataUIPart } from 'ai'
 import { useMonitorState } from '@/components/error-monitor/state'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { create } from 'zustand'
 
 interface SandboxStore {
@@ -37,7 +37,8 @@ function getBackgroundCommandErrorLines(commands: Command[]) {
 }
 
 export function useCommandErrorsLogs() {
-  const { commands } = useSandboxStore()
+  // Targeted selector — only re-renders when commands changes, not on every store update
+  const commands = useSandboxStore((s) => s.commands)
   const errors = useMemo(
     () => getBackgroundCommandErrorLines(commands),
     [commands]
@@ -132,51 +133,60 @@ export const useFileExplorerStore = create<FileExplorerStore>()((set) => ({
 }))
 
 export function useDataStateMapper() {
-  const { addPaths, setSandboxId, setUrl, upsertCommand, addGeneratedFiles, setLastFilesUploadedAt } =
-    useSandboxStore()
-  const { errors } = useCommandErrorsLogs()
-  const { setCursor } = useMonitorState()
+  // Individual stable action selectors — Zustand actions are created once and
+  // never change, so these selectors NEVER trigger a re-render.
+  // Previously `useSandboxStore()` (no selector) subscribed to the ENTIRE store,
+  // causing ChatProvider (and the entire app) to re-render on every log line.
+  const addPaths = useSandboxStore((s) => s.addPaths)
+  const setSandboxId = useSandboxStore((s) => s.setSandboxId)
+  const setUrl = useSandboxStore((s) => s.setUrl)
+  const upsertCommand = useSandboxStore((s) => s.upsertCommand)
+  const addGeneratedFiles = useSandboxStore((s) => s.addGeneratedFiles)
+  const setLastFilesUploadedAt = useSandboxStore((s) => s.setLastFilesUploadedAt)
+  // setCursor is an action — stable, never triggers re-render
+  const setCursor = useMonitorState((s) => s.setCursor)
 
-  return (data: DataUIPart<DataPart>) => {
-    switch (data.type) {
-      case 'data-create-sandbox':
-        if (data.data.sandboxId) {
-          setSandboxId(data.data.sandboxId)
-        }
-        break
-      case 'data-generating-files':
-        if (data.data.status === 'uploaded') {
-          setCursor(errors.length)
-          addPaths(data.data.paths)
-          addGeneratedFiles(data.data.paths)
-        }
-        // When all files are done uploading, schedule a preview refresh.
-        // Delay gives the sandbox dev server time to detect changes and restart.
-        if (data.data.status === 'done') {
-          setLastFilesUploadedAt(Date.now())
-        }
-        break
-      case 'data-run-command':
-        if (
-          data.data.commandId &&
-          (data.data.status === 'executing' || data.data.status === 'running')
-        ) {
-          upsertCommand({
-            background: data.data.status === 'running',
-            sandboxId: data.data.sandboxId,
-            cmdId: data.data.commandId,
-            command: data.data.command,
-            args: data.data.args,
-          })
-        }
-        break
-      case 'data-get-sandbox-url':
-        if (data.data.url) {
-          setUrl(data.data.url, crypto.randomUUID())
-        }
-        break
-      default:
-        break
-    }
-  }
+  return useCallback(
+    (data: DataUIPart<DataPart>) => {
+      switch (data.type) {
+        case 'data-create-sandbox':
+          if (data.data.sandboxId) setSandboxId(data.data.sandboxId)
+          break
+        case 'data-generating-files':
+          if (data.data.status === 'uploaded') {
+            // Read errors length via store snapshot — no subscription needed here.
+            // Using getState() avoids creating a reactive dependency on commands.
+            const commands = useSandboxStore.getState().commands
+            setCursor(getBackgroundCommandErrorLines(commands).length)
+            addPaths(data.data.paths)
+            addGeneratedFiles(data.data.paths)
+          }
+          if (data.data.status === 'done') {
+            setLastFilesUploadedAt(Date.now())
+          }
+          break
+        case 'data-run-command':
+          if (
+            data.data.commandId &&
+            (data.data.status === 'executing' || data.data.status === 'running')
+          ) {
+            upsertCommand({
+              background: data.data.status === 'running',
+              sandboxId: data.data.sandboxId,
+              cmdId: data.data.commandId,
+              command: data.data.command,
+              args: data.data.args,
+            })
+          }
+          break
+        case 'data-get-sandbox-url':
+          if (data.data.url) setUrl(data.data.url, crypto.randomUUID())
+          break
+        default:
+          break
+      }
+    },
+    // All deps are stable action references — this callback is effectively created once
+    [addGeneratedFiles, addPaths, setCursor, setSandboxId, setLastFilesUploadedAt, setUrl, upsertCommand]
+  )
 }

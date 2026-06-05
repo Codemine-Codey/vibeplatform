@@ -27,7 +27,8 @@ export function Chat({ className }: Props) {
   const [input, setInput] = useLocalStorageValue('prompt-input')
   const { chat } = useSharedChatContext()
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat })
-  const { setChatStatus } = useSandboxStore()
+  // Stable selector — avoids re-rendering Chat on every store update
+  const setChatStatus = useSandboxStore((s) => s.setChatStatus)
 
   const validateAndSubmitMessage = useCallback(
     (text: string) => {
