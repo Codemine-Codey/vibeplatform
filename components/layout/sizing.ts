@@ -1,5 +1,5 @@
-export const HORIZONTAL_COOKIE = 'react-resizable-panels:horizontal'
-export const VERTICAL_COOKIE = 'react-resizable-panels:vertical'
+export const HORIZONTAL_COOKIE = 'vp:layout:h'
+export const VERTICAL_COOKIE = 'vp:layout:v'
 export const getHorizontal = getSizes(HORIZONTAL_COOKIE)
 export const getVertical = getSizes(VERTICAL_COOKIE)
 
