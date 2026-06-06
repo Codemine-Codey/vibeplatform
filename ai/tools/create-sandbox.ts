@@ -69,7 +69,13 @@ export const createSandbox = ({ writer }: Params) =>
         })
 
         console.log('Error creating Sandbox:', richError.error)
-        return richError.message
+        // Explicit STOP instruction in the tool result — the AI reads this and must not retry.
+        return (
+          `WORKSPACE_SETUP_FAILED: ${richError.message}\n\n` +
+          `STOP IMMEDIATELY. Do NOT call createSandbox again. Do NOT retry under any circumstances. ` +
+          `Tell the user exactly this and nothing else: "Having trouble setting up your workspace right now. Please refresh the page and try again." ` +
+          `Then end your response.`
+        )
       }
     },
   })
