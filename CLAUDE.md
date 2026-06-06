@@ -10,34 +10,29 @@
 
 **Phase 0 is complete.** Full pipeline working: DeepSeek v4 Pro → Vercel Sandbox → files generated → dev server runs → preview URL live in browser. All compatibility bugs resolved. Auto-refresh on file upload working.
 
-**UI redesign done.** New 36/64 layout: chat on left, tabbed right panel (Preview / Code / Logs) — all panels stay mounted (display:none toggle) to preserve iframe state. Off-white background (#FAF9F7), Inter font via Google Fonts CSS @import (next/font/google breaks with Turbopack).
+**Phase 1 is complete.** Prompt expansion pipeline (classifier + expander), Unsplash tool, readFile/patchFile tools, full skill system prompts wired.
 
-**Phase 1 is complete.** Prompt expansion pipeline (classifier + expander), Unsplash tool, readFile/patchFile tools, full skill system prompts wired. stepCountIs raised to 40.
+**Phase 1.5 is complete.** UI redesign, skill packs, CubeLoader overlay, streaming file-by-file generation, Vite allowedHosts patch, preview error bridge.
+
+**Phase 1.6 is complete — Speed Optimizations (9 items, ~35-50s total savings):**
+1. DeepSeek KV prompt caching: stable content before dynamic brief — cache hits on steps 2-20
+2. Sandbox pre-warming: `Sandbox.create()` runs in parallel with `expandPrompt()` in route.ts — saves ~8s
+3. Intent classifier overhaul: explicit Build / Vague / Not-a-build taxonomy — no more "hey" starting a project
+4. getUnsplashBatch: all images in one `Promise.all` call — was sequential
+5. Base scaffold: 8 files pre-written to sandbox (package.json, vite.config.ts, tailwind, tsconfigs, .npmrc)
+6. Parallel tool calls: prompt instructs AI to emit createSandbox + getUnsplashBatch simultaneously
+7. Background pnpm install: starts in sandbox immediately after scaffold write — AI's `pnpm install` finishes in ~5-15s instead of ~60s
+8. planProject tool: AI commits to complete file list before writing code — fewer missing-import bugs
+9. Prompt cache ordering: systemPrompt = base → skill pack → brief (dynamic last)
+
+**Architecture: DeepSeek V4 Pro + Flash via Cloudflare AI Gateway (reverted from OpenRouter/Sonnet)**
+- OpenRouter/Sonnet was causing AI loop (model re-read system prompt every step, created 3 sandboxes)
+- Reverted to proven DeepSeek-only setup via CF AI Gateway
+- `DEFAULT_MODEL='deepseek-v4-pro'`, `FILE_GENERATION_MODEL='deepseek-v4-flash'`
 
 **Platform renamed: VibePlatform → Codemine.** All UI text, metadata, storage keys, and prompt identity updated. AI never mentions DeepSeek, Gemini, Claude, Unsplash, Cloudflare, or Vercel.
 
 **Cloudflare AI Gateway active.** `AI_GATEWAY_BASE_URL` set in `.env.local` pointing to CF gateway. Account ID: `8b557a24d9314c5895645b698428ea31`, gateway: `codemine`.
-
-**Unsplash API key active.** `UNSPLASH_ACCESS_KEY` set. Tool renamed "Get Image", one call per slot, no retrying.
-
-**Skill packs created.** `ai/packs/website.md`, `webapp.md`, `game.md` injected into system prompt per project type via `ai/packs/index.ts`.
-
-**CubeLoader overlay + elapsed timer.** Preview shows 3D spinning cube with white background while AI generates. Chat shows "Thinking..." < 60s → "Building your project..." ≥ 60s with elapsed timer.
-
-**Layout & Typography Precision rules added.** No 3-column cards, no SVG, careful type scale, color derivation rules — all in `app/api/chat/prompt.md`.
-
-**Phase 1.5 plans complete:**
-- Plan A: Unsplash key + image rules ✅
-- Plan B: Streaming file-by-file generation ✅ (async channel pattern, files appear as they're written)
-- Plan C: In-sandbox Vite allowedHosts patch ✅ (.cm-patch.cjs injected after file write, patchFile also re-applies)
-- Plan D: Preview error bridge ✅ (onerror+postMessage injected into index.html, state.ts + preview.tsx wired)
-
-**Multi-model routing active:**
-- New projects → Claude Sonnet 4.6 via OpenRouter (best initial generation quality)
-- Rate-limit fallback → Gemini 3.5 Flash via OpenRouter (same OPENROUTER_API_KEY)
-- Edits/chat/iterations → DeepSeek V4 Flash via CF gateway (auto-cached, 99% hit rate)
-- Prompt caching: Sonnet top-level `cache_control` injected in gateway.ts custom fetch → OpenRouter forwards to Anthropic native caching
-- stepCountIs reduced 40→20, strict prompt rules ban vite.config patchFile + self-check reads
 
 ---
 

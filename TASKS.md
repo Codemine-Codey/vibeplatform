@@ -171,6 +171,50 @@ Research: github.com/dontriskit/awesome-ai-system-prompts (Lovable, v0, same.new
 
 ---
 
+## PHASE 1.6 — Speed Optimizations ✅ COMPLETE (2026-06-06)
+
+Research-backed speed improvements reducing total generation time ~35-50s:
+
+### #1 — DeepSeek KV prompt caching ✅
+- [x] Reordered systemPrompt: base prompt → skill pack (stable) → brief (dynamic last)
+- [x] Removes ~2s cache miss penalty on steps 2-20 of the agentic loop
+
+### #2 — Sandbox pre-warming (parallel with expandPrompt) ✅
+- [x] `route.ts`: `Promise.all([expandPrompt(...), Sandbox.create(...)])` — expander + sandbox creation run simultaneously
+- [x] `create-sandbox.ts`: accepts `prewarmSandboxId` — uses pre-warmed sandbox, falls back to fresh creation
+- [x] `tools/index.ts`: `prewarmSandboxId` threaded through Params → createSandbox
+- [x] Net savings: ~6-8s on "Initializing Codemine" wait
+
+### #3 — Intent classifier overhaul ✅
+- [x] `classifier.ts`: explicit intent taxonomy (Build / Vague / Not-a-build)
+- [x] Greetings, chitchat, questions all handled — never starts building from "hey"
+
+### #4 — Prompt cache ordering ✅ (same as #1)
+
+### #5 — Base project scaffold ✅
+- [x] `ai/tools/scaffold.ts`: 8 pre-written files (package.json, vite.config.ts, tailwind, tsconfig ×3, postcss, .npmrc)
+- [x] `create-sandbox.ts`: writes scaffold to sandbox after creation (before AI generates files)
+- [x] `prompt.md`: scaffold section tells AI not to regenerate these 8 files
+
+### #6 — Parallel tool calls ✅
+- [x] `prompt.md` WORKFLOW step 2: explicit instruction to emit createSandbox + getUnsplashBatch in same response (parallel)
+
+### #7 — pnpm offline cache / background install ✅
+- [x] `create-sandbox.ts`: starts `pnpm install` as detached background process immediately after scaffold write
+- [x] `.npmrc` scaffold includes `prefer-offline=true, shamefully-hoist=true`
+- [x] By the time AI calls `pnpm install`, background install is 70-100% done → pnpm install step goes from ~60s → ~5-15s
+
+### #8 — getUnsplashBatch parallel image fetching ✅
+- [x] `ai/tools/get-unsplash-batch.ts`: all images fetch in parallel via `Promise.all` (was sequential)
+- [x] Tools index + prompt updated
+
+### #9 — Two-pass generation (planProject tool) ✅
+- [x] `ai/tools/plan-project.ts`: AI commits to complete file list + extra packages before writing code
+- [x] `prompt.md` WORKFLOW: planProject called between getUnsplashBatch and generateFiles
+- [x] Forces AI to think through full architecture before coding → fewer missing-import errors
+
+---
+
 ## PHASE 2 — Cloudflare Pages Deployment [ ]
 
 - [ ] lib/cloudflare.ts

@@ -1,6 +1,7 @@
 import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import type { DataPart } from '../messages/data-parts'
 import { Sandbox } from '@vercel/sandbox'
+import { SCAFFOLD_FILES } from './scaffold'
 import { getRichError } from './get-rich-error'
 import { tool } from 'ai'
 import description from './create-sandbox.md'
@@ -8,11 +9,13 @@ import z from 'zod/v3'
 
 interface Params {
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
+  // Pre-warmed sandbox created in parallel with expandPrompt — null if not available.
+  prewarmSandboxId?: string | null
 }
 
-export const createSandbox = ({ writer }: Params) => {
+export const createSandbox = ({ writer, prewarmSandboxId }: Params) => {
   // Hard guard: one sandbox per agent invocation (per HTTP request).
-  // Prevents Sonnet/other models from calling this tool multiple times.
+  // Prevents any model from calling this tool multiple times.
   let sandboxCreated = false
 
   return tool({
@@ -38,7 +41,7 @@ export const createSandbox = ({ writer }: Params) => {
       if (sandboxCreated) {
         return (
           'DUPLICATE_CALL_BLOCKED: Workspace is already initialized for this session. ' +
-          'Do NOT call createSandbox again. Proceed directly to getUnsplash and generateFiles.'
+          'Do NOT call createSandbox again. Proceed directly to getUnsplashBatch, planProject, and generateFiles.'
         )
       }
       sandboxCreated = true
@@ -49,20 +52,53 @@ export const createSandbox = ({ writer }: Params) => {
       })
 
       try {
-        const sandbox = await Sandbox.create({
-          timeout: timeout ?? 600000,
-          ports,
-        })
+        let sandbox: Sandbox
+        let sandboxId: string
+
+        if (prewarmSandboxId) {
+          // Use the sandbox created in parallel with expandPrompt — saves ~8s
+          try {
+            sandbox = await Sandbox.get({ sandboxId: prewarmSandboxId })
+            sandboxId = prewarmSandboxId
+          } catch {
+            // Prewarm sandbox died (rare) — fall back to fresh creation
+            sandbox = await Sandbox.create({ timeout: timeout ?? 600000, ports })
+            sandboxId = sandbox.sandboxId
+          }
+        } else {
+          sandbox = await Sandbox.create({ timeout: timeout ?? 600000, ports })
+          sandboxId = sandbox.sandboxId
+        }
+
+        // Write base scaffold files (package.json, vite.config.ts, tailwind, tsconfig, etc.)
+        // then start pnpm install in background — it runs while the AI generates file contents,
+        // so by the time the AI calls `pnpm install`, most packages are already installed.
+        try {
+          await sandbox.writeFiles(
+            SCAFFOLD_FILES.map((f) => ({
+              path: f.path,
+              content: Buffer.from(f.content, 'utf8'),
+            }))
+          )
+          sandbox
+            .runCommand({ detached: true, cmd: 'pnpm', args: ['install'] })
+            .then((cmd) => cmd.wait())
+            .catch(() => {})
+        } catch {
+          // Non-fatal — scaffold failure just means AI generates boilerplate files normally
+        }
 
         writer.write({
           id: toolCallId,
           type: 'data-create-sandbox',
-          data: { sandboxId: sandbox.sandboxId, status: 'done' },
+          data: { sandboxId, status: 'done' },
         })
 
         return (
-          `Sandbox created with ID: ${sandbox.sandboxId}.` +
-          `\nYou can now upload files, run commands, and access services on the exposed ports.`
+          `Sandbox created with ID: ${sandboxId}.\n` +
+          `Base scaffold pre-written (package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig files, .npmrc). ` +
+          `pnpm install is running in the background.\n` +
+          `You can now call getUnsplashBatch, planProject, then generateFiles — skip scaffold files in your paths list.`
         )
       } catch (error) {
         const richError = getRichError({

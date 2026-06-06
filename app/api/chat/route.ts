@@ -10,6 +10,7 @@ import { DEFAULT_MODEL, FILE_GENERATION_MODEL } from '@/ai/constants'
 import { NextResponse } from 'next/server'
 import { getModelOptions } from '@/ai/gateway'
 import { checkBotId } from 'botid/server'
+import { Sandbox } from '@vercel/sandbox'
 import { tools } from '@/ai/tools'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
@@ -55,6 +56,7 @@ export async function POST(req: Request) {
       originalMessages: messages,
       execute: async ({ writer }) => {
         let systemPrompt = prompt
+        let prewarmSandboxId: string | null = null
 
         // Run prompt expansion on new project turns only (no sandbox yet)
         if (!hasActiveSandbox(messages)) {
@@ -63,7 +65,17 @@ export async function POST(req: Request) {
             try {
               const { skill, clarify } = await classifyPrompt(userText)
               if (!clarify && skill) {
-                const brief = await expandPrompt(userText, skill)
+                // Run expander AND sandbox creation in parallel (#2 — prewarm).
+                // Sandbox takes ~8s; expander takes ~2s. Starting them together
+                // means by the time streamText begins, the sandbox is already up.
+                const [brief, prewarm] = await Promise.all([
+                  expandPrompt(userText, skill),
+                  Sandbox.create({ timeout: 600000, ports: [3000] })
+                    .then((s) => s.sandboxId)
+                    .catch(() => null),
+                ])
+                prewarmSandboxId = prewarm
+
                 // Cache-optimal order: stable content first, dynamic brief last.
                 // DeepSeek KV cache prefix-matches from the start — putting the
                 // brief at the end means the large stable block (~10k tokens) is
@@ -109,7 +121,7 @@ export async function POST(req: Request) {
           ),
           stopWhen: stepCountIs(20),
           maxOutputTokens: 4000,
-          tools: tools({ modelId: FILE_GENERATION_MODEL, writer }),
+          tools: tools({ modelId: FILE_GENERATION_MODEL, writer, prewarmSandboxId }),
           onError: (error) => {
             console.error('Error communicating with AI')
             console.error(JSON.stringify(error, null, 2))
