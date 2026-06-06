@@ -6,9 +6,14 @@ import {
   stepCountIs,
   streamText,
 } from 'ai'
-import { DEFAULT_MODEL } from '@/ai/constants'
+import { FILE_GENERATION_MODEL } from '@/ai/constants'
 import { NextResponse } from 'next/server'
-import { getModelOptions } from '@/ai/gateway'
+import {
+  getFallbackModel,
+  getIterationModel,
+  getOrchestrationModel,
+  isRateLimitError,
+} from '@/ai/gateway'
 import { checkBotId } from 'botid/server'
 import { tools } from '@/ai/tools'
 import { classifyPrompt } from '@/ai/classifier'
@@ -17,7 +22,6 @@ import { formatBrief } from '@/ai/types/project-brief'
 import { getSkillPack } from '@/ai/packs'
 import prompt from './prompt.md'
 
-// Allow up to 300s (Vercel Pro max) for long generations
 export const maxDuration = 300
 
 interface BodyData {
@@ -55,10 +59,12 @@ export async function POST(req: Request) {
     stream: createUIMessageStream({
       originalMessages: messages,
       execute: async ({ writer }) => {
+        const isNewProject = !hasActiveSandbox(messages)
+
+        // ── System prompt (with optional brief injection for new projects) ──
         let systemPrompt = prompt
 
-        // Run prompt expansion on new project turns only (no sandbox yet)
-        if (!hasActiveSandbox(messages)) {
+        if (isNewProject) {
           const userText = getLastUserText(messages)
           if (userText) {
             try {
@@ -80,44 +86,67 @@ export async function POST(req: Request) {
           }
         }
 
-        const result = streamText({
-          ...getModelOptions(DEFAULT_MODEL),
-          system: systemPrompt,
-          messages: await convertToModelMessages(
-            messages.map((message) => {
-              message.parts = message.parts.map((part) => {
-                if (part.type === 'data-report-errors') {
-                  return {
-                    type: 'text',
-                    text:
-                      `There are errors in the generated code. This is the summary of the errors we have:\n` +
-                      `\`\`\`${part.data.summary}\`\`\`\n` +
-                      (part.data.paths?.length
-                        ? `The following files may contain errors:\n` +
-                          `\`\`\`${part.data.paths?.join('\n')}\`\`\`\n`
-                        : '') +
-                      `Fix the errors reported.`,
-                  }
+        // ── Convert messages ────────────────────────────────────────────────
+        const convertedMessages = await convertToModelMessages(
+          messages.map((message) => {
+            message.parts = message.parts.map((part) => {
+              if (part.type === 'data-report-errors') {
+                return {
+                  type: 'text',
+                  text:
+                    `There are errors in the generated code. This is the summary of the errors we have:\n` +
+                    `\`\`\`${part.data.summary}\`\`\`\n` +
+                    (part.data.paths?.length
+                      ? `The following files may contain errors:\n` +
+                        `\`\`\`${part.data.paths?.join('\n')}\`\`\`\n`
+                      : '') +
+                    `Fix the errors reported.`,
                 }
-                return part
-              })
-              return message
+              }
+              return part
             })
-          ),
-          stopWhen: stepCountIs(20),
-          tools: tools({ modelId: DEFAULT_MODEL, writer }),
-          onError: (error) => {
-            console.error('Error communicating with AI')
-            console.error(JSON.stringify(error, null, 2))
-          },
-        })
-        result.consumeStream()
-        writer.merge(
-          result.toUIMessageStream({
-            sendReasoning: false,
-            sendStart: false,
+            return message
           })
         )
+
+        // ── Model selection ─────────────────────────────────────────────────
+        // New project → Sonnet 4.6 (best quality, fewer repair loops)
+        // Existing project (edit/chat) → DeepSeek Flash (fast, cheap)
+        const primaryModel = isNewProject ? getOrchestrationModel() : getIterationModel()
+        const fallbackModel = isNewProject ? getFallbackModel() : null
+
+        const streamOpts = {
+          system: systemPrompt,
+          messages: convertedMessages,
+          stopWhen: stepCountIs(20),
+          tools: tools({ modelId: FILE_GENERATION_MODEL, writer }),
+        } as const
+
+        // ── Stream with automatic rate-limit fallback ───────────────────────
+        let fallbackTriggered = false
+
+        const result = streamText({
+          ...streamOpts,
+          ...primaryModel,
+          onError: ({ error }) => {
+            if (fallbackModel && !fallbackTriggered && isRateLimitError(error)) {
+              fallbackTriggered = true
+              console.warn('[chat] Primary model rate-limited — switching to fallback')
+              const fallback = streamText({
+                ...streamOpts,
+                ...fallbackModel,
+                onError: (e) => console.error('[chat] Fallback model error:', e.error),
+              })
+              fallback.consumeStream()
+              writer.merge(fallback.toUIMessageStream({ sendReasoning: false, sendStart: false }))
+            } else {
+              console.error('[chat] Stream error:', error)
+            }
+          },
+        })
+
+        result.consumeStream()
+        writer.merge(result.toUIMessageStream({ sendReasoning: false, sendStart: false }))
       },
     }),
   })

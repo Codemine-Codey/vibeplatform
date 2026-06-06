@@ -1,16 +1,29 @@
-// Orchestration model — DeepSeek v4 Pro via direct API
-export const DEFAULT_MODEL = 'deepseek-v4-pro'
+// Initial generation (new project) — Claude Sonnet 4.6
+export const ORCHESTRATION_MODEL = 'claude-sonnet-4-6'
 
-// File generation model — cheaper + faster, used for nested file generation calls
+// Rate-limit fallback for initial generation — Gemini 3.5 Flash
+export const FALLBACK_MODEL = 'gemini-3.5-flash'
+
+// Iterations, chat, edits, error analysis — DeepSeek V4 Flash
+export const ITERATION_MODEL = 'deepseek-v4-flash'
+
+// Nested file content generation — DeepSeek V4 Flash (fast, cheap)
 export const FILE_GENERATION_MODEL = 'deepseek-v4-flash'
 
-// Only one model exposed — users do not pick the model
-export const SUPPORTED_MODELS: string[] = [DEFAULT_MODEL]
+// Classifier + expander (pre-generation pipeline) — DeepSeek V4 Flash
+export const PIPELINE_MODEL = 'deepseek-v4-flash'
+
+// Only one model exposed in UI — users never pick a model
+export const SUPPORTED_MODELS: string[] = [ORCHESTRATION_MODEL]
 
 export const MODEL_NAMES: Record<string, string> = {
-  [DEFAULT_MODEL]: 'Builder',
-  [FILE_GENERATION_MODEL]: 'Builder',
+  [ORCHESTRATION_MODEL]: 'Builder',
+  [FALLBACK_MODEL]: 'Builder',
+  [ITERATION_MODEL]: 'Builder',
 }
+
+// Backwards-compat alias used by settings + any remaining references
+export const DEFAULT_MODEL = ORCHESTRATION_MODEL
 
 export const TEST_PROMPTS = [
   'Build a landing page for a Japanese sushi restaurant called Sakura',
