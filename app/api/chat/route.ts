@@ -119,6 +119,7 @@ export async function POST(req: Request) {
           system: systemPrompt,
           messages: convertedMessages,
           stopWhen: stepCountIs(20),
+          maxOutputTokens: 4000,
           tools: tools({ modelId: FILE_GENERATION_MODEL, writer }),
         } as const
 

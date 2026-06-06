@@ -12,7 +12,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Message } from '@/components/chat/message'
 import { Panel, PanelHeader } from '@/components/panels/panels'
-import { Settings } from '@/components/settings/settings'
 import { cn } from '@/lib/utils'
 import { useLocalStorageValue } from '@/lib/use-local-storage-value'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -181,7 +180,6 @@ export function Chat({ className }: Props) {
           </div>
         )}
 
-        <Settings />
         <Input
           className="w-full font-mono text-sm rounded-sm border-0 bg-background"
           disabled={isWorking}
