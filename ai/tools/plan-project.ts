@@ -5,7 +5,8 @@ export const planProject = () =>
   tool({
     description:
       'Commit to the complete project architecture before generating any files. ' +
-      'Call this after getUnsplashBatch and before generateFiles. ' +
+      'Only call this for NEW project generation — never during edits to an existing project. ' +
+      'Call this after getUnsplashBatch (or createSandbox for image-free projects) and before generateFiles. ' +
       'The file list in the plan is final — generateFiles must use exactly these paths.',
     inputSchema: z.object({
       files: z

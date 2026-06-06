@@ -66,7 +66,7 @@ export async function* getContents(
         },
       }),
     },
-    stopWhen: stepCountIs(params.paths.length + 2),
+    stopWhen: stepCountIs(params.paths.length + 5),
   }).then(
     () => push(null),
     (err) => {

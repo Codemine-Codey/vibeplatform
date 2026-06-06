@@ -83,6 +83,7 @@ export const createSandbox = ({ writer, sandboxPrewarmPromise }: Params) => {
         // Write base scaffold files (package.json, vite.config.ts, tailwind, tsconfig, etc.)
         // then start pnpm install in background — it runs while the AI generates file contents,
         // so by the time the AI calls `pnpm install`, most packages are already installed.
+        let scaffoldOk = false
         try {
           await sandbox.writeFiles(
             SCAFFOLD_FILES.map((f) => ({
@@ -90,12 +91,13 @@ export const createSandbox = ({ writer, sandboxPrewarmPromise }: Params) => {
               content: Buffer.from(f.content, 'utf8'),
             }))
           )
+          scaffoldOk = true
           sandbox
             .runCommand({ detached: true, cmd: 'pnpm', args: ['install'] })
             .then((cmd) => cmd.wait())
             .catch(() => {})
         } catch {
-          // Non-fatal — scaffold failure just means AI generates boilerplate files normally
+          // Non-fatal — scaffold failure means AI must generate boilerplate files itself
         }
 
         writer.write({
@@ -104,11 +106,21 @@ export const createSandbox = ({ writer, sandboxPrewarmPromise }: Params) => {
           data: { sandboxId, status: 'done' },
         })
 
+        if (scaffoldOk) {
+          return (
+            `Sandbox created with ID: ${sandboxId}.\n` +
+            `Base scaffold pre-written (package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig.json, tsconfig.app.json, tsconfig.node.json, .npmrc). ` +
+            `pnpm install is running in the background.\n` +
+            `Skip these 8 scaffold files in your generateFiles paths list — only generate app-specific files.`
+          )
+        }
+
+        // Scaffold failed — tell the AI it must generate everything
         return (
           `Sandbox created with ID: ${sandboxId}.\n` +
-          `Base scaffold pre-written (package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig files, .npmrc). ` +
-          `pnpm install is running in the background.\n` +
-          `You can now call getUnsplashBatch, planProject, then generateFiles — skip scaffold files in your paths list.`
+          `WARNING: Base scaffold could not be written. You MUST generate ALL files including: ` +
+          `package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig.json, tsconfig.app.json, tsconfig.node.json, .npmrc, ` +
+          `index.html, src/main.tsx, src/index.css, and all app-specific files.`
         )
       } catch (error) {
         const richError = getRichError({

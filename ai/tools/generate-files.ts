@@ -51,6 +51,10 @@ export const generateFiles = ({ writer, modelId }: Params) =>
       paths: z.array(z.string()),
     }),
     execute: async ({ sandboxId, paths }, { toolCallId, messages }) => {
+      if (paths.length === 0) {
+        return 'ERROR: paths list is empty. You must provide at least one file path to generate.'
+      }
+
       writer.write({
         id: toolCallId,
         type: 'data-generating-files',
