@@ -7,9 +7,10 @@ import {
 } from './constants'
 
 // ── DeepSeek (iterations, file gen, pipeline) ──────────────────────────────
-// Direct API — DeepSeek's native prompt caching operates at the model layer
-// so no proxy needed. 99% of repeated prefixes (system + tools) are cached
-// automatically on DeepSeek's side without any extra configuration.
+// Routes through Cloudflare AI Gateway for analytics + caching visibility.
+// AI_GATEWAY_BASE_URL: set to CF gateway DeepSeek endpoint in .env.local and
+// Vercel dashboard. Falls back to DeepSeek direct if env var is unset.
+// DeepSeek's native KV prompt caching is automatic regardless of proxy.
 
 if (!process.env.DEEPSEEK_API_KEY) {
   throw new Error(
@@ -18,7 +19,7 @@ if (!process.env.DEEPSEEK_API_KEY) {
 }
 
 const deepseekProvider = createOpenAI({
-  baseURL: 'https://api.deepseek.com/v1',
+  baseURL: process.env.AI_GATEWAY_BASE_URL ?? 'https://api.deepseek.com/v1',
   apiKey: process.env.DEEPSEEK_API_KEY,
 })
 
