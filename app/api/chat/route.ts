@@ -6,14 +6,9 @@ import {
   stepCountIs,
   streamText,
 } from 'ai'
-import { FILE_GENERATION_MODEL } from '@/ai/constants'
+import { DEFAULT_MODEL, FILE_GENERATION_MODEL } from '@/ai/constants'
 import { NextResponse } from 'next/server'
-import {
-  getFallbackModel,
-  getIterationModel,
-  getOrchestrationModel,
-  isRateLimitError,
-} from '@/ai/gateway'
+import { getModelOptions } from '@/ai/gateway'
 import { checkBotId } from 'botid/server'
 import { tools } from '@/ai/tools'
 import { classifyPrompt } from '@/ai/classifier'
@@ -59,12 +54,10 @@ export async function POST(req: Request) {
     stream: createUIMessageStream({
       originalMessages: messages,
       execute: async ({ writer }) => {
-        const isNewProject = !hasActiveSandbox(messages)
-
-        // ── System prompt (with optional brief injection for new projects) ──
         let systemPrompt = prompt
 
-        if (isNewProject) {
+        // Run prompt expansion on new project turns only (no sandbox yet)
+        if (!hasActiveSandbox(messages)) {
           const userText = getLastUserText(messages)
           if (userText) {
             try {
@@ -72,7 +65,9 @@ export async function POST(req: Request) {
               if (!clarify && skill) {
                 const brief = await expandPrompt(userText, skill)
                 systemPrompt =
-                  `${prompt}\n\n## PROJECT BRIEF (authoritative design spec — use this, do not ask clarifying questions)\n\n` +
+                  `${prompt}\n\n## PROJECT BRIEF\n` +
+                  `This brief was pre-analyzed from the user's prompt. Use it as the authoritative design spec.\n` +
+                  `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately start the workflow.\n\n` +
                   formatBrief(brief) +
                   `\n\n## SKILL PACK — ${skill.toUpperCase()} PATTERNS\n` +
                   `Apply these design and code patterns for this project type. These are non-negotiable quality standards.\n\n` +
@@ -84,71 +79,46 @@ export async function POST(req: Request) {
           }
         }
 
-        // ── Convert messages ────────────────────────────────────────────────
-        const convertedMessages = await convertToModelMessages(
-          messages.map((message) => {
-            message.parts = message.parts.map((part) => {
-              if (part.type === 'data-report-errors') {
-                return {
-                  type: 'text',
-                  text:
-                    `There are errors in the generated code. This is the summary of the errors we have:\n` +
-                    `\`\`\`${part.data.summary}\`\`\`\n` +
-                    (part.data.paths?.length
-                      ? `The following files may contain errors:\n` +
-                        `\`\`\`${part.data.paths?.join('\n')}\`\`\`\n`
-                      : '') +
-                    `Fix the errors reported.`,
-                }
-              }
-              return part
-            })
-            return message
-          })
-        )
-
-        // ── Model selection ─────────────────────────────────────────────────
-        // New project → Sonnet 4.6 (best quality, fewer repair loops)
-        // Existing project (edit/chat) → DeepSeek Flash (fast, cheap)
-        const primaryModel = isNewProject ? getOrchestrationModel() : getIterationModel()
-        const fallbackModel = isNewProject ? getFallbackModel() : null
-
-        const streamOpts = {
+        const result = streamText({
+          ...getModelOptions(DEFAULT_MODEL),
           system: systemPrompt,
-          messages: convertedMessages,
+          messages: await convertToModelMessages(
+            messages.map((message) => {
+              message.parts = message.parts.map((part) => {
+                if (part.type === 'data-report-errors') {
+                  return {
+                    type: 'text',
+                    text:
+                      `There are errors in the generated code. This is the summary of the errors we have:\n` +
+                      `\`\`\`${part.data.summary}\`\`\`\n` +
+                      (part.data.paths?.length
+                        ? `The following files may contain errors:\n` +
+                          `\`\`\`${part.data.paths?.join('\n')}\`\`\`\n`
+                        : '') +
+                      `Fix the errors reported.`,
+                  }
+                }
+                return part
+              })
+              return message
+            })
+          ),
           stopWhen: stepCountIs(20),
           maxOutputTokens: 4000,
           tools: tools({ modelId: FILE_GENERATION_MODEL, writer }),
-        } as const
-
-        // ── Stream with automatic fallback on any primary error ────────────
-        // Fallback activates on rate limits (429) AND any other error (model
-        // not found, network failure, etc.) — gives users a response no matter what.
-        let fallbackTriggered = false
-
-        const result = streamText({
-          ...streamOpts,
-          ...primaryModel,
-          onError: ({ error }) => {
-            if (fallbackModel && !fallbackTriggered) {
-              fallbackTriggered = true
-              const reason = isRateLimitError(error) ? 'rate-limited' : 'errored'
-              console.warn(`[chat] Primary model ${reason} — switching to fallback`)
-              const fallback = streamText({
-                ...streamOpts,
-                ...fallbackModel,
-                onError: (e) => console.error('[chat] Fallback model error:', e.error),
-              })
-              fallback.consumeStream()
-              writer.merge(fallback.toUIMessageStream({ sendReasoning: false, sendStart: false }))
-            } else {
-              console.error('[chat] Stream error (no fallback available):', error)
-            }
+          onError: (error) => {
+            console.error('Error communicating with AI')
+            console.error(JSON.stringify(error, null, 2))
           },
         })
 
         result.consumeStream()
-        writer.merge(result.toUIMessageStream({ sendReasoning: false, sendStart: false }))
+        writer.merge(
+          result.toUIMessageStream({
+            sendReasoning: false,
+            sendStart: false,
+          })
+        )
       },
     }),
   })
