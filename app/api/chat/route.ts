@@ -122,16 +122,19 @@ export async function POST(req: Request) {
           tools: tools({ modelId: FILE_GENERATION_MODEL, writer }),
         } as const
 
-        // ── Stream with automatic rate-limit fallback ───────────────────────
+        // ── Stream with automatic fallback on any primary error ────────────
+        // Fallback activates on rate limits (429) AND any other error (model
+        // not found, network failure, etc.) — gives users a response no matter what.
         let fallbackTriggered = false
 
         const result = streamText({
           ...streamOpts,
           ...primaryModel,
           onError: ({ error }) => {
-            if (fallbackModel && !fallbackTriggered && isRateLimitError(error)) {
+            if (fallbackModel && !fallbackTriggered) {
               fallbackTriggered = true
-              console.warn('[chat] Primary model rate-limited — switching to fallback')
+              const reason = isRateLimitError(error) ? 'rate-limited' : 'errored'
+              console.warn(`[chat] Primary model ${reason} — switching to fallback`)
               const fallback = streamText({
                 ...streamOpts,
                 ...fallbackModel,
@@ -140,7 +143,7 @@ export async function POST(req: Request) {
               fallback.consumeStream()
               writer.merge(fallback.toUIMessageStream({ sendReasoning: false, sendStart: false }))
             } else {
-              console.error('[chat] Stream error:', error)
+              console.error('[chat] Stream error (no fallback available):', error)
             }
           },
         })

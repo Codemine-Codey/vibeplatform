@@ -59,11 +59,10 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` known issue
 - [x] Pre-launch bug hardening (round 2): command-logs.tsx fixes, addLog upsert, fetch timeouts, "terminated" error handling, Sandbox→Codemine UI rename
 - [x] Set up Cloudflare AI Gateway — AI_GATEWAY_BASE_URL in .env.local (account 8b557a24d9314c5895645b698428ea31, gateway: codemine)
 - [x] Get Unsplash API key — UNSPLASH_ACCESS_KEY in .env.local
-- [ ] Get Cloudflare API token (Pages:Edit permission) — needed for Phase 2
-- [ ] Deploy to Vercel production (vercel --prod) — do after Plans B-D complete
+- [ ] Get Cloudflare API token (Pages:Edit + D1:Edit permissions) — needed for Phase 2
+- [ ] Deploy to Vercel production (vercel --prod)
 
-> AI Gateway: Use Cloudflare AI Gateway (free). Set AI_GATEWAY_BASE_URL env var — zero code changes needed.
-> OIDC token expires — re-run `vercel env pull .env.local --yes` then re-add DEEPSEEK_API_KEY after pulling if sandbox auth fails.
+> OIDC token expires — re-run `vercel env pull .env.local --yes` then re-add DEEPSEEK_API_KEY + OPENROUTER_API_KEY after pulling if sandbox auth fails.
 
 ---
 
@@ -117,9 +116,7 @@ Research: github.com/dontriskit/awesome-ai-system-prompts (Lovable, v0, same.new
 
 ---
 
-## PHASE 1.5 — Quality & Reliability Improvements [~]
-
-These are approved and partially implemented. Complete before Phase 2.
+## PHASE 1.5 — Quality & Reliability Improvements ✅ COMPLETE
 
 ### Platform rename & identity
 - [x] Rename platform to Codemine everywhere (UI, prompts, metadata, package.json, storage keys)
@@ -141,20 +138,36 @@ These are approved and partially implemented. Complete before Phase 2.
 - [x] UNSPLASH_ACCESS_KEY added to .env.local
 - [x] Unsplash tool rules: one call per slot, no retry, keyword choice rules
 
-### Plan B — Streaming file-by-file generation [~]
-- [~] `get-contents.ts`: change from one-batch-at-end to async channel pattern (yield each file immediately when tool executes)
-- [ ] Test: files appear progressively in UI during long generations
+### Plan B — Streaming file-by-file generation ✅
+- [x] `get-contents.ts`: async channel pattern — yields each file immediately when tool executes
+- [x] `get-contents.ts`: push(null) on rejection — prevents infinite deadlock if generateText fails
 
-### Plan C — In-sandbox Vite allowedHosts patch [~]
-- [x] `VITE_PATCH_SCRIPT` defined in `generate-files.ts`
-- [~] Wire patch: after all files written, `sandbox.writeFiles(.cm-patch.cjs)` + `sandbox.runCommand(node .cm-patch.cjs)` + cleanup
-- [ ] Test: "Blocked request. This host is not allowed" no longer appears in any Vite config variant
+### Plan C — In-sandbox Vite allowedHosts patch ✅
+- [x] `VITE_PATCH_SCRIPT` defined and wired in `generate-files.ts`
+- [x] After all files written: `sandbox.writeFiles(.cm-patch.cjs)` + `runCommand(node .cm-patch.cjs)` + cleanup
+- [x] `patch-file.ts`: re-applies `ensureViteAllowedHosts()` after any patchFile call on vite config
 
-### Plan D — Preview error bridge [~]
-- [~] `get-write-files.ts`: inject error bridge `<script>` into generated `index.html` (onerror + unhandledrejection + console.error → postMessage)
-- [~] `app/state.ts`: add `browserErrors: string[]` + `addBrowserError(msg)` action (synthetic stderr log on `cm-browser-console` command)
-- [~] `app/preview.tsx`: `window.addEventListener('message')` → `addBrowserError` for `cm-error` type messages
-- [ ] Test: runtime JS errors in preview are caught and sent to ErrorMonitor
+### Plan D — Preview error bridge ✅
+- [x] `get-write-files.ts`: inject `window.onerror` + `unhandledrejection` + `console.error` → `postMessage` into `index.html`
+- [x] `app/state.ts`: `addBrowserError(msg)` creates synthetic stderr log on `cm-browser-console` command
+- [x] `app/preview.tsx`: `window.addEventListener('message')` → `addBrowserError` for `cm-error` type messages
+
+### Multi-model routing ✅
+- [x] Claude Sonnet 4.6 via OpenRouter for new project generation (ORCHESTRATION_MODEL)
+- [x] Gemini 3.5 Flash via OpenRouter as rate-limit fallback (FALLBACK_MODEL)
+- [x] DeepSeek V4 Flash direct API for iterations/edits/chat (ITERATION_MODEL)
+- [x] Prompt caching: `cache_control` injected in OpenRouter fetch for Sonnet; DeepSeek native
+- [x] stepCountIs reduced 40→20 + prompt rules: no vite.config patchFile, no self-check reads
+- [x] OPENROUTER_API_KEY in .env.local
+
+### Bug hardening (production fixes) ✅
+- [x] `get-contents.ts`: push null on rejection — prevents generator deadlock on API errors
+- [x] `route.ts`: fallback triggers on ANY primary error (not just 429) — no more silent failures
+- [x] `generate-files.ts`: tool result returns paths only (not content) — ~50k token waste eliminated per generation
+- [x] `errors/route.ts`: `generateText` wrapped in try/catch — no more unhandled 500s
+- [x] CF gateway removed — DeepSeek called directly (native KV caching at API layer, no proxy needed)
+- [x] Empty message bubbles fixed (MessagePart guard: skip parts where `!part.text.trim()`)
+- [x] `patchFile` Vite protection: `ensureViteAllowedHosts()` re-applied after any vite config write
 
 ---
 

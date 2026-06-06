@@ -24,26 +24,31 @@ export async function POST(req: Request) {
 
   let output: { shouldBeFixed: boolean; summary: string; paths: string[] } | null = null
 
-  await generateText({
-    ...getModelOptions(FILE_GENERATION_MODEL),
-    system: prompt,
-    messages: [{ role: 'user', content: JSON.stringify(parsedBody.data) }],
-    tools: {
-      report_errors: tool({
-        description: 'Report the error analysis result',
-        inputSchema: z.object({
-          shouldBeFixed: z.boolean(),
-          summary: z.string(),
-          paths: z.array(z.string()),
+  try {
+    await generateText({
+      ...getModelOptions(FILE_GENERATION_MODEL),
+      system: prompt,
+      messages: [{ role: 'user', content: JSON.stringify(parsedBody.data) }],
+      tools: {
+        report_errors: tool({
+          description: 'Report the error analysis result',
+          inputSchema: z.object({
+            shouldBeFixed: z.boolean(),
+            summary: z.string(),
+            paths: z.array(z.string()),
+          }),
+          execute: async (args) => {
+            output = args
+            return 'reported'
+          },
         }),
-        execute: async (args) => {
-          output = args
-          return 'reported'
-        },
-      }),
-    },
-    stopWhen: stepCountIs(2),
-  })
+      },
+      stopWhen: stepCountIs(2),
+    })
+  } catch (err) {
+    console.error('[errors] Error analysis failed:', err)
+    return NextResponse.json({ shouldBeFixed: false, summary: '', paths: [] }, { status: 200 })
+  }
 
   if (!output) {
     return NextResponse.json(

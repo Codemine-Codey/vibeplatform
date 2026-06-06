@@ -1,17 +1,15 @@
-import { createAnthropic } from '@ai-sdk/anthropic'
-import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenAI } from '@ai-sdk/openai'
 import type { LanguageModelV3 } from '@ai-sdk/provider'
 import {
   FALLBACK_MODEL,
-  FILE_GENERATION_MODEL,
   ITERATION_MODEL,
   ORCHESTRATION_MODEL,
 } from './constants'
 
 // ── DeepSeek (iterations, file gen, pipeline) ──────────────────────────────
-// Routes through Cloudflare AI Gateway for analytics + caching.
-// AI_GATEWAY_BASE_URL: set to CF gateway DeepSeek endpoint in production.
+// Direct API — DeepSeek's native prompt caching operates at the model layer
+// so no proxy needed. 99% of repeated prefixes (system + tools) are cached
+// automatically on DeepSeek's side without any extra configuration.
 
 if (!process.env.DEEPSEEK_API_KEY) {
   throw new Error(
@@ -20,34 +18,49 @@ if (!process.env.DEEPSEEK_API_KEY) {
 }
 
 const deepseekProvider = createOpenAI({
-  baseURL: process.env.AI_GATEWAY_BASE_URL ?? 'https://api.deepseek.com/v1',
+  baseURL: 'https://api.deepseek.com/v1',
   apiKey: process.env.DEEPSEEK_API_KEY,
 })
 
-// ── Anthropic (initial generation — Claude Sonnet 4.6) ─────────────────────
-// Requires ANTHROPIC_API_KEY. If missing, falls back to DeepSeek Flash so
-// the platform stays functional while keys are being added.
+// ── OpenRouter (Sonnet 4.6 + Gemini 3.5 Flash via single key) ────────────────
+// Single billing, unified API. For Anthropic models we inject a top-level
+// cache_control field so OpenRouter forwards Anthropic's native prompt caching —
+// system prompt + tool definitions (~15k tokens) are cached across all 20 steps,
+// reducing Sonnet input cost by ~90%.
 
-const anthropicProvider = process.env.ANTHROPIC_API_KEY
-  ? createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const openRouterProvider = process.env.OPENROUTER_API_KEY
+  ? createOpenAI({
+      baseURL: 'https://openrouter.ai/api/v1',
+      apiKey: process.env.OPENROUTER_API_KEY,
+      headers: {
+        'HTTP-Referer': 'https://vibeplatform.vercel.app',
+        'X-Title': 'Codemine',
+      },
+      fetch: async (url, options) => {
+        // Inject top-level cache_control for Anthropic models:
+        // OpenRouter forwards this to Anthropic's API as native prompt caching.
+        if (options?.body && typeof options.body === 'string') {
+          try {
+            const body = JSON.parse(options.body) as Record<string, unknown>
+            if (typeof body.model === 'string' && body.model.startsWith('anthropic/')) {
+              body.cache_control = { type: 'ephemeral' }
+              return globalThis.fetch(url.toString(), {
+                ...(options as RequestInit),
+                body: JSON.stringify(body),
+              })
+            }
+          } catch {
+            // Non-fatal — send unmodified on parse failure
+          }
+        }
+        return globalThis.fetch(url.toString(), options as RequestInit)
+      },
+    })
   : null
 
-if (!anthropicProvider) {
+if (!openRouterProvider) {
   console.warn(
-    '[gateway] ANTHROPIC_API_KEY not set — initial generation will use DeepSeek Flash until added'
-  )
-}
-
-// ── Google (Gemini 3.5 Flash — rate-limit fallback) ────────────────────────
-// Requires GOOGLE_AI_API_KEY. If missing, fallback uses DeepSeek Flash.
-
-const googleProvider = process.env.GOOGLE_AI_API_KEY
-  ? createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_AI_API_KEY })
-  : null
-
-if (!googleProvider) {
-  console.warn(
-    '[gateway] GOOGLE_AI_API_KEY not set — Gemini fallback will use DeepSeek Flash until added'
+    '[gateway] OPENROUTER_API_KEY not set — initial generation will use DeepSeek Flash until added'
   )
 }
 
@@ -59,16 +72,17 @@ export interface ModelOptions {
 
 /** Claude Sonnet 4.6 for new project generation. Falls back to DeepSeek Flash if key missing. */
 export function getOrchestrationModel(): ModelOptions {
-  if (anthropicProvider) {
-    return { model: anthropicProvider(ORCHESTRATION_MODEL) as unknown as LanguageModelV3 }
+  if (openRouterProvider) {
+    // OpenRouter model ID format: provider/model-id
+    return { model: openRouterProvider(`anthropic/${ORCHESTRATION_MODEL}`) as unknown as LanguageModelV3 }
   }
   return { model: deepseekProvider.chat(ITERATION_MODEL) }
 }
 
 /** Gemini 3.5 Flash for rate-limit fallback. Falls back to DeepSeek Flash if key missing. */
 export function getFallbackModel(): ModelOptions {
-  if (googleProvider) {
-    return { model: googleProvider(FALLBACK_MODEL) as unknown as LanguageModelV3 }
+  if (openRouterProvider) {
+    return { model: openRouterProvider(`google/${FALLBACK_MODEL}`) as unknown as LanguageModelV3 }
   }
   return { model: deepseekProvider.chat(ITERATION_MODEL) }
 }
@@ -83,11 +97,9 @@ export function getModelOptions(modelId: string): ModelOptions {
   return { model: deepseekProvider.chat(modelId) }
 }
 
-/** True if the Anthropic key is present and Sonnet will be used. */
-export const hasSonnet = !!anthropicProvider
-
-/** True if the Google key is present and Gemini fallback is active. */
-export const hasGeminiFallback = !!googleProvider
+/** True if the OpenRouter key is present (Sonnet + Gemini are available). */
+export const hasSonnet = !!openRouterProvider
+export const hasGeminiFallback = !!openRouterProvider
 
 /** Detect a rate-limit error from any provider (HTTP 429). */
 export function isRateLimitError(err: unknown): boolean {
@@ -95,5 +107,10 @@ export function isRateLimitError(err: unknown): boolean {
   const e = err as Record<string, unknown>
   if (e.status === 429 || e.statusCode === 429) return true
   const msg = String(e.message ?? e.toString?.() ?? '').toLowerCase()
-  return msg.includes('rate_limit') || msg.includes('rate limit') || msg.includes('429') || msg.includes('too many requests')
+  return (
+    msg.includes('rate_limit') ||
+    msg.includes('rate limit') ||
+    msg.includes('429') ||
+    msg.includes('too many requests')
+  )
 }

@@ -67,7 +67,14 @@ export async function* getContents(
       }),
     },
     stopWhen: stepCountIs(params.paths.length + 2),
-  }).then(() => push(null))
+  }).then(
+    () => push(null),
+    (err) => {
+      // Always unblock the consumer even on failure — prevents infinite hang
+      push(null)
+      return Promise.reject(err)
+    }
+  )
 
   while (true) {
     if (queue.length === 0) {

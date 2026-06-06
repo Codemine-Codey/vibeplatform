@@ -26,11 +26,18 @@
 
 **Layout & Typography Precision rules added.** No 3-column cards, no SVG, careful type scale, color derivation rules — all in `app/api/chat/prompt.md`.
 
-**Plans A–D in progress (Plan A done, B–D being implemented):**
+**Phase 1.5 plans complete:**
 - Plan A: Unsplash key + image rules ✅
-- Plan B: Streaming file-by-file generation (in progress)
-- Plan C: In-sandbox Vite allowedHosts patch after file write (in progress)
-- Plan D: Preview error bridge via postMessage (in progress)
+- Plan B: Streaming file-by-file generation ✅ (async channel pattern, files appear as they're written)
+- Plan C: In-sandbox Vite allowedHosts patch ✅ (.cm-patch.cjs injected after file write, patchFile also re-applies)
+- Plan D: Preview error bridge ✅ (onerror+postMessage injected into index.html, state.ts + preview.tsx wired)
+
+**Multi-model routing active:**
+- New projects → Claude Sonnet 4.6 via OpenRouter (best initial generation quality)
+- Rate-limit fallback → Gemini 3.5 Flash via OpenRouter (same OPENROUTER_API_KEY)
+- Edits/chat/iterations → DeepSeek V4 Flash via CF gateway (auto-cached, 99% hit rate)
+- Prompt caching: Sonnet top-level `cache_control` injected in gateway.ts custom fetch → OpenRouter forwards to Anthropic native caching
+- stepCountIs reduced 40→20, strict prompt rules ban vite.config patchFile + self-check reads
 
 ---
 
@@ -69,10 +76,12 @@ This pattern:
 | Layer | Technology | Notes |
 |---|---|---|
 | Platform host | Vercel (Next.js 16, App Router, Turbopack) | |
-| AI — orchestration | DeepSeek v4 Pro | Direct API, `.chat()` forces Chat Completions |
-| AI — file generation | DeepSeek v4 Flash | Used in `get-contents.ts` nested call |
-| AI — error analysis | DeepSeek v4 Flash | Used in `errors/route.ts` |
-| AI SDK | Vercel AI SDK v6 (`ai@6.0.105`) | `@ai-sdk/openai@3.0.37` |
+| AI — orchestration | Claude Sonnet 4.6 via OpenRouter | New projects; top-level cache_control injected |
+| AI — rate-limit fallback | Gemini 3.5 Flash via OpenRouter | Same OPENROUTER_API_KEY |
+| AI — iterations/edits | DeepSeek V4 Flash | Direct API, native prompt caching |
+| AI — file generation | DeepSeek V4 Flash | Nested call in `get-contents.ts` |
+| AI — error analysis | DeepSeek V4 Flash | `errors/route.ts` |
+| AI SDK | Vercel AI SDK v6 (`ai@6.0.105`) | `@ai-sdk/openai@3.0.37`, `@ai-sdk/anthropic@3.0.81`, `@ai-sdk/google@3.0.80` |
 | Sandboxes | Vercel Sandbox (Firecracker microVMs) | One per project, VERCEL_OIDC_TOKEN auth |
 | User app deploy | Cloudflare Pages API | Phase 2 — not yet implemented |
 | Images | Unsplash Source API | Phase 1 — not yet implemented |
@@ -257,19 +266,18 @@ User message
 ## Environment Variables
 
 ```bash
-# Required now (local dev)
-DEEPSEEK_API_KEY=sk-572709e50fb64ea098717ec5e6d25d22
-VERCEL_OIDC_TOKEN=<from vercel env pull>
+# Required — AI models
+DEEPSEEK_API_KEY=             # DeepSeek direct API (iterations/edits/file gen)
+OPENROUTER_API_KEY=           # OpenRouter — routes Sonnet 4.6 + Gemini 3.5 Flash
 
-# Required for Phase 2 (Cloudflare deploy)
-CF_ACCOUNT_ID=
-CF_API_TOKEN=                 # needs Pages:Edit permission
+# Required — sandbox auth
+VERCEL_OIDC_TOKEN=            # from: vercel env pull .env.local --yes
 
-# Required for Phase 1 (images)
+# Required — images
 UNSPLASH_ACCESS_KEY=          # free tier, 50 req/hr
 
-# Production only (AI Gateway at launch)
-AI_GATEWAY_BASE_URL=          # set in Vercel dashboard, zero code changes needed
+# Required for Phase 2 (Cloudflare Pages deploy)
+CF_API_TOKEN=                 # needs Pages:Edit + D1:Edit permissions
 ```
 
 ---

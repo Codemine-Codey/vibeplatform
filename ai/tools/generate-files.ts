@@ -150,11 +150,9 @@ export const generateFiles = ({ writer, modelId }: Params) =>
         data: { paths: uploaded.map((file) => file.path), status: 'done' },
       })
 
-      return `Successfully generated and uploaded ${
-        uploaded.length
-      } files. Their paths and contents are as follows:
-        ${uploaded
-          .map((file) => `Path: ${file.path}\nContent: ${file.content}\n`)
-          .join('\n')}`
+      // Return only file paths — NOT content. Returning content here would add
+      // 30–80k tokens to every step's tool result, with zero benefit (the model
+      // already knows what it generated and uses readFile for subsequent edits).
+      return `Successfully generated and uploaded ${uploaded.length} files:\n${uploaded.map((f) => f.path).join('\n')}`
     },
   })
