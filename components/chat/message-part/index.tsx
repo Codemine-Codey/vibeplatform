@@ -33,6 +33,7 @@ export const MessagePart = memo(function MessagePart({
   } else if (part.type === 'data-report-errors') {
     return <ReportErrors message={part.data} />
   } else if (part.type === 'text') {
+    if (!part.text.trim()) return null
     return <Text part={part} />
   }
   return null

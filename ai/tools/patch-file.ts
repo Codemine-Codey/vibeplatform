@@ -2,6 +2,22 @@ import { Sandbox } from '@vercel/sandbox'
 import { tool } from 'ai'
 import z from 'zod/v3'
 
+const VITE_CONFIG_NAMES = new Set(['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs'])
+
+// Re-applies allowedHosts after any patchFile call on a vite config.
+// Prevents the AI from accidentally removing our host security bypass.
+function ensureViteAllowedHosts(content: string): string {
+  if (content.includes('allowedHosts')) return content
+  const patch = `server: { host: '0.0.0.0', allowedHosts: true, port: 3000 },`
+  if (/server\s*:/.test(content)) {
+    return content.replace(/(server\s*:\s*\{)/, `server: { host: '0.0.0.0', allowedHosts: true, port: 3000,`)
+  }
+  if (/defineConfig/.test(content)) {
+    return content.replace(/(defineConfig\s*(?:<[^>]*>)?\s*\(\s*\{)/, `$1\n  ${patch}`)
+  }
+  return content.replace(/export\s+default\s+\{/, `export default {\n  ${patch}`)
+}
+
 export const patchFile = () =>
   tool({
     description: 'Apply a targeted string replacement to a file. Use for small edits instead of regenerating the whole file. Always use readFile first to get the exact current content.',
@@ -32,7 +48,11 @@ export const patchFile = () =>
           }
         }
 
-        const updated = current.replace(oldString, newString)
+        const basename = path.split('/').pop() ?? ''
+        let updated = current.replace(oldString, newString)
+        if (VITE_CONFIG_NAMES.has(basename)) {
+          updated = ensureViteAllowedHosts(updated)
+        }
         await sandbox.writeFiles([{ path, content: Buffer.from(updated, 'utf8') }])
         return { success: true, path, message: `Patched ${path}` }
       } catch (err) {
