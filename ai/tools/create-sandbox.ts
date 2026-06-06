@@ -9,11 +9,13 @@ import z from 'zod/v3'
 
 interface Params {
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
-  // Pre-warmed sandbox created in parallel with expandPrompt — null if not available.
-  prewarmSandboxId?: string | null
+  // Promise for a sandbox started in the background from route.ts.
+  // Passed as a Promise (not awaited) so streamText can start immediately.
+  // By the time the AI calls this tool (~10-20s later), the sandbox is ready.
+  sandboxPrewarmPromise?: Promise<string | null> | null
 }
 
-export const createSandbox = ({ writer, prewarmSandboxId }: Params) => {
+export const createSandbox = ({ writer, sandboxPrewarmPromise }: Params) => {
   // Hard guard: one sandbox per agent invocation (per HTTP request).
   // Prevents any model from calling this tool multiple times.
   let sandboxCreated = false
@@ -55,13 +57,21 @@ export const createSandbox = ({ writer, prewarmSandboxId }: Params) => {
         let sandbox: Sandbox
         let sandboxId: string
 
-        if (prewarmSandboxId) {
-          // Use the sandbox created in parallel with expandPrompt — saves ~8s
-          try {
-            sandbox = await Sandbox.get({ sandboxId: prewarmSandboxId })
-            sandboxId = prewarmSandboxId
-          } catch {
-            // Prewarm sandbox died (rare) — fall back to fresh creation
+        if (sandboxPrewarmPromise) {
+          // Await the background sandbox started in route.ts.
+          // By now ~10-20s have passed since it was fired — likely already done.
+          const prewarmedId = await sandboxPrewarmPromise
+          if (prewarmedId) {
+            try {
+              sandbox = await Sandbox.get({ sandboxId: prewarmedId })
+              sandboxId = prewarmedId
+            } catch {
+              // Prewarm sandbox died (rare) — fall back to fresh creation
+              sandbox = await Sandbox.create({ timeout: timeout ?? 600000, ports })
+              sandboxId = sandbox.sandboxId
+            }
+          } else {
+            // Prewarm failed silently — create fresh
             sandbox = await Sandbox.create({ timeout: timeout ?? 600000, ports })
             sandboxId = sandbox.sandboxId
           }

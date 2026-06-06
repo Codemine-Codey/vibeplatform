@@ -56,7 +56,7 @@ export async function POST(req: Request) {
       originalMessages: messages,
       execute: async ({ writer }) => {
         let systemPrompt = prompt
-        let prewarmSandboxId: string | null = null
+        let sandboxPrewarmPromise: Promise<string | null> | null = null
 
         // Run prompt expansion on new project turns only (no sandbox yet)
         if (!hasActiveSandbox(messages)) {
@@ -65,16 +65,16 @@ export async function POST(req: Request) {
             try {
               const { skill, clarify } = await classifyPrompt(userText)
               if (!clarify && skill) {
-                // Run expander AND sandbox creation in parallel (#2 — prewarm).
-                // Sandbox takes ~8s; expander takes ~2s. Starting them together
-                // means by the time streamText begins, the sandbox is already up.
-                const [brief, prewarm] = await Promise.all([
-                  expandPrompt(userText, skill),
-                  Sandbox.create({ timeout: 600000, ports: [3000] })
-                    .then((s) => s.sandboxId)
-                    .catch(() => null),
-                ])
-                prewarmSandboxId = prewarm
+                // Fire sandbox creation in background — do NOT await it here.
+                // streamText starts after only the expander (~2s), so the
+                // acknowledgment message appears quickly (<5s). The sandbox
+                // Promise is awaited inside createSandbox tool execute(), by
+                // which point ~10-20s have passed and it's already ready.
+                sandboxPrewarmPromise = Sandbox.create({ timeout: 600000, ports: [3000] })
+                  .then((s) => s.sandboxId)
+                  .catch(() => null)
+
+                const brief = await expandPrompt(userText, skill)
 
                 // Cache-optimal order: stable content first, dynamic brief last.
                 // DeepSeek KV cache prefix-matches from the start — putting the
@@ -119,9 +119,9 @@ export async function POST(req: Request) {
               return message
             })
           ),
-          stopWhen: stepCountIs(20),
-          maxOutputTokens: 4000,
-          tools: tools({ modelId: FILE_GENERATION_MODEL, writer, prewarmSandboxId }),
+          stopWhen: stepCountIs(30),
+          maxOutputTokens: 8000,
+          tools: tools({ modelId: FILE_GENERATION_MODEL, writer, sandboxPrewarmPromise }),
           onError: (error) => {
             console.error('Error communicating with AI')
             console.error(JSON.stringify(error, null, 2))

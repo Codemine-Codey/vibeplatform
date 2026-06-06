@@ -13,13 +13,14 @@ import { runCommand } from './run-command'
 interface Params {
   modelId: string
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
-  // Pre-warmed sandbox ID created in parallel with expandPrompt in route.ts
-  prewarmSandboxId?: string | null
+  // Promise resolving to a sandbox ID started in parallel with expandPrompt.
+  // Passed as a Promise so streamText starts immediately without blocking.
+  sandboxPrewarmPromise?: Promise<string | null> | null
 }
 
-export function tools({ modelId, writer, prewarmSandboxId }: Params) {
+export function tools({ modelId, writer, sandboxPrewarmPromise }: Params) {
   return {
-    createSandbox: createSandbox({ writer, prewarmSandboxId }),
+    createSandbox: createSandbox({ writer, sandboxPrewarmPromise }),
     generateFiles: generateFiles({ writer, modelId }),
     getSandboxURL: getSandboxURL({ writer }),
     runCommand: runCommand({ writer }),
