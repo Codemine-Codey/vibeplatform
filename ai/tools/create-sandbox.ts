@@ -10,8 +10,12 @@ interface Params {
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
 }
 
-export const createSandbox = ({ writer }: Params) =>
-  tool({
+export const createSandbox = ({ writer }: Params) => {
+  // Hard guard: one sandbox per agent invocation (per HTTP request).
+  // Prevents Sonnet/other models from calling this tool multiple times.
+  let sandboxCreated = false
+
+  return tool({
     description,
     inputSchema: z.object({
       timeout: z
@@ -31,6 +35,13 @@ export const createSandbox = ({ writer }: Params) =>
         ),
     }),
     execute: async ({ timeout, ports }, { toolCallId }) => {
+      if (sandboxCreated) {
+        return (
+          'DUPLICATE_CALL_BLOCKED: Workspace is already initialized for this session. ' +
+          'Do NOT call createSandbox again. Proceed directly to getUnsplash and generateFiles.'
+        )
+      }
+      sandboxCreated = true
       writer.write({
         id: toolCallId,
         type: 'data-create-sandbox',
@@ -79,3 +90,4 @@ export const createSandbox = ({ writer }: Params) =>
       }
     },
   })
+}

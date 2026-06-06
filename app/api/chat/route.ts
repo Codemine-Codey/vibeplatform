@@ -72,9 +72,7 @@ export async function POST(req: Request) {
               if (!clarify && skill) {
                 const brief = await expandPrompt(userText, skill)
                 systemPrompt =
-                  `${prompt}\n\n## PROJECT BRIEF\n` +
-                  `This brief was pre-analyzed from the user's prompt. Use it as the authoritative design spec.\n` +
-                  `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately start the workflow.\n\n` +
+                  `${prompt}\n\n## PROJECT BRIEF (authoritative design spec — use this, do not ask clarifying questions)\n\n` +
                   formatBrief(brief) +
                   `\n\n## SKILL PACK — ${skill.toUpperCase()} PATTERNS\n` +
                   `Apply these design and code patterns for this project type. These are non-negotiable quality standards.\n\n` +
