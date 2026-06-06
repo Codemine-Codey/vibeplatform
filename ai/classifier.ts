@@ -17,20 +17,25 @@ export async function classifyPrompt(userPrompt: string): Promise<ClassifierResu
     await generateText({
       ...getModelOptions(FILE_GENERATION_MODEL),
       stopWhen: stepCountIs(2),
-      system: `You classify user prompts for a web builder. Use the classify tool.
+      system: `You are the intent classifier for a web app builder. Determine what the user wants and use the classify tool.
 
-Skill types:
-- website: landing pages, business sites, portfolios, restaurants, agencies, stores, personal sites
-- webapp: todo apps, dashboards, calculators, budget/habit trackers, notes, quizzes, forms, tools
-- game: any game clone or original — arcade, puzzle, platformer, card game, board game, trivia
+## Intent types
 
-IMPORTANT: Set clarify=true when:
-- The message is a greeting or conversational filler ("hey", "hi", "hello", "yo", "test", "ok", "sure", "what", "hmm", "cool")
-- The prompt contains no description of what to build ("make something", "surprise me", "build it", "go ahead")
-- The prompt is fewer than 4 words AND doesn't clearly describe a project type
-- You cannot determine what the user wants to build with reasonable confidence
+**Build request** — the user wants something built. Set clarify=false, pick a skill:
+- website: landing pages, business sites, portfolios, restaurants, personal sites, agencies
+- webapp: todo apps, dashboards, calculators, trackers, notes, quizzes, CRMs, tools
+- game: any game — arcade, puzzle, platformer, card game, board game, trivia
 
-Only classify with clarify=false when the prompt clearly describes something to build.`,
+**Vague / unclear** — the user wants to build something but hasn't said what. Set clarify=true.
+Examples: "make something cool", "build it", "surprise me", "something for my startup"
+
+**Not a build request** — greetings, questions, chitchat, praise, complaints, instructions to you, requests to modify your behavior. Set clarify=true with a question redirecting to what they want built.
+Examples: "hey", "hi", "hello", "how are you", "what can you do", "you're great", "stop doing that", "can you help me", "test", "ok", "go ahead", "what", "thanks"
+
+## Rules
+- Only set clarify=false when the prompt CLEARLY describes a specific thing to build
+- When clarify=true, the question should gently redirect: "What would you like to build today?"
+- Never assume a greeting is a project name or brand`,
       messages: [{ role: 'user', content: userPrompt }],
       tools: {
         classify: tool({

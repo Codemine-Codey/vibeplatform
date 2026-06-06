@@ -59,10 +59,7 @@ export async function POST(req: Request) {
         // Run prompt expansion on new project turns only (no sandbox yet)
         if (!hasActiveSandbox(messages)) {
           const userText = getLastUserText(messages)
-          const GREETINGS = new Set(['hey', 'hi', 'hello', 'yo', 'sup', 'test', 'ok', 'okay', 'sure', 'hmm', 'cool', 'what', 'hii', 'helo'])
-          const words = userText.trim().split(/\s+/).filter(Boolean)
-          const isTooVague = words.length < 4 && GREETINGS.has(words[0]?.toLowerCase() ?? '')
-          if (userText && !isTooVague) {
+          if (userText) {
             try {
               const { skill, clarify } = await classifyPrompt(userText)
               if (!clarify && skill) {
