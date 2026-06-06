@@ -34,7 +34,7 @@ function getFallbackUrl(keyword: string): string {
 
 export const getUnsplash = () =>
   tool({
-    description: 'Get a real Unsplash photo URL for a given keyword. Call this for EVERY image in the project — never hardcode Unsplash photo IDs.',
+    description: 'Get a real contextual photo URL for a given keyword. Call this for EVERY image in the project — never hardcode photo IDs.',
     inputSchema: z.object({
       keyword: z.string()
         .describe('Descriptive search term, e.g. "specialty coffee shop interior", "modern law office", "Japanese sushi restaurant"'),

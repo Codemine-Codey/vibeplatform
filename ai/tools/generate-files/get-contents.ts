@@ -20,14 +20,28 @@ interface FileContentChunk {
   written: string[]
 }
 
-// Uses tool calling to collect structured file output — works with DeepSeek's Chat Completions API.
-// Each file is emitted as a tool call so files stream in one by one.
+// Async channel — lets us yield each file immediately as the LLM tool-calls it,
+// rather than waiting for all files to batch at the end.
+// The rAF batching in chat.tsx makes rapid-fire yields safe (no render storm).
 export async function* getContents(
   params: Params
 ): AsyncGenerator<FileContentChunk> {
-  const generated: File[] = []
+  const queue: Array<FileContentChunk | null> = []
+  let notify: (() => void) | null = null
 
-  const result = await generateText({
+  function push(item: FileContentChunk | null) {
+    queue.push(item)
+    notify?.()
+    notify = null
+  }
+
+  function waitForItem(): Promise<void> {
+    return new Promise((resolve) => {
+      notify = resolve
+    })
+  }
+
+  const genPromise = generateText({
     ...getModelOptions(FILE_GENERATION_MODEL),
     maxOutputTokens: 64000,
     system:
@@ -47,21 +61,22 @@ export async function* getContents(
           content: z.string().describe('Complete file contents as a utf8 string'),
         }),
         execute: async ({ path, content }) => {
-          const file: File = { path, content }
-          generated.push(file)
+          push({ files: [{ path, content }], paths: [path], written: [] })
           return `Wrote ${path}`
         },
       }),
     },
     stopWhen: stepCountIs(params.paths.length + 2),
-  })
+  }).then(() => push(null))
 
-  void result
-
-  // Yield all files in one batch — avoids rapid-fire stream writes that cause React update loops
-  yield {
-    files: generated,
-    paths: generated.map((f) => f.path),
-    written: [],
+  while (true) {
+    if (queue.length === 0) {
+      await waitForItem()
+    }
+    const item = queue.shift()!
+    if (item === null) break
+    yield item
   }
+
+  await genPromise
 }

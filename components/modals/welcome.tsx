@@ -48,7 +48,7 @@ export function Welcome(props: {
         >
           <div className="p-6 space-y-4 ">
             <h1 className="text-2xl sans-serif font-semibold tracking-tight mb-7">
-              VibePlatform
+              Codemine
             </h1>
             <p className="text-base text-primary">
               Describe what you want to build and your AI builder will create it — fully working and live within minutes.

@@ -1,4 +1,4 @@
-# VibePlatform — Build Tasks
+# Codemine — Build Tasks
 
 Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` known issue
 
@@ -57,10 +57,10 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` known issue
 - [x] Skill-specific system prompts: website, webapp, game — Bolt/Lovable-level detail with explicit anti-patterns
 - [x] Pre-launch bug hardening (round 1): update depth fix, error handling, cleanup, API key validation, stale closure fix
 - [x] Pre-launch bug hardening (round 2): command-logs.tsx fixes, addLog upsert, fetch timeouts, "terminated" error handling, Sandbox→Codemine UI rename
-- [ ] Set up Cloudflare AI Gateway (free, no Pro plan needed) — see CLAUDE.md for steps
-- [ ] Get Unsplash API key (free tier, 50 req/hr) — needed for Phase 1
+- [x] Set up Cloudflare AI Gateway — AI_GATEWAY_BASE_URL in .env.local (account 8b557a24d9314c5895645b698428ea31, gateway: codemine)
+- [x] Get Unsplash API key — UNSPLASH_ACCESS_KEY in .env.local
 - [ ] Get Cloudflare API token (Pages:Edit permission) — needed for Phase 2
-- [ ] Deploy to Vercel production (vercel --prod) — do after Phase 1 is stable
+- [ ] Deploy to Vercel production (vercel --prod) — do after Plans B-D complete
 
 > AI Gateway: Use Cloudflare AI Gateway (free). Set AI_GATEWAY_BASE_URL env var — zero code changes needed.
 > OIDC token expires — re-run `vercel env pull .env.local --yes` then re-add DEEPSEEK_API_KEY after pulling if sandbox auth fails.
@@ -114,6 +114,47 @@ Research: github.com/dontriskit/awesome-ai-system-prompts (Lovable, v0, same.new
 - [x] Skill rules embedded in `app/api/chat/prompt.md` — website, webapp, game each have full sections
 - [x] Classifier → skill type detected → injected into ProjectBrief → guides generation
 - [ ] Quality review: test 3 prompts per skill type (Playwright)
+
+---
+
+## PHASE 1.5 — Quality & Reliability Improvements [~]
+
+These are approved and partially implemented. Complete before Phase 2.
+
+### Platform rename & identity
+- [x] Rename platform to Codemine everywhere (UI, prompts, metadata, package.json, storage keys)
+- [x] AI never mentions DeepSeek, Gemini, Claude, ChatGPT, Unsplash, Cloudflare, Vercel
+- [x] Storage keys: `vp_` → `cm_`
+
+### UI improvements
+- [x] CubeLoader 3D spinning cube overlay on preview during generation (white background)
+- [x] Elapsed timer in chat: "Thinking..." < 60s → "Building your project..." ≥ 60s
+- [x] Cube spacing increased (gap-20 between cube and text)
+- [x] Maximum update depth fix — rAF batching in chat.tsx + error-monitor.tsx, removed experimental_throttle
+
+### Design rules
+- [x] No 3-column cards, no SVG, careful typography (max 4 type sizes, weight hierarchy), color derivation rules
+- [x] Unsplash tool: one call per slot, no retrying, no naming service, renamed "Get Image"
+- [x] Skill packs: ai/packs/website.md, webapp.md, game.md injected into system prompt
+
+### Plan A — Image quality ✅
+- [x] UNSPLASH_ACCESS_KEY added to .env.local
+- [x] Unsplash tool rules: one call per slot, no retry, keyword choice rules
+
+### Plan B — Streaming file-by-file generation [~]
+- [~] `get-contents.ts`: change from one-batch-at-end to async channel pattern (yield each file immediately when tool executes)
+- [ ] Test: files appear progressively in UI during long generations
+
+### Plan C — In-sandbox Vite allowedHosts patch [~]
+- [x] `VITE_PATCH_SCRIPT` defined in `generate-files.ts`
+- [~] Wire patch: after all files written, `sandbox.writeFiles(.cm-patch.cjs)` + `sandbox.runCommand(node .cm-patch.cjs)` + cleanup
+- [ ] Test: "Blocked request. This host is not allowed" no longer appears in any Vite config variant
+
+### Plan D — Preview error bridge [~]
+- [~] `get-write-files.ts`: inject error bridge `<script>` into generated `index.html` (onerror + unhandledrejection + console.error → postMessage)
+- [~] `app/state.ts`: add `browserErrors: string[]` + `addBrowserError(msg)` action (synthetic stderr log on `cm-browser-console` command)
+- [~] `app/preview.tsx`: `window.addEventListener('message')` → `addBrowserError` for `cm-error` type messages
+- [ ] Test: runtime JS errors in preview are caught and sent to ErrorMonitor
 
 ---
 

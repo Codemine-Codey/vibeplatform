@@ -12,7 +12,7 @@ export async function Header({ className }: Props) {
       <div className="flex items-center gap-2 ml-1 md:ml-2.5">
         <ZapIcon className="w-4 h-4" />
         <span className="text-sm uppercase font-mono font-bold tracking-tight">
-          VibePlatform
+          Codemine
         </span>
       </div>
       <div className="flex items-center ml-auto space-x-1.5">

@@ -81,7 +81,7 @@ Use the create_brief tool.`,
 
   return {
     brandName: 'My Project',
-    tagline: 'Built with VibePlatform',
+    tagline: 'Built with Codemine',
     skill,
     colorPalette: 'modern neutrals with a bold accent',
     fontPairing: 'Inter + Inter',

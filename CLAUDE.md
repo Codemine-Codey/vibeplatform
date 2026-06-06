@@ -1,4 +1,4 @@
-# VibePlatform — Vibe Coding Platform
+# Codemine — AI Web Builder Platform
 
 > Repo: github.com/Codemine-Codey/vibeplatform (branch: master)
 > Local: C:\Users\shazi\OneDrive\Desktop\VibePlatform
@@ -6,15 +6,31 @@
 
 ---
 
-## Current Build Status (as of 2026-06-05)
+## Current Build Status (as of 2026-06-06)
 
 **Phase 0 is complete.** Full pipeline working: DeepSeek v4 Pro → Vercel Sandbox → files generated → dev server runs → preview URL live in browser. All compatibility bugs resolved. Auto-refresh on file upload working.
 
 **UI redesign done.** New 36/64 layout: chat on left, tabbed right panel (Preview / Code / Logs) — all panels stay mounted (display:none toggle) to preserve iframe state. Off-white background (#FAF9F7), Inter font via Google Fonts CSS @import (next/font/google breaks with Turbopack).
 
-**AI Gateway:** Use Cloudflare AI Gateway (free, OpenAI-compatible, in our CF ecosystem). Set AI_GATEWAY_BASE_URL to CF gateway URL — zero code changes needed.
-
 **Phase 1 is complete.** Prompt expansion pipeline (classifier + expander), Unsplash tool, readFile/patchFile tools, full skill system prompts wired. stepCountIs raised to 40.
+
+**Platform renamed: VibePlatform → Codemine.** All UI text, metadata, storage keys, and prompt identity updated. AI never mentions DeepSeek, Gemini, Claude, Unsplash, Cloudflare, or Vercel.
+
+**Cloudflare AI Gateway active.** `AI_GATEWAY_BASE_URL` set in `.env.local` pointing to CF gateway. Account ID: `8b557a24d9314c5895645b698428ea31`, gateway: `codemine`.
+
+**Unsplash API key active.** `UNSPLASH_ACCESS_KEY` set. Tool renamed "Get Image", one call per slot, no retrying.
+
+**Skill packs created.** `ai/packs/website.md`, `webapp.md`, `game.md` injected into system prompt per project type via `ai/packs/index.ts`.
+
+**CubeLoader overlay + elapsed timer.** Preview shows 3D spinning cube with white background while AI generates. Chat shows "Thinking..." < 60s → "Building your project..." ≥ 60s with elapsed timer.
+
+**Layout & Typography Precision rules added.** No 3-column cards, no SVG, careful type scale, color derivation rules — all in `app/api/chat/prompt.md`.
+
+**Plans A–D in progress (Plan A done, B–D being implemented):**
+- Plan A: Unsplash key + image rules ✅
+- Plan B: Streaming file-by-file generation (in progress)
+- Plan C: In-sandbox Vite allowedHosts patch after file write (in progress)
+- Plan D: Preview error bridge via postMessage (in progress)
 
 ---
 
@@ -258,28 +274,34 @@ AI_GATEWAY_BASE_URL=          # set in Vercel dashboard, zero code changes neede
 
 ---
 
-## Maximum Update Depth — ROOT CAUSE (resolved)
+## Maximum Update Depth — ROOT CAUSE (resolved — permanent fix)
 
-The recurring "Maximum update depth exceeded" error has its PRIMARY root cause in
-**DeepSeek's raw token streaming**. The OSS vibe-coding-platform was built for AI
-Gateway, which buffers/chunks tokens. DeepSeek's direct API streams every token
-(hundreds/sec), so `useChat` updated React state on every token → render storm →
-exceeded React's update budget.
+The recurring "Maximum update depth exceeded" error was caused by `useChat` →
+`useSyncExternalStore` → `forceStoreRerender(SyncLane)` firing on every DeepSeek
+token (100+/sec). React hits its 50-render-per-tick limit.
 
-**THE FIX:** `experimental_throttle: 50` on every `useChat({ chat })` call
-(app/chat.tsx + components/error-monitor/error-monitor.tsx). Caps message+data
-updates to 20/sec. This is the actual OSS-vs-DeepSeek difference.
+**THE FIX (permanent — `app/chat.tsx` + `components/error-monitor/error-monitor.tsx`):**
+- Replaced `useChat` entirely with `requestAnimationFrame`-batched direct subscriptions
+- `chat['~registerMessagesCallback']` + rAF dedup → max 60fps, fires OUTSIDE render phase
+- `chat['~registerStatusCallback']` → direct setState, one-shot, no loop risk
+- ErrorMonitor uses `chat['~registerStatusCallback']` + `chat['~registerMessagesCallback']`
+  (only re-renders on 0↔1 boundary for hasMessages — not on every token)
+- `experimental_throttle` was REMOVED — it uses async trailing-edge timers that fire
+  DURING React render and were actually causing the loop, not fixing it
+
+**Why rAF is immune:** rAF fires between frames (browser idle), never during a React
+render phase. Even if DeepSeek streams 1000 tokens/sec, rAF coalesces them into one
+setState per frame (~16ms). Cannot cause update depth errors by definition.
 
 Secondary loops also found and fixed (all kept):
 1. `use-stick-to-bottom` auto-scroll lib ran rAF+setState loop on ResizeObserver →
-   replaced with controlled imperative-scroll Conversation (ai-elements/conversation.tsx)
-2. Zustand full-store subscriptions (no selector) in many components → `s => s.field` selectors
+   replaced with controlled imperative-scroll (ai-elements/conversation.tsx)
+2. Zustand full-store subscriptions (no selector) → `s => s.field` selectors
 3. `useDataStateMapper`/`ChatProvider` whole-store subscription → stable action selectors
-4. `ErrorMonitor` `useCommandErrorsLogs()` re-rendered per log → `useSandboxStore.subscribe()` callback
-5. `Message` reasoning effect depended on new array every render → primitive index dep
+4. `CommandLogsStream` `commands` array as dep → stable `commandIds` string dep
 
-RULE: any component calling useChat MUST pass `experimental_throttle: 50`. Never
-subscribe to a Zustand store without a selector in a streaming-active component.
+RULE: NEVER use `useChat` or `experimental_throttle` in this codebase. Use
+`chat['~registerMessagesCallback']` + rAF batching instead.
 
 ## Bug Fixes Applied (pre-launch hardening)
 

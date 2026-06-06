@@ -17,6 +17,30 @@ const VITE_CONFIG_NAMES = new Set([
   'vite.config.mjs',
 ])
 
+// Injected into index.html of every generated app so runtime JS errors are
+// captured and forwarded to the parent window via postMessage (Plan D).
+const ERROR_BRIDGE_SCRIPT = `<script>
+(function(){
+  var _w=window,_p=_w.parent;
+  function _send(m,s){try{_p.postMessage({type:'cm-error',message:m,source:s},'*');}catch(e){}}
+  _w.onerror=function(m,s,l,c){_send(m+'\\n'+s+':'+l+':'+c,'onerror');return false;};
+  _w.addEventListener('unhandledrejection',function(e){_send(String(e.reason),'unhandledrejection');});
+  var _ce=_w.console.error.bind(_w.console);
+  _w.console.error=function(){var m=Array.from(arguments).map(String).join(' ');_send(m,'console.error');_ce.apply(_w.console,arguments);};
+})();
+</script>`
+
+function injectErrorBridge(html: string): string {
+  if (html.includes('cm-error')) return html
+  if (html.includes('</head>')) {
+    return html.replace('</head>', `${ERROR_BRIDGE_SCRIPT}\n</head>`)
+  }
+  if (/<body[^>]*>/.test(html)) {
+    return html.replace(/<body[^>]*>/, (m) => `${m}\n${ERROR_BRIDGE_SCRIPT}`)
+  }
+  return html + '\n' + ERROR_BRIDGE_SCRIPT
+}
+
 /**
  * Ensures every vite.config file allows all hosts.
  * Each sandbox gets a unique dynamic subdomain (sb-xxxx.vercel.run) — Vite's
@@ -66,11 +90,15 @@ export function getWriteFiles({ sandbox, toolCallId, writer }: Params) {
     })
 
     // Patch vite configs before writing — sandbox subdomains are dynamic and
-    // would be blocked by Vite's host security without allowedHosts: true
+    // would be blocked by Vite's host security without allowedHosts: true.
+    // Also inject error bridge into index.html (Plan D).
     const patchedFiles = params.files.map((file) => {
       const basename = file.path.split('/').pop() ?? ''
       if (VITE_CONFIG_NAMES.has(basename)) {
         return { ...file, content: ensureViteAllowedHosts(file.content) }
+      }
+      if (basename === 'index.html') {
+        return { ...file, content: injectErrorBridge(file.content) }
       }
       return file
     })

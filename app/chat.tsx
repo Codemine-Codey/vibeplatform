@@ -14,26 +14,50 @@ import { Message } from '@/components/chat/message'
 import { Panel, PanelHeader } from '@/components/panels/panels'
 import { Settings } from '@/components/settings/settings'
 import { cn } from '@/lib/utils'
-import { useChat } from '@ai-sdk/react'
 import { useLocalStorageValue } from '@/lib/use-local-storage-value'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSharedChatContext } from '@/lib/chat-context'
 import { useSandboxStore } from './state'
+import type { ChatStatus } from 'ai'
 
 interface Props {
   className: string
 }
 
 function BuildingIndicator() {
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => setElapsed((s) => s + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const fmt = (s: number) => {
+    const m = Math.floor(s / 60)
+    return m > 0 ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s}s`
+  }
+
+  const isThinking = elapsed < 60
+  const label = isThinking ? 'Thinking...' : 'Building your project...'
+
   return (
     <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-secondary border border-primary/12 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div className="flex gap-1.5 shrink-0">
-        <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '0ms' }} />
-        <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '200ms' }} />
-        <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '400ms' }} />
+        {isThinking ? (
+          <span className="inline-block w-2 h-2 rounded-full bg-foreground/50 animate-pulse" />
+        ) : (
+          <>
+            <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '0ms' }} />
+            <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '200ms' }} />
+            <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '400ms' }} />
+          </>
+        )}
       </div>
       <span className="text-xs font-mono text-foreground/70 leading-none">
-        Building your project...
+        {label}
+      </span>
+      <span className="ml-auto text-xs font-mono text-foreground/35 leading-none tabular-nums">
+        {fmt(elapsed)}
       </span>
     </div>
   )
@@ -42,14 +66,41 @@ function BuildingIndicator() {
 export function Chat({ className }: Props) {
   const [input, setInput] = useLocalStorageValue('prompt-input')
   const { chat } = useSharedChatContext()
-  // experimental_throttle caps React state updates to once per 50ms during
-  // streaming. DeepSeek streams raw tokens (hundreds/sec) with no buffering,
-  // unlike the AI Gateway the OSS used. Without this, the per-token render storm
-  // overwhelms React's update budget -> "Maximum update depth exceeded".
-  const { messages, sendMessage, status } = useChat<ChatUIMessage>({
-    chat,
-    experimental_throttle: 50,
-  })
+
+  // Messages — requestAnimationFrame batched.
+  // useChat uses useSyncExternalStore which calls forceStoreRerender(SyncLane) on every
+  // token. SyncLane forces synchronous React re-renders. DeepSeek streams hundreds of
+  // tokens/sec — React hits its 50-update limit and throws "Maximum update depth exceeded".
+  // rAF fires between frames (outside render phase), collapses burst tokens into one render
+  // per frame (max 60/sec), and cannot cause update-depth errors by definition.
+  const [messages, setMessages] = useState<ChatUIMessage[]>(
+    () => chat.messages as ChatUIMessage[]
+  )
+  const rafPending = useRef(false)
+  useEffect(() => {
+    return (chat as any)['~registerMessagesCallback'](() => {
+      if (!rafPending.current) {
+        rafPending.current = true
+        requestAnimationFrame(() => {
+          rafPending.current = false
+          setMessages([...chat.messages] as ChatUIMessage[])
+        })
+      }
+    })
+  }, [chat])
+
+  // Status — fires only on transitions (submitted/streaming/ready), safe as plain setState
+  const [status, setStatus] = useState<ChatStatus>(() => chat.status)
+  useEffect(() => {
+    return (chat as any)['~registerStatusCallback'](() => setStatus(chat.status))
+  }, [chat])
+
+  // sendMessage — direct call, no subscription needed
+  const sendMessage = useCallback(
+    (msg: Parameters<typeof chat.sendMessage>[0]) => chat.sendMessage(msg),
+    [chat]
+  )
+
   const setChatStatus = useSandboxStore((s) => s.setChatStatus)
 
   const isWorking = status === 'streaming' || status === 'submitted'
@@ -135,7 +186,7 @@ export function Chat({ className }: Props) {
           className="w-full font-mono text-sm rounded-sm border-0 bg-background"
           disabled={isWorking}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={isWorking ? 'VibePlatform is building...' : 'Type your message...'}
+          placeholder={isWorking ? 'Codemine is building...' : 'Type your message...'}
           value={input}
         />
         <Button type="submit" disabled={status !== 'ready' || !input.trim()}>

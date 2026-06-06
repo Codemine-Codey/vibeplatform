@@ -16,7 +16,7 @@ export function Banner({ defaultOpen, onDismiss }: Props) {
 
   return (
     <div className="relative full text-xs border border-dashed border-blue-400 bg-blue-50 py-2 pl-2 pr-8">
-      <strong>VibePlatform Beta</strong> — Describe what you want to build and your AI builder will create it for you. Websites, web apps, and web games — fully working and deployed instantly.
+      <strong>Codemine Beta</strong> — Describe what you want to build and your AI builder will create it for you. Websites, web apps, and web games — fully working and deployed instantly.
       <button
         aria-label="Close Banner"
         className="absolute top-2 right-2 text-yellow-700 hover:text-yellow-900 transition-colors cursor-pointer"

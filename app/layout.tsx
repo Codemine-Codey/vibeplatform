@@ -10,8 +10,8 @@ import { Suspense } from 'react'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'VibePlatform — Build Anything',
-  description: 'Describe what you want to build. VibePlatform turns your idea into a fully working website, web app, or web game in minutes.',
+  title: 'Codemine — Build Anything',
+  description: 'Describe what you want to build. Codemine turns your idea into a fully working website, web app, or web game in minutes.',
 }
 
 export default function RootLayout({

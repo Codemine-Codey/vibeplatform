@@ -14,6 +14,7 @@ import { tools } from '@/ai/tools'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
 import { formatBrief } from '@/ai/types/project-brief'
+import { getSkillPack } from '@/ai/packs'
 import prompt from './prompt.md'
 
 // Allow up to 300s (Vercel Pro max) for long generations
@@ -68,7 +69,10 @@ export async function POST(req: Request) {
                   `${prompt}\n\n## PROJECT BRIEF\n` +
                   `This brief was pre-analyzed from the user's prompt. Use it as the authoritative design spec.\n` +
                   `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately start the workflow.\n\n` +
-                  formatBrief(brief)
+                  formatBrief(brief) +
+                  `\n\n## SKILL PACK — ${skill.toUpperCase()} PATTERNS\n` +
+                  `Apply these design and code patterns for this project type. These are non-negotiable quality standards.\n\n` +
+                  getSkillPack(skill)
               }
             } catch {
               // Expansion failure is non-fatal — continue with base prompt

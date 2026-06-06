@@ -12,7 +12,6 @@ import {
   useTransition,
 } from 'react'
 import { getSummary } from './get-summary'
-import { useChat } from '@ai-sdk/react'
 import { getBackgroundCommandErrorLines, useSandboxStore } from '@/app/state'
 import { useMonitorState } from './state'
 import { useSettings } from '@/components/settings/use-settings'
@@ -40,11 +39,35 @@ export function ErrorMonitor({ children, debounceTimeMs = 10000 }: Props) {
 
   const { fixErrors } = useSettings()
   const { chat } = useSharedChatContext()
-  // Throttle stream-driven re-renders (see chat.tsx) — DeepSeek streams raw/fast
-  const { sendMessage, status: chatStatus, messages } = useChat({
-    chat,
-    experimental_throttle: 50,
-  })
+
+  // Direct chat access — no useChat here. ErrorMonitor only needs sendMessage +
+  // chatStatus. A second useChat subscriber on the shared Chat instance doubles the
+  // async trailing-timer storm that causes "Maximum update depth exceeded".
+
+  // Status-only subscription: re-renders only on status transitions (submitted/streaming/ready)
+  const [chatStatus, setChatStatus] = useState<string>(() => chat.status)
+  useEffect(() => {
+    return (chat as any)['~registerStatusCallback'](() => {
+      setChatStatus(chat.status)
+    })
+  }, [chat])
+
+  // Message presence: re-renders only when message list crosses 0↔1 boundary
+  // (needed to reset error tracking when conversation is cleared)
+  const [hasMessages, setHasMessages] = useState(() => chat.messages.length > 0)
+  useEffect(() => {
+    return (chat as any)['~registerMessagesCallback'](() => {
+      const next = chat.messages.length > 0
+      setHasMessages((prev) => (prev === next ? prev : next))
+    })
+    // No throttle — synchronous, React 18 auto-batching handles burst safely
+  }, [chat])
+
+  const sendMessage = useCallback(
+    (msg: Parameters<(typeof chat)['sendMessage']>[0]) => chat.sendMessage(msg),
+    [chat]
+  )
+
   const submitTimeout = useRef<NodeJS.Timeout | null>(null)
   const inspectedErrors = useRef<number>(0)
   const lastReportedErrors = useRef<string[]>([])
@@ -113,13 +136,13 @@ export function ErrorMonitor({ children, debounceTimeMs = 10000 }: Props) {
   }
 
   useEffect(() => {
-    if (messages.length === 0) {
+    if (!hasMessages) {
       errorReportCount.current.clear()
       lastReportedErrors.current = []
       lastErrorReportTime.current = 0
       errorsRef.current = []
     }
-  }, [messages.length])
+  }, [hasMessages])
 
   // errorTick replaces `errors` as the dependency — only fires when error count changes
   useEffect(() => {

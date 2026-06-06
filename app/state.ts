@@ -6,6 +6,7 @@ import { useCallback, useMemo } from 'react'
 import { create } from 'zustand'
 
 interface SandboxStore {
+  addBrowserError: (msg: string) => void
   addGeneratedFiles: (files: string[]) => void
   addLog: (data: { sandboxId: string; cmdId: string; log: CommandLog }) => void
   addPaths: (paths: string[]) => void
@@ -50,6 +51,34 @@ export function useCommandErrorsLogs() {
 }
 
 export const useSandboxStore = create<SandboxStore>()((set) => ({
+  addBrowserError: (msg: string) =>
+    set((state) => {
+      const cmdId = 'cm-browser-console'
+      const sandboxId = state.sandboxId ?? ''
+      const log: CommandLog = { data: msg, stream: 'stderr', timestamp: Date.now() }
+      const existing = state.commands.find((c) => c.cmdId === cmdId)
+      if (existing) {
+        return {
+          commands: state.commands.map((c) =>
+            c.cmdId === cmdId ? { ...c, logs: [...(c.logs ?? []), log] } : c
+          ),
+        }
+      }
+      return {
+        commands: [
+          ...state.commands,
+          {
+            startedAt: Date.now(),
+            cmdId,
+            sandboxId,
+            command: 'browser',
+            args: [],
+            background: true,
+            logs: [log],
+          },
+        ],
+      }
+    }),
   addGeneratedFiles: (files) =>
     set((state) => ({
       generatedFiles: new Set([...state.generatedFiles, ...files]),
