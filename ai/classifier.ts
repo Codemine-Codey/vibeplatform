@@ -24,7 +24,13 @@ Skill types:
 - webapp: todo apps, dashboards, calculators, budget/habit trackers, notes, quizzes, forms, tools
 - game: any game clone or original — arcade, puzzle, platformer, card game, board game, trivia
 
-Classify confidently. Most prompts are clear. Only set clarify=true for genuinely vague inputs like "make something cool" or "surprise me".`,
+IMPORTANT: Set clarify=true when:
+- The message is a greeting or conversational filler ("hey", "hi", "hello", "yo", "test", "ok", "sure", "what", "hmm", "cool")
+- The prompt contains no description of what to build ("make something", "surprise me", "build it", "go ahead")
+- The prompt is fewer than 4 words AND doesn't clearly describe a project type
+- You cannot determine what the user wants to build with reasonable confidence
+
+Only classify with clarify=false when the prompt clearly describes something to build.`,
       messages: [{ role: 'user', content: userPrompt }],
       tools: {
         classify: tool({

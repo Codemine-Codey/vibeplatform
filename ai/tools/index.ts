@@ -4,6 +4,7 @@ import { createSandbox } from './create-sandbox'
 import { generateFiles } from './generate-files'
 import { getSandboxURL } from './get-sandbox-url'
 import { getUnsplash } from './get-unsplash'
+import { getUnsplashBatch } from './get-unsplash-batch'
 import { patchFile } from './patch-file'
 import { readFile } from './read-file'
 import { runCommand } from './run-command'
@@ -20,6 +21,7 @@ export function tools({ modelId, writer }: Params) {
     getSandboxURL: getSandboxURL({ writer }),
     runCommand: runCommand({ writer }),
     getUnsplash: getUnsplash(),
+    getUnsplashBatch: getUnsplashBatch(),
     readFile: readFile(),
     patchFile: patchFile(),
   }

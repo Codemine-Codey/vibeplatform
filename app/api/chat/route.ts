@@ -59,19 +59,26 @@ export async function POST(req: Request) {
         // Run prompt expansion on new project turns only (no sandbox yet)
         if (!hasActiveSandbox(messages)) {
           const userText = getLastUserText(messages)
-          if (userText) {
+          const GREETINGS = new Set(['hey', 'hi', 'hello', 'yo', 'sup', 'test', 'ok', 'okay', 'sure', 'hmm', 'cool', 'what', 'hii', 'helo'])
+          const words = userText.trim().split(/\s+/).filter(Boolean)
+          const isTooVague = words.length < 4 && GREETINGS.has(words[0]?.toLowerCase() ?? '')
+          if (userText && !isTooVague) {
             try {
               const { skill, clarify } = await classifyPrompt(userText)
               if (!clarify && skill) {
                 const brief = await expandPrompt(userText, skill)
+                // Cache-optimal order: stable content first, dynamic brief last.
+                // DeepSeek KV cache prefix-matches from the start — putting the
+                // brief at the end means the large stable block (~10k tokens) is
+                // cached across all 20 agentic steps, only the brief (~400 tokens)
+                // is processed fresh each time.
                 systemPrompt =
-                  `${prompt}\n\n## PROJECT BRIEF\n` +
-                  `This brief was pre-analyzed from the user's prompt. Use it as the authoritative design spec.\n` +
-                  `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately start the workflow.\n\n` +
-                  formatBrief(brief) +
-                  `\n\n## SKILL PACK — ${skill.toUpperCase()} PATTERNS\n` +
+                  `${prompt}\n\n## SKILL PACK — ${skill.toUpperCase()} PATTERNS\n` +
                   `Apply these design and code patterns for this project type. These are non-negotiable quality standards.\n\n` +
-                  getSkillPack(skill)
+                  getSkillPack(skill) +
+                  `\n\n## PROJECT BRIEF (authoritative design spec — use this, do not ask clarifying questions)\n` +
+                  `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately start the workflow.\n\n` +
+                  formatBrief(brief)
               }
             } catch {
               // Expansion failure is non-fatal — continue with base prompt
