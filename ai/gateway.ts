@@ -1,16 +1,12 @@
 import { createOpenAI } from '@ai-sdk/openai'
 import type { LanguageModelV3 } from '@ai-sdk/provider'
-import {
-  FALLBACK_MODEL,
-  ITERATION_MODEL,
-  ORCHESTRATION_MODEL,
-} from './constants'
+import { ITERATION_MODEL } from './constants'
 
-// ── DeepSeek (iterations, file gen, pipeline) ──────────────────────────────
-// Routes through Cloudflare AI Gateway for analytics + caching visibility.
-// AI_GATEWAY_BASE_URL: set to CF gateway DeepSeek endpoint in .env.local and
-// Vercel dashboard. Falls back to DeepSeek direct if env var is unset.
-// DeepSeek's native KV prompt caching is automatic regardless of proxy.
+// ── DeepSeek via Cloudflare AI Gateway (iterations, file gen, pipeline) ──────
+// CF Gateway gives analytics + caching visibility dashboard.
+// AI_GATEWAY_BASE_URL points to CF gateway DeepSeek endpoint.
+// Falls back to DeepSeek direct API if env var is unset.
+// DeepSeek native KV prompt caching is automatic at the API layer.
 
 if (!process.env.DEEPSEEK_API_KEY) {
   throw new Error(
@@ -23,11 +19,10 @@ const deepseekProvider = createOpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY,
 })
 
-// ── OpenRouter (Sonnet 4.6 + Gemini 3.5 Flash via single key) ────────────────
-// Single billing, unified API. For Anthropic models we inject a top-level
-// cache_control field so OpenRouter forwards Anthropic's native prompt caching —
-// system prompt + tool definitions (~15k tokens) are cached across all 20 steps,
-// reducing Sonnet input cost by ~90%.
+// ── DeepSeek V4 Pro via OpenRouter (new project generation) ──────────────────
+// User has OpenRouter credits. OpenRouter model ID: deepseek/deepseek-chat
+// (OpenRouter's name for DeepSeek's flagship chat/pro model).
+// No cache_control injection needed — DeepSeek handles caching natively.
 
 const openRouterProvider = process.env.OPENROUTER_API_KEY
   ? createOpenAI({
@@ -37,31 +32,12 @@ const openRouterProvider = process.env.OPENROUTER_API_KEY
         'HTTP-Referer': 'https://vibeplatform.vercel.app',
         'X-Title': 'Codemine',
       },
-      fetch: async (url, options) => {
-        // Inject top-level cache_control for Anthropic models:
-        // OpenRouter forwards this to Anthropic's API as native prompt caching.
-        if (options?.body && typeof options.body === 'string') {
-          try {
-            const body = JSON.parse(options.body) as Record<string, unknown>
-            if (typeof body.model === 'string' && body.model.startsWith('anthropic/')) {
-              body.cache_control = { type: 'ephemeral' }
-              return globalThis.fetch(url.toString(), {
-                ...(options as RequestInit),
-                body: JSON.stringify(body),
-              })
-            }
-          } catch {
-            // Non-fatal — send unmodified on parse failure
-          }
-        }
-        return globalThis.fetch(url.toString(), options as RequestInit)
-      },
     })
   : null
 
 if (!openRouterProvider) {
   console.warn(
-    '[gateway] OPENROUTER_API_KEY not set — initial generation will use DeepSeek Flash until added'
+    '[gateway] OPENROUTER_API_KEY not set — new project generation will use DeepSeek Flash'
   )
 }
 
@@ -71,24 +47,20 @@ export interface ModelOptions {
   model: LanguageModelV3
 }
 
-/** Claude Sonnet 4.6 for new project generation. Falls back to DeepSeek Flash if key missing. */
+/** DeepSeek V4 Pro via OpenRouter for new project generation. Falls back to Flash if key missing. */
 export function getOrchestrationModel(): ModelOptions {
   if (openRouterProvider) {
-    // OpenRouter model ID format: provider/model-id
-    return { model: openRouterProvider(`anthropic/${ORCHESTRATION_MODEL}`) as unknown as LanguageModelV3 }
+    return { model: openRouterProvider('deepseek/deepseek-chat') as unknown as LanguageModelV3 }
   }
   return { model: deepseekProvider.chat(ITERATION_MODEL) }
 }
 
-/** Gemini 3.5 Flash for rate-limit fallback. Falls back to DeepSeek Flash if key missing. */
-export function getFallbackModel(): ModelOptions {
-  if (openRouterProvider) {
-    return { model: openRouterProvider(`google/${FALLBACK_MODEL}`) as unknown as LanguageModelV3 }
-  }
-  return { model: deepseekProvider.chat(ITERATION_MODEL) }
+/** No fallback — DeepSeek Pro is reliable. Returns null to disable fallback logic. */
+export function getFallbackModel(): ModelOptions | null {
+  return null
 }
 
-/** DeepSeek V4 Flash — iterations, edits, chat, errors, file gen, pipeline. */
+/** DeepSeek V4 Flash via CF Gateway — iterations, edits, chat, errors, file gen, pipeline. */
 export function getIterationModel(): ModelOptions {
   return { model: deepseekProvider.chat(ITERATION_MODEL) }
 }
@@ -97,10 +69,6 @@ export function getIterationModel(): ModelOptions {
 export function getModelOptions(modelId: string): ModelOptions {
   return { model: deepseekProvider.chat(modelId) }
 }
-
-/** True if the OpenRouter key is present (Sonnet + Gemini are available). */
-export const hasSonnet = !!openRouterProvider
-export const hasGeminiFallback = !!openRouterProvider
 
 /** Detect a rate-limit error from any provider (HTTP 429). */
 export function isRateLimitError(err: unknown): boolean {

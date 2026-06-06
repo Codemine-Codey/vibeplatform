@@ -1,10 +1,7 @@
-// Initial generation (new project) — Claude Sonnet 4.6
-export const ORCHESTRATION_MODEL = 'claude-sonnet-4-6'
+// Initial generation (new project) — DeepSeek V4 Pro via OpenRouter
+export const ORCHESTRATION_MODEL = 'deepseek-v4-pro'
 
-// Rate-limit fallback for initial generation — Gemini 3.5 Flash
-export const FALLBACK_MODEL = 'gemini-3.5-flash'
-
-// Iterations, chat, edits, error analysis — DeepSeek V4 Flash
+// Iterations, chat, edits, error analysis — DeepSeek V4 Flash via CF Gateway
 export const ITERATION_MODEL = 'deepseek-v4-flash'
 
 // Nested file content generation — DeepSeek V4 Flash (fast, cheap)
@@ -18,7 +15,6 @@ export const SUPPORTED_MODELS: string[] = [ORCHESTRATION_MODEL]
 
 export const MODEL_NAMES: Record<string, string> = {
   [ORCHESTRATION_MODEL]: 'Builder',
-  [FALLBACK_MODEL]: 'Builder',
   [ITERATION_MODEL]: 'Builder',
 }
 
