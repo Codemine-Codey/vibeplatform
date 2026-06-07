@@ -335,9 +335,29 @@ async function runPipeline({
     return // AI failed — abort pipeline, leave writer open for any partial output
   }
 
+  // Verify generateFiles was actually called — if AI only produced text (rare edge case),
+  // skip pnpm commands to avoid starting an empty sandbox.
+  try {
+    const allSteps = await aiResult.steps
+    const calledGenerateFiles = allSteps.some(
+      step =>
+        Array.isArray(step.toolCalls) &&
+        (step.toolCalls as Array<{ toolName: string }>).some(
+          tc => tc.toolName === 'generateFiles'
+        )
+    )
+    if (!calledGenerateFiles) {
+      console.warn('Pipeline: AI did not call generateFiles — aborting pnpm phase')
+      return
+    }
+  } catch {
+    // Can't verify — proceed anyway
+  }
+
   // ── Step 4: Server finalizes pnpm install ─────────────────────────────────
-  // Background install from Step 1 should be done or near-done by now.
-  // Running again is fast (verifies existing install) and ensures consistency.
+  // Background install from Step 1 should be nearly done (AI took 25-35s, install
+  // takes 15-20s). Running it again verifies and is fast for already-installed packages.
+  // 90s timeout prevents hanging if the sandbox has a network hiccup.
   writer.write({
     id: 'srv-install',
     type: 'data-run-command',
@@ -349,7 +369,12 @@ async function runPipeline({
       cmd: 'pnpm',
       args: ['install'],
     })
-    await installCmd.wait()
+    await Promise.race([
+      installCmd.wait(),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('pnpm install timed out')), 90_000)
+      ),
+    ])
     writer.write({
       id: 'srv-install',
       type: 'data-run-command',
@@ -368,6 +393,8 @@ async function runPipeline({
         status: 'error',
       },
     })
+    // pnpm install failure is non-fatal — pnpm dev may still work if packages were
+    // already installed by the background install from Step 1.
   }
 
   // ── Step 5: Server starts pnpm dev (background — runs forever) ────────────
@@ -408,16 +435,35 @@ async function runPipeline({
     })
   }
 
-  // ── Step 6: Return preview URL ─────────────────────────────────────────────
+  // ── Step 6: Wait for Vite to be ready, then return URL ────────────────────
+  // pnpm dev started in background (detached) — Vite takes 5-15s to boot.
+  // Poll the sandbox URL until we get a non-502 response, then emit to client.
+  // This prevents the iframe loading before the port is actually listening.
   writer.write({
     id: 'srv-url',
     type: 'data-get-sandbox-url',
     data: { status: 'loading' },
   })
   const url = sandbox.domain(3000)
+  await waitForDevServer(url)
   writer.write({
     id: 'srv-url',
     type: 'data-get-sandbox-url',
     data: { url, status: 'done' },
   })
+}
+
+// Poll the sandbox URL until the dev server responds (non-502 = port is listening).
+// Times out after maxWaitMs and emits URL anyway — preview's "Try again" handles it.
+async function waitForDevServer(url: string, maxWaitMs = 45_000): Promise<void> {
+  const deadline = Date.now() + maxWaitMs
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) })
+      if (res.status !== 502) return
+    } catch {
+      // AbortError, network error — not ready yet
+    }
+    await new Promise(r => setTimeout(r, 2500))
+  }
 }
