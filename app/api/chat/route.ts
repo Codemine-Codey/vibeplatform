@@ -265,6 +265,7 @@ async function runPipeline({
   let pipelineAddendum: string
 
   if (isTemplate && tmpl) {
+    const scaffoldPaths = tmpl.scaffoldFiles.map(f => f.path)
     pipelineAddendum =
       `\n\n## SERVER PIPELINE — WORKSPACE READY\n` +
       `sandboxId: ${sandboxId}\n` +
@@ -272,8 +273,10 @@ async function runPipeline({
       `DO NOT call createSandbox — it is already done.\n` +
       `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
       `DO NOT call planProject — the plan is fixed for this scaffold.\n\n` +
-      `PERSONALITY FILES TO WRITE: ${tmpl.personalityFiles.join(', ')}\n` +
-      `Pre-written files (DO NOT regenerate): ${tmpl.scaffoldFiles.map(f => f.path).join(', ')}\n\n` +
+      `PERSONALITY FILES TO WRITE (the ONLY files you may pass to generateFiles):\n` +
+      tmpl.personalityFiles.map(p => `  - ${p}`).join('\n') + '\n\n' +
+      `BANNED — DO NOT include these in generateFiles (they are pre-built and will be ignored):\n` +
+      scaffoldPaths.map(p => `  - ${p}`).join('\n') + '\n\n' +
       `${tmpl.instruction}\n\n` +
       `MANDATORY PERSONALITY RULES:\n` +
       `1. Brand name → exact brandName from the PROJECT BRIEF above\n` +
@@ -281,7 +284,7 @@ async function runPipeline({
       `3. Fonts → match brief fontPairing exactly\n` +
       `4. All copy → written specifically for this brand, zero generic placeholders\n` +
       `5. Every field must reflect the actual project — treat template defaults as examples, not values to keep\n\n` +
-      `YOUR ONLY JOB: call generateFiles with sandboxId="${sandboxId}" and ONLY the personality file(s) listed above.`
+      `YOUR ONLY JOB: call generateFiles with sandboxId="${sandboxId}" and paths=[${tmpl.personalityFiles.map(p => `"${p}"`).join(', ')}]. Nothing else.`
   } else {
     pipelineAddendum =
       `\n\n## SERVER PIPELINE — WORKSPACE READY\n` +
@@ -298,7 +301,7 @@ async function runPipeline({
   // ── Step 3: AI generates file contents (one focused call, limited tools) ──
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pipelineTools: Record<string, any> = isTemplate
-    ? { generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }) }
+    ? { generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, allowedPaths: tmpl!.personalityFiles }) }
     : skill === 'website'
     ? {
         generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
