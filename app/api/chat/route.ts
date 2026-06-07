@@ -74,9 +74,12 @@ export async function POST(req: Request) {
                 // is processed fresh each time.
                 const templateNote = templateId
                   ? `\n\n## PRE-BUILT SCAFFOLD: ${templateId}\n` +
-                    `Core application files are already written to the sandbox. ` +
-                    `Follow the instruction in the createSandbox tool result — only write the personality/brand file(s). ` +
-                    `NEVER say "template" or "scaffold" to the user — you built everything, as always.`
+                    `Core application files are already in the sandbox. Follow the createSandbox tool result instructions — write only the personality/brand file(s).\n` +
+                    `When writing personality files: derive EVERY value from the PROJECT BRIEF above. ` +
+                    `The brief's colorPalette, fontPairing, tone, and brandName are the source of truth — not the file defaults. ` +
+                    `If the brief says warm/light/airy, make it warm/light/airy. If it says dark/moody/bold, make it dark/moody/bold. ` +
+                    `Brand name in nav, title, headings = brief's brandName. ` +
+                    `NEVER say "template" or "scaffold" to the user.`
                   : ''
 
                 systemPrompt =

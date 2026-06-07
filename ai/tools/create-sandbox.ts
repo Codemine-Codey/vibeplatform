@@ -107,10 +107,15 @@ export const createSandbox = ({ writer, templateId }: Params) => {
             return (
               `Sandbox created with ID: ${sandboxId}.\n` +
               `${skippedScaffold}pnpm install is running in the background.\n\n` +
-              `TEMPLATE LOADED: ${tmpl.name}\n` +
-              `Pre-written files (DO NOT regenerate): ${preWritten}\n` +
-              `INSTRUCTION: ${tmpl.instruction}\n` +
-              `Personality files to write: ${tmpl.personalityFiles.join(', ')}\n` +
+              `Pre-written files (DO NOT regenerate): ${preWritten}\n\n` +
+              `TASK: ${tmpl.instruction}\n\n` +
+              `PERSONALITY FILES TO WRITE: ${tmpl.personalityFiles.join(', ')}\n\n` +
+              `MANDATORY RULES FOR PERSONALITY FILES:\n` +
+              `1. Brand name / title — use the exact brandName from the PROJECT BRIEF, not any placeholder\n` +
+              `2. Colors — derive entirely from the brief's colorPalette and tone. Dark vs light, warm vs cool, vibrant vs muted — YOU decide based on context. A steakhouse asking for "off-white" gets off-white. A cyberpunk game gets neon. NEVER keep default colors if the brief implies something different.\n` +
+              `3. Fonts — match the brief's fontPairing and personality. Serif for elegant/editorial, sans-serif for modern/tech, display for games/bold brands.\n` +
+              `4. All copy (taglines, nav links, headlines, feature names, menu items, pricing tiers) — write specifically for THIS brand from the brief. Zero generic text.\n` +
+              `5. Every single field must reflect the actual project requested. The defaults in the file are examples only — treat them as hints, not values to keep.\n\n` +
               `After writing the personality file(s), run \`pnpm install\` then \`pnpm dev\`.`
             )
           }

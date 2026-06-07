@@ -389,9 +389,10 @@ export const tetrisTemplate: Template = {
   ],
   personalityFiles: ['src/theme.ts'],
   instruction:
-    'Tetris scaffold is pre-loaded (App.tsx with full game logic, ghost piece, line clear, level progression). ' +
-    'Write ONLY src/theme.ts — set TITLE, COLORS (including pieces array of 7 colors), FONTS. ' +
-    'Do NOT modify App.tsx or other files.',
+    'Tetris engine pre-loaded (ghost piece, line clear, levels — DO NOT regenerate). ' +
+    'Write ONLY src/theme.ts. TITLE = brand name from brief. ' +
+    'COLORS.pieces = 7 colors derived from the brief palette (vary shades/tints of the brand colors). ' +
+    'bg/border/accent from brief colorPalette. FONTS from brief fontPairing. Override every default.',
 }
 
 export const defaultTetrisTheme = THEME_TS

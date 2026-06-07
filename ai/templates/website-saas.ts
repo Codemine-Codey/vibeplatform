@@ -488,11 +488,12 @@ export const saasTemplate: Template = {
   ],
   personalityFiles: ['src/brand.ts', 'src/content.ts'],
   instruction:
-    'SaaS landing page scaffold pre-loaded (Nav, Hero, Features, Testimonials, Pricing, CTA, Footer). ' +
-    'Write src/brand.ts — set BRAND.name, tagline, accent, accent2, bg, surface, border, fonts. ' +
-    'Write src/content.ts — fill hero, features, pricing tiers, testimonials, footer with REAL content from the brief. ' +
-    'Then add a <link> for the Google Font in index.html (from BRAND.fonts.import). ' +
-    'Do NOT modify any component files.',
+    'SaaS landing page pre-loaded (Nav, Hero, Features, Testimonials, Pricing, CTA, Footer — DO NOT regenerate). ' +
+    'Write src/brand.ts: BRAND.name = exact brandName from brief. Derive accent/accent2 from brief colorPalette. ' +
+    'bg/surface = dark for tech/bold brands, light for clean/minimal brands — YOU decide from tone+personality in brief. ' +
+    'fonts = Google Font from brief fontPairing. ' +
+    'Write src/content.ts: hero headline/sub, feature names+descriptions, pricing tiers, testimonials, footer — ALL specific to this brand, zero generic text. ' +
+    'Add Google Font <link> in index.html. Do NOT touch component files.',
 }
 
 export const defaultSaasBrand = BRAND_TS

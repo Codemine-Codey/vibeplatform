@@ -265,9 +265,9 @@ export const pongTemplate: Template = {
   ],
   personalityFiles: ['src/theme.ts'],
   instruction:
-    'Pong scaffold is pre-loaded (2-player + AI mode, ball physics, paddle collision, score to 7). ' +
-    'Write ONLY src/theme.ts — set TITLE and COLORS (bg, paddle, ball, accent). ' +
-    'Do NOT touch App.tsx.',
+    'Pong engine pre-loaded (2-player + AI, physics, score to 7 — DO NOT regenerate). ' +
+    'Write ONLY src/theme.ts. TITLE = brand name from brief. ' +
+    'Derive bg, paddle, ball, accent from brief colorPalette. FONTS from fontPairing. Override every default.',
 }
 
 export const defaultPongTheme = THEME_TS

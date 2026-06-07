@@ -325,9 +325,10 @@ export const flappyTemplate: Template = {
   ],
   personalityFiles: ['src/theme.ts'],
   instruction:
-    'Flappy Bird scaffold is pre-loaded (physics, parallax clouds, pipes, collision). ' +
-    'Write ONLY src/theme.ts — set TITLE and COLORS (skyTop, skyBot, pipe, bird, etc.) and FONTS to match the theme. ' +
-    'Do NOT touch App.tsx.',
+    'Flappy Bird engine pre-loaded (physics, parallax, pipes — DO NOT regenerate). ' +
+    'Write ONLY src/theme.ts. TITLE = brand name from brief. ' +
+    'Derive sky colors, pipe color, bird color, beak from brief colorPalette + tone. ' +
+    'A space theme gets dark sky + neon pipes. A jungle theme gets green sky + brown pipes. Override every default.',
 }
 
 export const defaultFlappyTheme = THEME_TS

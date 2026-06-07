@@ -413,10 +413,13 @@ export const restaurantTemplate: Template = {
   ],
   personalityFiles: ['src/brand.ts', 'src/content.ts'],
   instruction:
-    'Restaurant website scaffold pre-loaded (Nav, Hero, Menu, About, Reservations, Footer — elegant dark editorial style). ' +
-    'Write src/brand.ts — set BRAND.name, tagline, accent (warm color), bg, fonts. ' +
-    'Write src/content.ts — fill hero, menu categories with REAL dishes from the brief, about, reservations hours, footer. ' +
-    'Add <link> for Google Font in index.html. Do NOT touch component files.',
+    'Restaurant/food venue site pre-loaded (Nav, Hero, Menu, About, Reservations, Footer — DO NOT regenerate). ' +
+    'Write src/brand.ts: BRAND.name = exact brandName from brief. tagline from brief tagline. ' +
+    'accent = primary color from brief colorPalette. ' +
+    'bg/surface = dark for moody steakhouse/bar, light/cream for cafe/patisserie/spa, earthy for farm-to-table — derive from brief tone. ' +
+    'fonts = match brief fontPairing (serif for fine dining, rounded sans for casual, script for artisan). ' +
+    'Write src/content.ts: hero eyebrow/headline/sub, menu categories+dishes, about story, hours — ALL derived from brief. ' +
+    'Add Google Font <link> in index.html. Do NOT touch component files.',
 }
 
 export const defaultRestaurantBrand = BRAND_TS

@@ -366,10 +366,10 @@ export const snakeTemplate: Template = {
   ],
   personalityFiles: ['src/theme.ts'],
   instruction:
-    'Snake game scaffold is pre-loaded (App.tsx, main.tsx, index.html, index.css). ' +
-    'Write ONLY src/theme.ts — set TITLE, SUBTITLE, COLORS, and FONTS to match the brand. ' +
-    'Do NOT modify or regenerate App.tsx or any other file. ' +
-    'After writing theme.ts, run `pnpm install` then `pnpm dev`.',
+    'Snake game engine pre-loaded (App.tsx, main.tsx, index.html, index.css — DO NOT regenerate). ' +
+    'Write ONLY src/theme.ts. TITLE = brand name from brief. ' +
+    'Derive all COLORS from the brief colorPalette (dark/neon for cyber, earthy for nature, pastel for cute, etc). ' +
+    'Derive FONTS from brief fontPairing. Override every default value — nothing from the starter should remain if the brief implies something different.',
 }
 
 export const defaultSnakeTheme = THEME_TS

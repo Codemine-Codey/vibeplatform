@@ -26,11 +26,14 @@ The project is ${SKILL_CONTEXT[skill]}
 
 Rules:
 - brandName: create a specific, memorable name that fits the context (not generic like "MyApp")
-- colorPalette: derive from context, never default to generic blue/grey unless it genuinely fits
-- fontPairing: choose Google Fonts matching the brand personality
+- colorPalette: if the user explicitly mentions colors (e.g. "off-white background", "dark theme", "pastel", "neon"), use those EXACTLY and build the full palette around them. If no colors mentioned, derive from context and brand personality — never default to generic blue/grey.
+- fontPairing: choose Google Fonts that match the brand personality precisely (e.g. serif for fine dining/editorial, rounded sans for friendly/casual, display for games/bold brands, mono for tech)
+- tone: capture the emotional feel precisely — "warm, intimate, rustic" vs "dark, bold, upscale" vs "clean, airy, minimal"
+- brandPersonality: 2-3 words that a designer would use to describe the visual language
 - sections: be specific — this is exactly what will be built
 - features: list concrete, specific features (not vague like "user-friendly UI")
 - techStack: React + Vite is default; add localStorage/router only if needed
+- CRITICAL: if the user gives explicit visual direction ("off-white", "minimalist", "dark", "colorful", "earthy"), that overrides everything else — honor it exactly
 
 Use the create_brief tool.`,
       messages: [{ role: 'user', content: `Prompt: "${userPrompt}"\nType: ${skill}` }],
