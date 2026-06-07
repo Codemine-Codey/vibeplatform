@@ -161,8 +161,11 @@ async function runAgenticLoop({
   messages: ChatUIMessage[]
   systemPrompt: string
 }) {
+  // Edits use Flash — patchFile/readFile are fast, precise tasks that don't need Pro reasoning.
+  // Fallback (clarification / unknown skill) uses Pro — it may end up doing full generation.
+  const isEdit = hasActiveSandbox(messages)
   const result = streamText({
-    ...getModelOptions(DEFAULT_MODEL),
+    ...getModelOptions(isEdit ? FILE_GENERATION_MODEL : DEFAULT_MODEL),
     system: systemPrompt,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(30),
@@ -307,13 +310,14 @@ async function runPipeline({
         planProject: planProject(),
       }
 
-  // Template: text + 1 generateFiles call = 3 steps max
-  // From-scratch website: text + getUnsplashBatch + planProject + generateFiles = 5-6 steps max
-  // From-scratch app/game: text + planProject + generateFiles = 4 steps max
+  // Template: text + 1 generateFiles call = 3 steps max (Flash — simple personality fill)
+  // From-scratch website: text + getUnsplashBatch + planProject + generateFiles (Pro — complex multi-file)
+  // From-scratch app/game: text + planProject + generateFiles (Pro — complex multi-file)
   const maxSteps = isTemplate ? 3 : skill === 'website' ? 6 : 4
+  const generationModel = isTemplate ? FILE_GENERATION_MODEL : DEFAULT_MODEL
 
   const aiResult = streamText({
-    ...getModelOptions(FILE_GENERATION_MODEL),
+    ...getModelOptions(generationModel),
     system: fullSystem,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(maxSteps),
