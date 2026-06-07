@@ -2,16 +2,18 @@ import { FILE_GENERATION_MODEL } from './constants'
 import { getModelOptions } from './gateway'
 import { generateText, stepCountIs, tool } from 'ai'
 import type { Skill } from './types/project-brief'
+import { detectTemplate } from './templates/detect'
 import z from 'zod/v3'
 
 export interface ClassifierResult {
   skill: Skill | null
   clarify: boolean
   question: string | null
+  templateId: string | null
 }
 
 export async function classifyPrompt(userPrompt: string): Promise<ClassifierResult> {
-  let output: ClassifierResult | null = null
+  let output: Omit<ClassifierResult, 'templateId'> | null = null
 
   try {
     await generateText({
@@ -59,5 +61,11 @@ Examples: "hey", "hi", "hello", "how are you", "what can you do", "you're great"
     // Non-fatal — fall through to default
   }
 
-  return output ?? { skill: 'website', clarify: false, question: null }
+  const base = output ?? { skill: 'website' as Skill, clarify: false, question: null }
+  const templateId =
+    !base.clarify && base.skill
+      ? detectTemplate(userPrompt, base.skill)
+      : null
+
+  return { ...base, templateId }
 }

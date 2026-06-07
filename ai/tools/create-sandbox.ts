@@ -2,6 +2,7 @@ import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import type { DataPart } from '../messages/data-parts'
 import { Sandbox } from '@vercel/sandbox'
 import { SCAFFOLD_FILES } from './scaffold'
+import { getTemplateFiles } from '../templates'
 import { getRichError } from './get-rich-error'
 import { tool } from 'ai'
 import description from './create-sandbox.md'
@@ -9,11 +10,10 @@ import z from 'zod/v3'
 
 interface Params {
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
+  templateId?: string | null
 }
 
-export const createSandbox = ({ writer }: Params) => {
-  // Hard guard: one sandbox per agent invocation (per HTTP request).
-  // Prevents any model from calling this tool multiple times.
+export const createSandbox = ({ writer, templateId }: Params) => {
   let sandboxCreated = false
 
   return tool({
@@ -53,24 +53,30 @@ export const createSandbox = ({ writer }: Params) => {
         const sandbox = await Sandbox.create({ timeout: timeout ?? 600000, ports })
         const sandboxId = sandbox.sandboxId
 
-        // Write base scaffold files (package.json, vite.config.ts, tailwind, tsconfig, etc.)
-        // then start pnpm install in background — it runs while the AI generates file contents,
-        // so by the time the AI calls `pnpm install`, most packages are already installed.
+        // Write base scaffold files + optional template files
         let scaffoldOk = false
         try {
-          await sandbox.writeFiles(
-            SCAFFOLD_FILES.map((f) => ({
-              path: f.path,
-              content: Buffer.from(f.content, 'utf8'),
-            }))
-          )
+          const templateFiles = templateId ? getTemplateFiles(templateId) : []
+
+          // All files: base scaffold + template app files
+          const allFiles = [
+            ...SCAFFOLD_FILES,
+            ...templateFiles,
+          ].map((f) => ({
+            path: f.path,
+            content: Buffer.from(f.content, 'utf8'),
+          }))
+
+          await sandbox.writeFiles(allFiles)
           scaffoldOk = true
+
+          // Start pnpm install in background (runs while AI generates personality files)
           sandbox
             .runCommand({ detached: true, cmd: 'pnpm', args: ['install'] })
             .then((cmd) => cmd.wait())
             .catch(() => {})
         } catch {
-          // Non-fatal — scaffold failure means AI must generate boilerplate files itself
+          // Non-fatal — AI must generate all files itself
         }
 
         writer.write({
@@ -79,21 +85,42 @@ export const createSandbox = ({ writer }: Params) => {
           data: { sandboxId, status: 'done' },
         })
 
-        if (scaffoldOk) {
+        // Build the return message
+        const skippedScaffold = scaffoldOk
+          ? `Base scaffold pre-written (package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig.json, tsconfig.app.json, tsconfig.node.json, .npmrc). `
+          : ''
+
+        if (!scaffoldOk) {
           return (
             `Sandbox created with ID: ${sandboxId}.\n` +
-            `Base scaffold pre-written (package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig.json, tsconfig.app.json, tsconfig.node.json, .npmrc). ` +
-            `pnpm install is running in the background.\n` +
-            `Skip these 8 scaffold files in your generateFiles paths list — only generate app-specific files.`
+            `WARNING: Base scaffold could not be written. You MUST generate ALL files including: ` +
+            `package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig.json, tsconfig.app.json, tsconfig.node.json, .npmrc, ` +
+            `index.html, src/main.tsx, src/index.css, and all app-specific files.`
           )
         }
 
-        // Scaffold failed — tell the AI it must generate everything
+        if (templateId) {
+          const { getTemplate } = await import('../templates')
+          const tmpl = getTemplate(templateId)
+          if (tmpl) {
+            const preWritten = tmpl.scaffoldFiles.map(f => f.path).join(', ')
+            return (
+              `Sandbox created with ID: ${sandboxId}.\n` +
+              `${skippedScaffold}pnpm install is running in the background.\n\n` +
+              `TEMPLATE LOADED: ${tmpl.name}\n` +
+              `Pre-written files (DO NOT regenerate): ${preWritten}\n` +
+              `INSTRUCTION: ${tmpl.instruction}\n` +
+              `Personality files to write: ${tmpl.personalityFiles.join(', ')}\n` +
+              `After writing the personality file(s), run \`pnpm install\` then \`pnpm dev\`.`
+            )
+          }
+        }
+
         return (
           `Sandbox created with ID: ${sandboxId}.\n` +
-          `WARNING: Base scaffold could not be written. You MUST generate ALL files including: ` +
-          `package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig.json, tsconfig.app.json, tsconfig.node.json, .npmrc, ` +
-          `index.html, src/main.tsx, src/index.css, and all app-specific files.`
+          `${skippedScaffold}` +
+          `pnpm install is running in the background.\n` +
+          `Skip these 8 scaffold files in your generateFiles paths list — only generate app-specific files.`
         )
       } catch (error) {
         const richError = getRichError({
@@ -111,7 +138,6 @@ export const createSandbox = ({ writer }: Params) => {
         })
 
         console.log('Error creating Sandbox:', richError.error)
-        // Explicit STOP instruction in the tool result — the AI reads this and must not retry.
         return (
           `WORKSPACE_SETUP_FAILED: ${richError.message}\n\n` +
           `STOP IMMEDIATELY. Do NOT call createSandbox again. Do NOT retry under any circumstances. ` +

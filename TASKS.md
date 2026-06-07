@@ -231,61 +231,45 @@ Research-backed speed improvements reducing total generation time ~35-50s:
 
 ---
 
-## PHASE 1.8 — Template System + Component Registry [ ] IN PLANNING
+## PHASE 1.8 — Template System ✅ COMPLETE (2026-06-07)
 
-### Research complete (2026-06-07)
-- [x] Researched v0/Bolt/Lovable template strategies — best approach identified
-- [x] Found GitHub repos for website templates (leoMirandaa/shadcn-landing-page, codebayu/template-portfolio, satnaing/shadcn-admin)
-- [x] Found GitHub repos for game templates (robert-kratz/flappy-bird, hseager/tetris, SteveDunn/Pacman-TypeScript, danielminnaar/snake-ts)
-- [ ] Research game templates: Pong, Space Invaders, Memory card, Platformer (Phaser), Wordle clone
-- [ ] Research web app templates: Kanban, Chat UI, E-commerce, Calendar, Notes
-- [ ] Research premium design patterns — font pairings, color palettes, non-generic layouts
+### Architecture implemented
+- `ai/templates/types.ts` — TemplateFile + Template types
+- `ai/templates/detect.ts` — pure regex template routing (~0ms, no LLM)
+- `ai/templates/game-snake.ts` — complete Canvas Snake game (grid, particles, audio, ghost, pause)
+- `ai/templates/game-tetris.ts` — complete Tetris (7 pieces, ghost piece, line clear anim, levels)
+- `ai/templates/game-flappy.ts` — complete Flappy Bird (physics, parallax clouds, pipes)
+- `ai/templates/game-pong.ts` — complete Pong (2-player + AI, ball physics, glow trail)
+- `ai/templates/website-saas.ts` — premium dark SaaS landing (glassmorphism, Space Grotesk, gradient orbs)
+- `ai/templates/website-restaurant.ts` — editorial dark restaurant (Playfair Display, warm amber, menu sections)
+- `ai/templates/index.ts` — registry + getTemplate + getTemplateFiles helpers
 
-### Architecture
-Strategy: Scaffold (pre-built working code) + Personality layer (AI fills brand.ts + content.ts only)
-Dynamic fallback: Component registry injected as context when no template matches — AI uses quality primitives even from scratch.
+### Pipeline wiring done
+- [x] `ai/classifier.ts` — returns `templateId` (detectTemplate runs after skill detected)
+- [x] `app/api/chat/route.ts` — threads `templateId` → tools; injects scaffold note in system prompt
+- [x] `ai/tools/index.ts` — accepts `templateId`, passes to createSandbox
+- [x] `ai/tools/create-sandbox.ts` — writes template scaffold + default personality file before pnpm install
+- [x] `app/api/chat/prompt.md` — NEVER say "template" or "scaffold" to users
 
-```
-/ai/templates/
-  website-saas/        index + scaffold files + brand.ts.template + content.ts.template
-  website-portfolio/
-  website-restaurant/
-  website-agency/
-  website-blog/
-  webapp-dashboard/
-  webapp-kanban/
-  webapp-todo/
-  game-snake/
-  game-tetris/
-  game-flappy/
-  game-pacman/
-  game-pong/
-  game-space-shooter/
-  game-memory/
-  game-platformer/
-  game-wordle/
-/ai/registry/
-  components/          Pre-built Button, Card, Nav, Hero, Footer, etc.
-  registry.json        Metadata: name, description, use-cases
-```
+### UX improvement
+- [x] `components/preview/preview.tsx` — address bar shows `live.codemineapp.com` (white-labeled); iframe loads real Vercel URL
 
-### Tasks
-- [ ] Build/adapt 5 website scaffold templates (from GitHub repos above, strip to Vite+React+Tailwind+Lucide, add {{TOKEN}} placeholders)
-- [ ] Build/adapt 3 web app scaffold templates
-- [ ] Build/adapt 8 game scaffold templates (game loop + logic pre-built, AI only themes)
-- [ ] Build component registry (10-15 shared UI primitives)
-- [ ] Add template router to V4 Pro prompt — given user prompt → return template_name + brand params JSON
-- [ ] Wire scaffold injection into `create-sandbox.ts` — copy template files alongside base scaffold
-- [ ] Create Flash prompts for filling brand.ts + content.ts per template type
-- [ ] Test parallel Flash personality fill (3 calls in parallel: brand, content, extras)
-- [ ] Test: target under 60s end-to-end for template-matched projects
-- [ ] Update prompt.md to describe template system and dynamic fallback rules
+### Quality
+- [x] TypeScript: zero errors
+- Games: full game loop, mobile touch, Web Audio, localStorage high score, particle effects
+- Websites: immersive dark premium design, editorial typography, glassmorphism/gradient orbs
 
-### Quality requirements (per user)
-- Each template must be visually stunning and non-generic — unique layouts, distinctive color palettes, editorial typography
-- No two generated projects should look identical even from the same template
-- Each template has its own visual personality: color system, font pairing, layout archetype
-- Games: full working game loop, mobile touch controls, sounds — AI only personalizes theme
+### Remaining templates to add (future phases)
+- [ ] game-pacman (canvas pathfinding, ghost AI)
+- [ ] game-space-shooter (canvas, bullets, wave spawning)
+- [ ] game-memory (card flip, match detection)
+- [ ] game-wordle (word list, keyboard input, color feedback)
+- [ ] website-agency (motion/parallax, bold typography)
+- [ ] website-portfolio (split layout, project showcases)
+- [ ] website-fitness (dark energetic, program sections)
+- [ ] webapp-todo (drag-and-drop, tags, filters)
+- [ ] webapp-kanban (board columns, card DnD)
+- [ ] webapp-chat (message bubbles, online status)
 
 ---
 

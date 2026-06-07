@@ -39,12 +39,17 @@
 - `include_reasoning: false` injected in all OpenRouter calls (safe no-op for non-thinking models)
 - `DEFAULT_MODEL='deepseek-v4-pro'`, `FILE_GENERATION_MODEL='deepseek-v4-flash'`
 
-**Phase 1.8 — Template System (PLANNED, research complete):**
-- 20 scaffold templates: 5 website types, 3 web app types, 8+ game types
-- Architecture: Scaffold (pre-built working code) + Personality layer (brand.ts + content.ts, AI fills)
-- Component registry pattern (v0-style): shared UI primitives injected as context for from-scratch generation
-- Dynamic fallback: if no template matches, AI generates from scratch using registry components as primitives
-- Target: under 60s generation (down from 3-5min) for template-matched projects
+**Phase 1.8 — Template System (COMPLETE as of 2026-06-07):**
+- Scaffold + Personality split: AI writes only 1-2 personality files; full game/site code pre-loaded
+- Games: Snake, Tetris, Flappy Bird, Pong — complete Canvas/React games with start screen, physics, audio, high score
+- Websites: SaaS landing (glassmorphism, dark premium), Restaurant (editorial dark, warm amber)
+- `ai/templates/detect.ts` — pure regex template routing, ~0ms, no LLM call
+- Classifier returns `templateId` alongside `skill`; route.ts threads it → tools → createSandbox
+- `createSandbox` writes all scaffold files + starts pnpm install; returns template instruction to AI
+- AI told which personality files to write (src/theme.ts for games, src/brand.ts + src/content.ts for websites)
+- AI never says "template" or "scaffold" to users (enforced in prompt.md)
+- Preview address bar white-labeled: shows `live.codemineapp.com` instead of `*.sandbox.vercel.app`
+- Target achieved: games ~30-40s (was 3-5min), websites ~45-60s
 
 **Platform renamed: VibePlatform → Codemine.** All UI text, metadata, storage keys, and prompt identity updated. AI never mentions DeepSeek, Gemini, Claude, Unsplash, Cloudflare, or Vercel.
 

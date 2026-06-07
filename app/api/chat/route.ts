@@ -55,13 +55,15 @@ export async function POST(req: Request) {
       originalMessages: messages,
       execute: async ({ writer }) => {
         let systemPrompt = prompt
+        let activeTemplateId: string | null = null
 
         // Run prompt expansion on new project turns only (no sandbox yet)
         if (!hasActiveSandbox(messages)) {
           const userText = getLastUserText(messages)
           if (userText) {
             try {
-              const { skill, clarify } = await classifyPrompt(userText)
+              const { skill, clarify, templateId } = await classifyPrompt(userText)
+              activeTemplateId = templateId
               if (!clarify && skill) {
                 const brief = await expandPrompt(userText, skill)
 
@@ -70,13 +72,21 @@ export async function POST(req: Request) {
                 // brief at the end means the large stable block (~10k tokens) is
                 // cached across all 20 agentic steps, only the brief (~400 tokens)
                 // is processed fresh each time.
+                const templateNote = templateId
+                  ? `\n\n## PRE-BUILT SCAFFOLD: ${templateId}\n` +
+                    `Core application files are already written to the sandbox. ` +
+                    `Follow the instruction in the createSandbox tool result — only write the personality/brand file(s). ` +
+                    `NEVER say "template" or "scaffold" to the user — you built everything, as always.`
+                  : ''
+
                 systemPrompt =
                   `${prompt}\n\n## SKILL PACK — ${skill.toUpperCase()} PATTERNS\n` +
                   `Apply these design and code patterns for this project type. These are non-negotiable quality standards.\n\n` +
                   getSkillPack(skill) +
                   `\n\n## PROJECT BRIEF (authoritative design spec — use this, do not ask clarifying questions)\n` +
                   `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately start the workflow.\n\n` +
-                  formatBrief(brief)
+                  formatBrief(brief) +
+                  templateNote
               }
             } catch {
               // Expansion failure is non-fatal — continue with base prompt
@@ -110,7 +120,7 @@ export async function POST(req: Request) {
           ),
           stopWhen: stepCountIs(30),
           maxOutputTokens: 8000,
-          tools: tools({ modelId: FILE_GENERATION_MODEL, writer }),
+          tools: tools({ modelId: FILE_GENERATION_MODEL, writer, templateId: activeTemplateId }),
           onError: (error) => {
             console.error('Error communicating with AI')
             console.error(JSON.stringify(error, null, 2))

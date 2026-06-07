@@ -7,6 +7,33 @@ import { ScrollArea } from '@radix-ui/react-scroll-area'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
+const DISPLAY_HOST = 'live.codemineapp.com'
+
+/** Convert a real sandbox URL to our branded display URL */
+function toDisplay(url: string): string {
+  try {
+    const u = new URL(url)
+    return `https://${DISPLAY_HOST}${u.pathname}${u.search}${u.hash}`
+  } catch {
+    return url
+  }
+}
+
+/** Convert a display URL back to the real sandbox URL using the current real URL as base */
+function toReal(display: string, realBase: string): string {
+  try {
+    const base = new URL(realBase)
+    const d = new URL(display)
+    if (d.hostname === DISPLAY_HOST) {
+      return `${base.origin}${d.pathname}${d.search}${d.hash}`
+    }
+    // User typed a full URL — use as-is (developer mode)
+    return display
+  } catch {
+    return realBase
+  }
+}
+
 interface Props {
   className?: string
   disabled?: boolean
@@ -17,18 +44,16 @@ interface Props {
 export function Preview({ className, disabled, lastFilesUploadedAt, url }: Props) {
   const [currentUrl, setCurrentUrl] = useState(url)
   const [error, setError] = useState<string | null>(null)
-  const [inputValue, setInputValue] = useState(url || '')
+  const [inputValue, setInputValue] = useState(url ? toDisplay(url) : '')
   const [isLoading, setIsLoading] = useState(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const loadStartTime = useRef<number | null>(null)
 
   useEffect(() => {
     setCurrentUrl(url)
-    setInputValue(url || '')
+    setInputValue(url ? toDisplay(url) : '')
   }, [url])
 
-  // Auto-refresh preview when AI uploads new files.
-  // 3s delay gives the sandbox dev server time to detect changes and rebuild.
+  // Auto-refresh preview when AI uploads new files (3s delay for dev server to rebuild)
   useEffect(() => {
     if (!lastFilesUploadedAt || !currentUrl) return
     const timer = setTimeout(() => refreshIframe(), 3000)
@@ -39,37 +64,24 @@ export function Preview({ className, disabled, lastFilesUploadedAt, url }: Props
     if (iframeRef.current && currentUrl) {
       setIsLoading(true)
       setError(null)
-      loadStartTime.current = Date.now()
       iframeRef.current.src = ''
       setTimeout(() => {
-        if (iframeRef.current) {
-          iframeRef.current.src = currentUrl
-        }
+        if (iframeRef.current) iframeRef.current.src = currentUrl
       }, 10)
     }
   }
 
   const loadNewUrl = () => {
-    if (iframeRef.current && inputValue) {
-      if (inputValue !== currentUrl) {
-        setIsLoading(true)
-        setError(null)
-        loadStartTime.current = Date.now()
-        iframeRef.current.src = inputValue
-      } else {
-        refreshIframe()
-      }
+    if (!iframeRef.current || !inputValue) return
+    const realUrl = currentUrl ? toReal(inputValue, currentUrl) : inputValue
+    if (realUrl !== currentUrl) {
+      setIsLoading(true)
+      setError(null)
+      setCurrentUrl(realUrl)
+      iframeRef.current.src = realUrl
+    } else {
+      refreshIframe()
     }
-  }
-
-  const handleIframeLoad = () => {
-    setIsLoading(false)
-    setError(null)
-  }
-
-  const handleIframeError = () => {
-    setIsLoading(false)
-    setError('Failed to load the page')
   }
 
   return (
@@ -82,9 +94,7 @@ export function Preview({ className, disabled, lastFilesUploadedAt, url }: Props
           <button
             onClick={refreshIframe}
             type="button"
-            className={cn('cursor-pointer px-1', {
-              'animate-spin': isLoading,
-            })}
+            className={cn('cursor-pointer px-1', { 'animate-spin': isLoading })}
           >
             <RefreshCwIcon className="w-4" />
           </button>
@@ -95,13 +105,10 @@ export function Preview({ className, disabled, lastFilesUploadedAt, url }: Props
             <input
               type="text"
               className="font-mono text-xs h-6 border border-gray-200 px-4 bg-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[300px]"
-              onChange={(event) => setInputValue(event.target.value)}
-              onClick={(event) => event.currentTarget.select()}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.currentTarget.blur()
-                  loadNewUrl()
-                }
+              onChange={(e) => setInputValue(e.target.value)}
+              onClick={(e) => e.currentTarget.select()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.currentTarget.blur(); loadNewUrl() }
               }}
               value={inputValue}
             />
@@ -117,8 +124,8 @@ export function Preview({ className, disabled, lastFilesUploadedAt, url }: Props
                 ref={iframeRef}
                 src={currentUrl}
                 className="w-full h-full"
-                onLoad={handleIframeLoad}
-                onError={handleIframeError}
+                onLoad={() => { setIsLoading(false); setError(null) }}
+                onError={() => { setIsLoading(false); setError('Failed to load the page') }}
                 title="Browser content"
               />
             </ScrollArea>
