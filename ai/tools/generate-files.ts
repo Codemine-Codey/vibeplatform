@@ -88,7 +88,12 @@ export const generateFiles = ({ writer, modelId }: Params) =>
       try {
         for await (const chunk of iterator) {
           if (chunk.files.length > 0) {
-            const error = await writeFiles(chunk)
+            // Pass accumulated uploaded paths so the UI shows a growing list
+            // (file1 ✓, file2 ✓, file3 ⟳) instead of resetting to 1 each time
+            const error = await writeFiles({
+              ...chunk,
+              written: uploaded.map((f) => f.path),
+            })
             if (error) {
               return error
             } else {

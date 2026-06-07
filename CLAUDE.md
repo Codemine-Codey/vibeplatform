@@ -6,7 +6,7 @@
 
 ---
 
-## Current Build Status (as of 2026-06-06)
+## Current Build Status (as of 2026-06-07)
 
 **Phase 0 is complete.** Full pipeline working: DeepSeek v4 Pro → Vercel Sandbox → files generated → dev server runs → preview URL live in browser. All compatibility bugs resolved. Auto-refresh on file upload working.
 
@@ -16,7 +16,7 @@
 
 **Phase 1.6 is complete — Speed Optimizations (9 items, ~35-50s total savings):**
 1. DeepSeek KV prompt caching: stable content before dynamic brief — cache hits on steps 2-20
-2. Sandbox pre-warming: `Sandbox.create()` runs in parallel with `expandPrompt()` in route.ts — saves ~8s
+2. ~~Sandbox pre-warming~~ — REMOVED (caused 4-min infinite hangs when OIDC token expired)
 3. Intent classifier overhaul: explicit Build / Vague / Not-a-build taxonomy — no more "hey" starting a project
 4. getUnsplashBatch: all images in one `Promise.all` call — was sequential
 5. Base scaffold: 8 files pre-written to sandbox (package.json, vite.config.ts, tailwind, tsconfigs, .npmrc)
@@ -25,10 +25,26 @@
 8. planProject tool: AI commits to complete file list before writing code — fewer missing-import bugs
 9. Prompt cache ordering: systemPrompt = base → skill pack → brief (dynamic last)
 
-**Architecture: DeepSeek V4 Pro + Flash via Cloudflare AI Gateway (reverted from OpenRouter/Sonnet)**
-- OpenRouter/Sonnet was causing AI loop (model re-read system prompt every step, created 3 sandboxes)
-- Reverted to proven DeepSeek-only setup via CF AI Gateway
+**Phase 1.7 is complete — UX + Edit Speed improvements (2026-06-07):**
+- Removed "What's this?" button from header (cleaner UI)
+- Context-aware thinking statements: AI text now shows as SparklesIcon + prose (not code block); RunCommand shows "Installing dependencies..." / "Starting preview server..." / etc.; GenerateFiles shows "Writing code..." → "Built N files"
+- File generation animation fixed: UI now shows growing file list (file1 ✓ → file1 ✓, file2 ✓ → ...) instead of resetting to 1 file each time
+- patchFile-first edit rules: prompt now explicitly bans generateFiles for edits under ~30 lines; patchFile is the hard default with concrete examples; no pnpm dev restart after patches (hot-reload handles it)
+- gateway.ts: `include_reasoning: false` fetch wrapper injected for all OpenRouter calls — disables extended thinking on thinking models (Kimi K2.6 etc.) to avoid 300s serverless timeout
+- Tested Kimi K2.6 — too slow (7min total, 5min fixes), reverted to DeepSeek V4 Pro via OpenRouter
+
+**Architecture: DeepSeek V4 Pro (orchestration) + V4 Flash (file generation) via OpenRouter + CF AI Gateway**
+- Pro model: `deepseek/deepseek-v4-pro` via OpenRouter (OPENROUTER_API_KEY)
+- Flash model: `deepseek-v4-flash` via CF AI Gateway (AI_GATEWAY_BASE_URL)
+- `include_reasoning: false` injected in all OpenRouter calls (safe no-op for non-thinking models)
 - `DEFAULT_MODEL='deepseek-v4-pro'`, `FILE_GENERATION_MODEL='deepseek-v4-flash'`
+
+**Phase 1.8 — Template System (PLANNED, research complete):**
+- 20 scaffold templates: 5 website types, 3 web app types, 8+ game types
+- Architecture: Scaffold (pre-built working code) + Personality layer (brand.ts + content.ts, AI fills)
+- Component registry pattern (v0-style): shared UI primitives injected as context for from-scratch generation
+- Dynamic fallback: if no template matches, AI generates from scratch using registry components as primitives
+- Target: under 60s generation (down from 3-5min) for template-matched projects
 
 **Platform renamed: VibePlatform → Codemine.** All UI text, metadata, storage keys, and prompt identity updated. AI never mentions DeepSeek, Gemini, Claude, Unsplash, Cloudflare, or Vercel.
 
@@ -71,15 +87,14 @@ This pattern:
 | Layer | Technology | Notes |
 |---|---|---|
 | Platform host | Vercel (Next.js 16, App Router, Turbopack) | |
-| AI — orchestration | Claude Sonnet 4.6 via OpenRouter | New projects; top-level cache_control injected |
-| AI — rate-limit fallback | Gemini 3.5 Flash via OpenRouter | Same OPENROUTER_API_KEY |
-| AI — iterations/edits | DeepSeek V4 Flash | Direct API, native prompt caching |
-| AI — file generation | DeepSeek V4 Flash | Nested call in `get-contents.ts` |
-| AI — error analysis | DeepSeek V4 Flash | `errors/route.ts` |
-| AI SDK | Vercel AI SDK v6 (`ai@6.0.105`) | `@ai-sdk/openai@3.0.37`, `@ai-sdk/anthropic@3.0.81`, `@ai-sdk/google@3.0.80` |
+| AI — orchestration | DeepSeek V4 Pro via OpenRouter | New projects; `include_reasoning: false` injected |
+| AI — file generation | DeepSeek V4 Flash via CF AI Gateway | `get-contents.ts` nested call |
+| AI — iterations/edits | DeepSeek V4 Flash via CF AI Gateway | Fast, cached |
+| AI — error analysis | DeepSeek V4 Flash via CF AI Gateway | `errors/route.ts` |
+| AI SDK | Vercel AI SDK v6 (`ai@6.0.105`) | `@ai-sdk/openai@3.0.37` |
 | Sandboxes | Vercel Sandbox (Firecracker microVMs) | One per project, VERCEL_OIDC_TOKEN auth |
 | User app deploy | Cloudflare Pages API | Phase 2 — not yet implemented |
-| Images | Unsplash Source API | Phase 1 — not yet implemented |
+| Images | Unsplash API | UNSPLASH_ACCESS_KEY, 50 req/hr free tier |
 | Storage | Browser localStorage (Phase 1) → Supabase (Phase 2) | |
 | CSS | Tailwind CSS only | |
 | Icons | Lucide React only | No SVG anywhere |

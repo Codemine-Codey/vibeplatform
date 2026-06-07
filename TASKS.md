@@ -215,6 +215,80 @@ Research-backed speed improvements reducing total generation time ~35-50s:
 
 ---
 
+## PHASE 1.7 — UX + Edit Speed ✅ COMPLETE (2026-06-07)
+
+- [x] Remove "What's this?" button from header (`app/header.tsx`)
+- [x] Remove sandbox prewarm entirely — was root cause of 4-min infinite hangs (`route.ts`, `create-sandbox.ts`, `tools/index.ts`)
+- [x] Context-aware thinking statements:
+  - `components/chat/message-part/text.tsx` — SparklesIcon + prose styling (removed monospace code block)
+  - `components/chat/message-part/run-command.tsx` — contextual labels per command (Installing dependencies / Starting preview server / Applying configuration / etc.)
+  - `components/chat/message-part/generate-files.tsx` — "Writing code..." during generation, "Built N files" when done
+- [x] File generation animation fix (`ai/tools/generate-files.ts`) — passes accumulated uploaded paths so UI shows growing list (file1 ✓ → file1 ✓, file2 ✓ → file1 ✓, file2 ✓, file3 ⟳)
+- [x] patchFile-first edit rules (`app/api/chat/prompt.md`) — explicit threshold (~30 lines), concrete examples, no pnpm dev restart after patches
+- [x] `gateway.ts` — `include_reasoning: false` fetch wrapper for all OpenRouter calls; disables thinking tokens on Kimi/o1/etc.
+- [x] Tested Kimi K2.6 — 7min generation, too slow; confirmed DeepSeek V4 Pro is the right orchestration model
+- [x] `OPENROUTER_PRO_MODEL=deepseek/deepseek-v4-pro` in `.env.local`
+
+---
+
+## PHASE 1.8 — Template System + Component Registry [ ] IN PLANNING
+
+### Research complete (2026-06-07)
+- [x] Researched v0/Bolt/Lovable template strategies — best approach identified
+- [x] Found GitHub repos for website templates (leoMirandaa/shadcn-landing-page, codebayu/template-portfolio, satnaing/shadcn-admin)
+- [x] Found GitHub repos for game templates (robert-kratz/flappy-bird, hseager/tetris, SteveDunn/Pacman-TypeScript, danielminnaar/snake-ts)
+- [ ] Research game templates: Pong, Space Invaders, Memory card, Platformer (Phaser), Wordle clone
+- [ ] Research web app templates: Kanban, Chat UI, E-commerce, Calendar, Notes
+- [ ] Research premium design patterns — font pairings, color palettes, non-generic layouts
+
+### Architecture
+Strategy: Scaffold (pre-built working code) + Personality layer (AI fills brand.ts + content.ts only)
+Dynamic fallback: Component registry injected as context when no template matches — AI uses quality primitives even from scratch.
+
+```
+/ai/templates/
+  website-saas/        index + scaffold files + brand.ts.template + content.ts.template
+  website-portfolio/
+  website-restaurant/
+  website-agency/
+  website-blog/
+  webapp-dashboard/
+  webapp-kanban/
+  webapp-todo/
+  game-snake/
+  game-tetris/
+  game-flappy/
+  game-pacman/
+  game-pong/
+  game-space-shooter/
+  game-memory/
+  game-platformer/
+  game-wordle/
+/ai/registry/
+  components/          Pre-built Button, Card, Nav, Hero, Footer, etc.
+  registry.json        Metadata: name, description, use-cases
+```
+
+### Tasks
+- [ ] Build/adapt 5 website scaffold templates (from GitHub repos above, strip to Vite+React+Tailwind+Lucide, add {{TOKEN}} placeholders)
+- [ ] Build/adapt 3 web app scaffold templates
+- [ ] Build/adapt 8 game scaffold templates (game loop + logic pre-built, AI only themes)
+- [ ] Build component registry (10-15 shared UI primitives)
+- [ ] Add template router to V4 Pro prompt — given user prompt → return template_name + brand params JSON
+- [ ] Wire scaffold injection into `create-sandbox.ts` — copy template files alongside base scaffold
+- [ ] Create Flash prompts for filling brand.ts + content.ts per template type
+- [ ] Test parallel Flash personality fill (3 calls in parallel: brand, content, extras)
+- [ ] Test: target under 60s end-to-end for template-matched projects
+- [ ] Update prompt.md to describe template system and dynamic fallback rules
+
+### Quality requirements (per user)
+- Each template must be visually stunning and non-generic — unique layouts, distinctive color palettes, editorial typography
+- No two generated projects should look identical even from the same template
+- Each template has its own visual personality: color system, font pairing, layout archetype
+- Games: full working game loop, mobile touch controls, sounds — AI only personalizes theme
+
+---
+
 ## PHASE 2 — Cloudflare Pages Deployment [ ]
 
 - [ ] lib/cloudflare.ts

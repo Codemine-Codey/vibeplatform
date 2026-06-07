@@ -1,4 +1,3 @@
-import { ToggleWelcome } from '@/components/modals/welcome'
 import { cn } from '@/lib/utils'
 import { ZapIcon } from 'lucide-react'
 
@@ -14,9 +13,6 @@ export async function Header({ className }: Props) {
         <span className="text-sm uppercase font-mono font-bold tracking-tight">
           Codemine
         </span>
-      </div>
-      <div className="flex items-center ml-auto space-x-1.5">
-        <ToggleWelcome />
       </div>
     </header>
   )

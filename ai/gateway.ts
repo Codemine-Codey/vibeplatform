@@ -17,8 +17,6 @@ const deepseekProvider = createOpenAI({
 })
 
 // OpenRouter — used for the Pro model (main orchestration / new project generation)
-// OPENROUTER_PRO_MODEL: check openrouter.ai/models for the exact DeepSeek V4 Pro model ID
-// Common format: deepseek/deepseek-v4-pro or deepseek/deepseek-chat
 const openrouterApiKey = process.env.OPENROUTER_API_KEY
 const openrouterProvider = openrouterApiKey
   ? createOpenAI({
@@ -27,6 +25,20 @@ const openrouterProvider = openrouterApiKey
       headers: {
         'HTTP-Referer': 'https://www.codemineapp.com',
         'X-Title': 'Codemine Builder',
+      },
+      // Disable extended thinking/reasoning tokens on models like Kimi K2.6.
+      // Without this, each orchestration step takes 20-30s and hits the 300s serverless limit.
+      fetch: async (url, init) => {
+        if (init?.body && typeof init.body === 'string') {
+          try {
+            const body = JSON.parse(init.body)
+            body.include_reasoning = false
+            return fetch(url, { ...init, body: JSON.stringify(body) })
+          } catch {
+            // fall through on parse failure
+          }
+        }
+        return fetch(url, init as RequestInit)
       },
     })
   : null

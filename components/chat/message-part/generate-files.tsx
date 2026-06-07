@@ -26,8 +26,10 @@ export function GenerateFiles(props: {
         <CloudUploadIcon className="w-3.5 h-3.5" />
         <span>
           {props.message.status === 'done'
-            ? 'Uploaded files'
-            : 'Generating files'}
+            ? `Built ${props.message.paths.length} file${props.message.paths.length === 1 ? '' : 's'}`
+            : props.message.status === 'error'
+            ? 'Generation failed'
+            : `Writing code...`}
         </span>
       </ToolHeader>
       <div className="text-sm relative min-h-5">
