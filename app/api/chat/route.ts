@@ -68,18 +68,13 @@ export async function POST(req: Request) {
                 const brief = await expandPrompt(userText, skill)
 
                 // Cache-optimal order: stable content first, dynamic brief last.
-                // DeepSeek KV cache prefix-matches from the start — putting the
-                // brief at the end means the large stable block (~10k tokens) is
-                // cached across all 20 agentic steps, only the brief (~400 tokens)
-                // is processed fresh each time.
                 const templateNote = templateId
                   ? `\n\n## PRE-BUILT SCAFFOLD: ${templateId}\n` +
-                    `Core application files are already in the sandbox. Follow the createSandbox tool result instructions — write only the personality/brand file(s).\n` +
-                    `When writing personality files: derive EVERY value from the PROJECT BRIEF above. ` +
-                    `The brief's colorPalette, fontPairing, tone, and brandName are the source of truth — not the file defaults. ` +
-                    `If the brief says warm/light/airy, make it warm/light/airy. If it says dark/moody/bold, make it dark/moody/bold. ` +
-                    `Brand name in nav, title, headings = brief's brandName. ` +
-                    `NEVER say "template" or "scaffold" to the user.`
+                    `Core application files are already in the sandbox. Follow the createSandbox tool result instructions — write ONLY the personality/brand file(s). Nothing else.\n` +
+                    `Personality files: derive EVERY value from the PROJECT BRIEF. ` +
+                    `colorPalette → colors, fontPairing → fonts, brandName → all titles/names, tone → dark vs light vs warm vs cool. ` +
+                    `Override every default. NEVER say "template" or "scaffold" to the user.\n` +
+                    `WORKFLOW FOR PRE-BUILT: (1) one sentence confirmation, (2) createSandbox, (3) write personality file(s), (4) pnpm install, (5) pnpm dev, (6) getSandboxURL. That's it — no planProject, no extra steps.`
                   : ''
 
                 systemPrompt =
@@ -97,8 +92,18 @@ export async function POST(req: Request) {
           }
         }
 
+        // Template projects: use Flash for orchestration (5-10s/step vs 40-60s/step for Pro)
+        // Only needs 6 tool calls total — no complex reasoning required
+        // From-scratch projects: keep Pro for quality on complex multi-file generation
+        const isTemplate = activeTemplateId !== null && !hasActiveSandbox(messages)
+        const modelOptions = isTemplate
+          ? getModelOptions(FILE_GENERATION_MODEL)
+          : getModelOptions(DEFAULT_MODEL)
+        const maxSteps = isTemplate ? 10 : 30
+        const maxTokens = isTemplate ? 2500 : 8000
+
         const result = streamText({
-          ...getModelOptions(DEFAULT_MODEL),
+          ...modelOptions,
           system: systemPrompt,
           messages: await convertToModelMessages(
             messages.map((message) => {
@@ -121,8 +126,8 @@ export async function POST(req: Request) {
               return message
             })
           ),
-          stopWhen: stepCountIs(30),
-          maxOutputTokens: 8000,
+          stopWhen: stepCountIs(maxSteps),
+          maxOutputTokens: maxTokens,
           tools: tools({ modelId: FILE_GENERATION_MODEL, writer, templateId: activeTemplateId }),
           onError: (error) => {
             console.error('Error communicating with AI')
