@@ -192,7 +192,7 @@ export function DatabasePanel({ className }: Props) {
                   </>
                 )}
               </button>
-              <span className="text-xs text-muted-foreground">Ctrl+Enter to run</span>
+              <span className="text-xs text-muted-foreground opacity-60">Results are a snapshot — re-run to refresh</span>
             </div>
           </div>
 

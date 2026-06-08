@@ -25,9 +25,12 @@ export async function POST(req: Request) {
   let output: { shouldBeFixed: boolean; summary: string; paths: string[] } | null = null
 
   try {
+    const { providerOptions, ...modelOpts } = getModelOptions(ERROR_MODEL)
     await generateText({
-      ...getModelOptions(ERROR_MODEL),
+      ...modelOpts,
+      // System prompt is static — mark as ephemeral cache for Anthropic (reused across requests)
       system: prompt,
+      providerOptions,
       messages: [{ role: 'user', content: JSON.stringify(parsedBody.data) }],
       tools: {
         report_errors: tool({

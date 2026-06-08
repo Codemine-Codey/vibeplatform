@@ -1,4 +1,4 @@
-// Primary model — Gemini 3.5 Flash via CF AI Gateway
+// Primary model — Gemini 3.5 Flash via CF AI Gateway (Google AI Studio)
 // Used for: orchestration, planning, file writing, classifier, expander
 export const DEFAULT_MODEL = 'gemini-3.5-flash'
 
@@ -15,7 +15,7 @@ export const FALLBACK_MODEL = 'deepseek-v4-flash'
 export const SUPPORTED_MODELS: string[] = [DEFAULT_MODEL]
 
 export const MODEL_NAMES: Record<string, string> = {
-  'gemini-3.5-flash': 'Builder',
+  'gemini-2.5-flash': 'Builder',
   'claude-haiku-4-5-20251001': 'Builder',
   'deepseek-v4-flash': 'Builder',
 }

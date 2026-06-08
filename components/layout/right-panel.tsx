@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { MonitorIcon, FolderOpenIcon, TerminalIcon, LoaderIcon, RocketIcon, DatabaseIcon } from 'lucide-react'
+import { MonitorIcon, FolderOpenIcon, TerminalIcon, LoaderIcon, RocketIcon, DatabaseIcon, KeyRoundIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Preview } from '@/app/preview'
 import { FileExplorer } from '@/app/file-explorer'
@@ -9,8 +9,9 @@ import { Logs } from '@/app/logs'
 import { useSandboxStore } from '@/app/state'
 import { DeployPanel } from '@/components/deploy/deploy-panel'
 import { DatabasePanel } from '@/components/deploy/database-panel'
+import { AuthPanel } from '@/components/deploy/auth-panel'
 
-type Tab = 'preview' | 'files' | 'logs' | 'deploy' | 'database'
+type Tab = 'preview' | 'files' | 'logs' | 'deploy' | 'database' | 'auth'
 
 const TABS = [
   { id: 'preview' as Tab, label: 'Preview', icon: MonitorIcon },
@@ -18,6 +19,7 @@ const TABS = [
   { id: 'logs' as Tab, label: 'Logs', icon: TerminalIcon },
   { id: 'deploy' as Tab, label: 'Deploy', icon: RocketIcon },
   { id: 'database' as Tab, label: 'Database', icon: DatabaseIcon },
+  { id: 'auth' as Tab, label: 'Auth', icon: KeyRoundIcon },
 ]
 
 interface Props {
@@ -75,6 +77,9 @@ export function RightPanel({ className }: Props) {
         </div>
         <div className={cn('absolute inset-0', activeTab !== 'database' && 'hidden')}>
           <DatabasePanel className="h-full rounded-t-none" />
+        </div>
+        <div className={cn('absolute inset-0', activeTab !== 'auth' && 'hidden')}>
+          <AuthPanel className="h-full rounded-t-none" />
         </div>
       </div>
     </div>

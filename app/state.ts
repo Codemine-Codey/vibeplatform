@@ -10,6 +10,8 @@ interface SandboxStore {
   addGeneratedFiles: (files: string[]) => void
   addLog: (data: { sandboxId: string; cmdId: string; log: CommandLog }) => void
   addPaths: (paths: string[]) => void
+  authEnabled?: boolean
+  authWorkerUrl?: string
   chatStatus: ChatStatus
   clearGeneratedFiles: () => void
   commands: Command[]
@@ -23,6 +25,7 @@ interface SandboxStore {
   lastFilesUploadedAt?: number
   paths: string[]
   sandboxId?: string
+  setAuthState: (s: Partial<Pick<SandboxStore, 'authEnabled' | 'authWorkerUrl'>>) => void
   setChatStatus: (status: ChatStatus) => void
   setDatabaseState: (s: Partial<Pick<SandboxStore, 'databaseId' | 'databaseName'>>) => void
   setDeployState: (s: Partial<Pick<SandboxStore, 'deployedUrl' | 'deployStatus' | 'deployError' | 'deployProjectName'>>) => void
@@ -133,6 +136,7 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
   generatedFiles: new Set<string>(),
   lastFilesUploadedAt: undefined,
   paths: [],
+  setAuthState: (s) => set(() => ({ ...s })),
   setChatStatus: (status) =>
     set((state) =>
       state.chatStatus === status ? state : { chatStatus: status }
@@ -154,6 +158,8 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
       deployProjectName: undefined,
       databaseId: undefined,
       databaseName: undefined,
+      authEnabled: undefined,
+      authWorkerUrl: undefined,
     })),
   setStatus: (status) => set(() => ({ status })),
   setUrl: (url, urlUUID) => set(() => ({ url, urlUUID })),
