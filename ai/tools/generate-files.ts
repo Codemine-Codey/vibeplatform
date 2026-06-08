@@ -1,7 +1,6 @@
 import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import type { DataPart } from '../messages/data-parts'
 import { Sandbox } from '@vercel/sandbox'
-import { getContents, type File } from './generate-files/get-contents'
 import { getRichError } from './get-rich-error'
 import { getWriteFiles } from './generate-files/get-write-files'
 import { tool } from 'ai'
@@ -9,8 +8,6 @@ import description from './generate-files.md'
 import z from 'zod/v3'
 
 // Runs inside the sandbox after file generation to guarantee Vite allowedHosts.
-// Belt-and-suspenders: the pre-write server-side patch handles most cases, this
-// catches any config variant the regex missed (e.g. exotic formatting, .mjs, etc.)
 const VITE_PATCH_SCRIPT = `
 const fs = require('fs');
 const configs = ['vite.config.ts','vite.config.js','vite.config.mjs','vite.config.mts'];
@@ -39,26 +36,32 @@ if (!done) {
 `.trim()
 
 interface Params {
-  modelId: string
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
 }
 
-export const generateFiles = ({ writer, modelId }: Params) =>
+export const generateFiles = ({ writer }: Params) =>
   tool({
     description,
     inputSchema: z.object({
-      sandboxId: z.string(),
-      paths: z.array(z.string()),
+      sandboxId: z.string().describe('The sandbox ID to write files into'),
+      files: z
+        .array(
+          z.object({
+            path: z.string().describe('File path relative to sandbox root, e.g. src/App.tsx'),
+            content: z.string().describe('Complete file content as a UTF-8 string — no placeholders, no stubs'),
+          })
+        )
+        .describe('Every file to write. Must include COMPLETE content. Call this tool exactly once.'),
     }),
-    execute: async ({ sandboxId, paths }, { toolCallId, messages }) => {
-      if (paths.length === 0) {
-        return 'ERROR: paths list is empty. You must provide at least one file path to generate.'
+    execute: async ({ sandboxId, files }, { toolCallId }) => {
+      if (files.length === 0) {
+        return 'ERROR: files array is empty. Provide every file with its complete content.'
       }
 
       writer.write({
         id: toolCallId,
         type: 'data-generating-files',
-        data: { paths: [], status: 'generating' },
+        data: { paths: files.map(f => f.path), status: 'generating' },
       })
 
       let sandbox: Sandbox | null = null
@@ -66,112 +69,45 @@ export const generateFiles = ({ writer, modelId }: Params) =>
       try {
         sandbox = await Sandbox.get({ sandboxId })
       } catch (error) {
-        const richError = getRichError({
-          action: 'get sandbox by id',
-          args: { sandboxId },
-          error,
-        })
-
+        const richError = getRichError({ action: 'get sandbox by id', args: { sandboxId }, error })
         writer.write({
           id: toolCallId,
           type: 'data-generating-files',
           data: { error: richError.error, paths: [], status: 'error' },
         })
-
         return richError.message
       }
 
       const writeFiles = getWriteFiles({ sandbox, toolCallId, writer })
-      const uploaded: File[] = []
 
-      // write_all_files generates ALL files in a single Gemini call — never split.
-      // Splitting caused Gemini to lose cross-file context and miss files entirely.
-      const pathChunks = [paths]
+      const error = await writeFiles({
+        files,
+        paths: files.map(f => f.path),
+        written: [],
+      })
 
-      async function processChunk(chunkPaths: string[]): Promise<void> {
-        const iterator = getContents({ messages, modelId, paths: chunkPaths })
-        try {
-          for await (const chunk of iterator) {
-            if (chunk.files.length > 0) {
-              const error = await writeFiles({
-                ...chunk,
-                written: uploaded.map((f) => f.path),
-              })
-              if (!error) uploaded.push(...chunk.files)
-            } else {
-              writer.write({
-                id: toolCallId,
-                type: 'data-generating-files',
-                data: { status: 'generating', paths: chunk.paths },
-              })
-            }
-          }
-        } catch (error) {
-          const richError = getRichError({
-            action: 'generate file contents',
-            args: { modelId, paths: chunkPaths },
-            error,
-          })
-          writer.write({
-            id: toolCallId,
-            type: 'data-generating-files',
-            data: { error: richError.error, status: 'error', paths: chunkPaths },
-          })
-        }
-      }
+      if (error) return error
 
-      await Promise.all(pathChunks.map(processChunk))
-
-      // Retry any files the sub-model skipped on first pass
-      const writtenPaths = new Set(uploaded.map(f => f.path))
-      const missing = paths.filter(p => !writtenPaths.has(p))
-      if (missing.length > 0) {
-        console.warn(`[generateFiles] Retrying ${missing.length} missing file(s): ${missing.join(', ')}`)
-        const retryIterator = getContents({ messages, modelId, paths: missing })
-        try {
-          for await (const chunk of retryIterator) {
-            if (chunk.files.length > 0) {
-              const error = await writeFiles({ ...chunk, written: uploaded.map(f => f.path) })
-              if (!error) uploaded.push(...chunk.files)
-            }
-          }
-        } catch {
-          // retry failure is non-fatal — proceed with whatever was written
-        }
-      }
-
-      // Plan C: in-sandbox Vite patch — belt-and-suspenders after the server-side patch.
-      // Catches any vite.config variant the regex missed (.mjs, unusual formatting, etc.)
+      // In-sandbox Vite patch — belt-and-suspenders after the server-side patch.
       try {
         await sandbox.writeFiles([
           { path: '.cm-patch.cjs', content: Buffer.from(VITE_PATCH_SCRIPT, 'utf8') },
         ])
-        const patchCmd = await sandbox.runCommand({
-          detached: true,
-          cmd: 'node',
-          args: ['.cm-patch.cjs'],
-        })
+        const patchCmd = await sandbox.runCommand({ detached: true, cmd: 'node', args: ['.cm-patch.cjs'] })
         await patchCmd.wait()
-        // Clean up patch script so it doesn't appear in generated file list
-        const rmCmd = await sandbox.runCommand({
-          detached: true,
-          cmd: 'rm',
-          args: ['-f', '.cm-patch.cjs'],
-        })
+        const rmCmd = await sandbox.runCommand({ detached: true, cmd: 'rm', args: ['-f', '.cm-patch.cjs'] })
         await rmCmd.wait()
       } catch {
-        // Non-fatal — server-side patch already covers the common cases
+        // Non-fatal — server-side patch covers most cases
       }
 
       writer.write({
         id: toolCallId,
         type: 'data-generating-files',
-        data: { paths: uploaded.map((file) => file.path), status: 'done' },
+        data: { paths: files.map(f => f.path), status: 'done' },
       })
 
-      // Return only file paths — NOT content. Returning content here would add
-      // 30–80k tokens to every step's tool result, with zero benefit (the model
-      // already knows what it generated and uses readFile for subsequent edits).
-      return `Successfully generated and uploaded ${uploaded.length} files:\n${uploaded.map((f) => f.path).join('\n')}`
+      // Return only paths — not content. Content in tool result = 30-80k wasted tokens.
+      return `Successfully wrote ${files.length} files:\n${files.map(f => f.path).join('\n')}`
     },
   })

@@ -474,13 +474,14 @@ The moment your sandbox is created, these files are **automatically pre-written*
 **`pnpm install` starts automatically in the background the moment your sandbox is created.**
 
 **What this means:**
-- Your `generateFiles` paths list must NOT include any of the scaffold or shadcn/ui files above
-- Start your file list with: `index.html`, `src/main.tsx`, `src/index.css`, `src/App.tsx`, and all app-specific files
-- **`src/index.css` is the ONE scaffold file you MUST always generate.** It has neutral defaults in scaffold, but you must override every CSS variable with brand-specific values. Include the `@import` for Google Fonts, define `:root` CSS vars for your brand palette, and set `body` base styles.
+- `generateFiles` takes `{ sandboxId, files: [{ path, content }] }` — you write COMPLETE file content inline in the tool call. There is no separate generation step. All code goes directly into the `files` array.
+- Your `files` array must NOT include scaffold files (package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig files, .npmrc, src/lib/utils.ts, src/components/ui/*)
+- Start your files array with: `index.html`, `src/main.tsx`, `src/index.css`, `src/App.tsx`, and all app-specific files
+- **`src/index.css` is the ONE scaffold file you MUST always include.** Override every CSS variable with brand-specific values, include the `@import` for Google Fonts, define `:root` CSS vars for your brand palette.
 - **Use shadcn/ui components freely** — `import { Button } from '@/components/ui/button'` just works. No installation needed.
 - The Tailwind config already has CSS variable color tokens set up. Define your brand colors in `src/index.css` as CSS vars (e.g., `--primary: 220 90% 56%`) and they flow through the entire shadcn/ui system automatically.
 - **framer-motion is pre-installed** — `import { motion, AnimatePresence, useInView } from 'framer-motion'` just works. No package.json change needed.
-- If you need a package not in the scaffold (e.g., `date-fns`, `recharts`), generate a `package.json` with it added — `pnpm install` will pick it up
+- If you need a package not in the scaffold (e.g., `date-fns`, `recharts`), include `package.json` in your files array with it added — `pnpm install` will pick it up
 
 ---
 
@@ -537,10 +538,10 @@ That is 6 steps total. Do NOT call `planProject`. Do NOT call `getUnsplashBatch`
    - **If the project uses photos** (websites, web apps with imagery): emit `createSandbox` AND `getUnsplashBatch` in the **same response** (parallel). These run simultaneously, saving 8-10 seconds. Collect all URLs before proceeding.
    - **If no photos are needed** (games, pure data apps, calculators): just call `createSandbox` alone — do NOT call `getUnsplashBatch` with irrelevant keywords.
 
-3. Generate ALL files in ONE `generateFiles` call using:
-   - Every file path you planned internally — no scaffold files **except `src/index.css` which you MUST include** with brand-specific CSS variables and Google Font import
-   - The real image URLs from step 2
-   - Verify every import is covered before submitting paths
+3. Call `generateFiles` with `{ sandboxId, files: [{ path, content }] }` — write COMPLETE code for every file inline in this one tool call:
+   - Include every file with its full content — no scaffold files **except `src/index.css` which you MUST include** with brand-specific CSS variables and Google Font import
+   - Use the real image URLs from step 2 directly in your component code
+   - Verify every import is covered before submitting
    - Use `motionIntensity` from the brief to calibrate animation duration/distance: subtle=0.5s/y:16, moderate=0.7s/y:32, dramatic=1.0s/y:64
 
 4. Run `pnpm install` — fast because background install already ran during steps 2-3.

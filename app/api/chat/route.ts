@@ -8,15 +8,13 @@ import {
 } from 'ai'
 import type { UIMessage, UIMessageStreamWriter } from 'ai'
 import type { DataPart } from '@/ai/messages/data-parts'
-import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL } from '@/ai/constants'
+import { DEFAULT_MODEL, EDIT_MODEL } from '@/ai/constants'
 import { NextResponse } from 'next/server'
 import { getModelOptions } from '@/ai/gateway'
 import { checkBotId } from 'botid/server'
 import { tools } from '@/ai/tools'
 import { generateFiles } from '@/ai/tools/generate-files'
 import { getUnsplashBatch } from '@/ai/tools/get-unsplash-batch'
-import { patchFile } from '@/ai/tools/patch-file'
-import { readFile } from '@/ai/tools/read-file'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
 import { formatBrief } from '@/ai/types/project-brief'
@@ -209,7 +207,7 @@ async function runAgenticLoop({
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(30),
     maxOutputTokens: 16000,
-    tools: tools({ modelId: FILE_GENERATION_MODEL, writer }),
+    tools: tools({ writer }),
     onError: error => {
       console.error('Error communicating with AI')
       console.error(JSON.stringify(error, null, 2))
@@ -296,10 +294,11 @@ async function runPipeline({
     `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
     `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
     `WORKFLOW: ${skill === 'website'
-      ? `(1) call getUnsplashBatch for all images, (2) call generateFiles with sandboxId="${sandboxId}" and ALL file paths — list every file you need in the paths array, there is no separate planning step`
-      : `(1) call generateFiles with sandboxId="${sandboxId}" and ALL file paths — list every file you need in the paths array, there is no separate planning step`}\n` +
+      ? `(1) call getUnsplashBatch for all images, (2) call generateFiles with sandboxId="${sandboxId}" and the files array containing EVERY file with its COMPLETE content — write all code directly in the tool call`
+      : `(1) call generateFiles with sandboxId="${sandboxId}" and the files array containing EVERY file with its COMPLETE content — write all code directly in the tool call`}\n` +
     (skill !== 'website' ? `getUnsplashBatch is NOT available for this skill type — do not call it.\n` : '') +
-    `If you need packages not in the scaffold, include package.json in your generateFiles paths to add them.\n`
+    `If you need packages not in the scaffold, include package.json in your generateFiles files array.\n` +
+    `generateFiles takes { sandboxId, files: [{ path, content }] } — you write every file's COMPLETE content inline.\n`
 
   const fullSystem = systemPrompt + pipelineAddendum
 
@@ -307,11 +306,11 @@ async function runPipeline({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pipelineTools: Record<string, any> = skill === 'website'
     ? {
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
+        generateFiles: generateFiles({ writer }),
         getUnsplashBatch: getUnsplashBatch(),
       }
     : {
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
+        generateFiles: generateFiles({ writer }),
       }
 
   // website: text + getUnsplashBatch + generateFiles (max 4 steps)
@@ -323,7 +322,7 @@ async function runPipeline({
     system: fullSystem,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(maxSteps),
-    maxOutputTokens: 16000,
+    maxOutputTokens: 64000,
     tools: pipelineTools,
     onError: error => console.error('Pipeline AI error:', error),
   })
@@ -402,53 +401,6 @@ async function runPipeline({
       },
     })
     // Non-fatal — dev server may still work if background install finished.
-  }
-
-  // ── Step 4.5: TypeScript check — fix errors before user sees blank preview ──
-  // Runs tsc --noEmit after install so @types/* are available.
-  // If real TS errors found (not just missing npm packages), auto-fix before starting Vite.
-  let tscErrors = ''
-  try {
-    const tscCmd = await sandbox.runCommand({
-      detached: true,
-      cmd: 'bash',
-      args: ['-c', 'pnpm exec tsc --noEmit 2>&1'],
-    })
-    const tscDone = await Promise.race([
-      tscCmd.wait(),
-      new Promise<null>(r => setTimeout(() => r(null), 30_000)),
-    ])
-    if (tscDone && tscDone.exitCode !== 0) {
-      const output = await tscDone.stdout()
-      // Filter out TS2307/TS2688 — "Cannot find module" = missing npm package, not a code bug
-      const codes = [...output.matchAll(/error TS(\d+)/g)].map(m => Number(m[1]))
-      const hasRealErrors = codes.some(c => c !== 2307 && c !== 2688)
-      if (hasRealErrors) tscErrors = output.slice(0, 3500)
-    }
-  } catch {
-    // Non-fatal — tsc unavailable or timeout; proceed to dev server
-  }
-
-  if (tscErrors) {
-    const fixResult = streamText({
-      ...getModelOptions(DEFAULT_MODEL),
-      system: fullSystem,
-      messages: [
-        ...(await convertToModelMessages(transformMessages(messages))),
-        {
-          role: 'user' as const,
-          content:
-            `TypeScript errors in the generated code. Fix ONLY the broken lines using readFile then patchFile. ` +
-            `NEVER call generateFiles. sandboxId: ${sandboxId}\n\nErrors:\n\`\`\`\n${tscErrors}\n\`\`\``,
-        },
-      ],
-      stopWhen: stepCountIs(12),
-      maxOutputTokens: 8000,
-      tools: { readFile: readFile(), patchFile: patchFile() },
-      onError: err => console.error('TSC auto-fix error:', err),
-    })
-    writer.merge(fixResult.toUIMessageStream({ sendReasoning: false, sendStart: false }))
-    await Promise.resolve(fixResult.text).catch(() => {})
   }
 
   // ── Step 5: Server starts dev server (background — runs forever) ──────────
