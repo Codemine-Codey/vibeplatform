@@ -3,21 +3,23 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import type { LanguageModelV3 } from '@ai-sdk/provider'
 
-const ACCOUNT_ID = process.env.CF_ACCOUNT_ID ?? '77da4568eb934dee94fa9fc54faec977'
-const CF_BASE = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/codemine`
+// AI Gateway account — separate from CF_ACCOUNT_ID (which is for Pages/D1/Workers API)
+const GATEWAY_ACCOUNT = '8b557a24d9314c5895645b698428ea31'
+const GATEWAY = `https://gateway.ai.cloudflare.com/v1/${GATEWAY_ACCOUNT}/codemine`
 
 const geminiProvider = createGoogleGenerativeAI({
   apiKey: process.env.GEMINI_API_KEY ?? '',
-  baseURL: `${CF_BASE}/google-ai-studio/v1beta`,
+  baseURL: `${GATEWAY}/google-ai-studio/v1beta`,
 })
 
 const anthropicProvider = createAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY ?? '',
-  baseURL: `${CF_BASE}/anthropic`,
+  baseURL: `${GATEWAY}/anthropic`,
 })
 
+// DeepSeek fallback — uses AI_GATEWAY_BASE_URL which points to the deepseek path
 const deepseekProvider = createOpenAI({
-  baseURL: process.env.AI_GATEWAY_BASE_URL ?? 'https://api.deepseek.com/v1',
+  baseURL: process.env.AI_GATEWAY_BASE_URL ?? `${GATEWAY}/deepseek`,
   apiKey: process.env.DEEPSEEK_API_KEY ?? '',
 })
 
@@ -27,7 +29,6 @@ export interface ModelOptions {
   providerOptions?: Record<string, any>
 }
 
-// Gemini safety settings: disable all filters so web apps/games aren't blocked mid-generation
 const GEMINI_SAFE_OFF = [
   { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
   { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
@@ -47,7 +48,6 @@ export function getModelOptions(modelId: string): ModelOptions {
   if (modelId.startsWith('claude')) {
     return {
       model: anthropicProvider(modelId) as LanguageModelV3,
-      // ephemeral cache on system prompt — Anthropic reuses it for 5 min across requests
       providerOptions: {
         anthropic: { cacheControl: { type: 'ephemeral' } },
       },

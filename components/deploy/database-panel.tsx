@@ -98,7 +98,7 @@ export function DatabasePanel({ className }: Props) {
           <DatabaseIcon className="w-8 h-8 text-muted-foreground" />
           <div className="flex flex-col gap-1">
             <p className="text-sm font-medium">No database</p>
-            <p className="text-xs text-muted-foreground">Add a D1 database to persist data for your project</p>
+            <p className="text-xs text-muted-foreground">Add a database to persist data for your project</p>
           </div>
           {createError && (
             <p className="text-xs text-destructive">{createError}</p>
@@ -192,7 +192,7 @@ export function DatabasePanel({ className }: Props) {
                   </>
                 )}
               </button>
-              <span className="text-xs text-muted-foreground opacity-60">Results are a snapshot — re-run to refresh</span>
+              <span className="text-xs text-muted-foreground opacity-60">Refresh to view latest entries</span>
             </div>
           </div>
 

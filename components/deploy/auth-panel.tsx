@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { KeyRoundIcon, CheckCircle2Icon, UsersIcon, CopyIcon, ShieldIcon } from 'lucide-react'
+import { KeyRoundIcon, CheckCircle2Icon, UsersIcon, ShieldIcon } from 'lucide-react'
 import { useSandboxStore } from '@/app/state'
+import { useSharedChatContext } from '@/lib/chat-context'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -16,12 +17,16 @@ export function AuthPanel({ className }: Props) {
   const authEnabled = useSandboxStore((s) => s.authEnabled)
   const authWorkerUrl = useSandboxStore((s) => s.authWorkerUrl)
   const setAuthState = useSandboxStore((s) => s.setAuthState)
+  const chatStatus = useSandboxStore((s) => s.chatStatus)
+
+  const { chat } = useSharedChatContext()
 
   const [enabling, setEnabling] = useState(false)
   const [error, setError] = useState<string | undefined>()
-  const [copied, setCopied] = useState(false)
   const [users, setUsers] = useState<{ id: string; email: string; name: string; created_at: number }[]>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
+
+  const aiWorking = chatStatus === 'streaming' || chatStatus === 'submitted'
 
   async function handleEnable() {
     if (!sandboxId || !databaseId) return
@@ -36,6 +41,17 @@ export function AuthPanel({ className }: Props) {
       const data = await res.json() as { workerUrl?: string; error?: string }
       if (!res.ok || data.error) throw new Error(data.error ?? 'Setup failed')
       setAuthState({ authEnabled: true, authWorkerUrl: data.workerUrl })
+
+      // Auto-trigger the AI to add login/signup to the app — no copy-paste needed
+      chat.sendMessage({
+        text: `Auth is now enabled for this project. The auth API is at ${data.workerUrl} with these endpoints:
+- POST ${data.workerUrl}/register — body: { email, password, name? } — returns { token, user }
+- POST ${data.workerUrl}/login — body: { email, password } — returns { token, user }
+- GET ${data.workerUrl}/me — header: Authorization: Bearer <token> — returns { user }
+- DELETE ${data.workerUrl}/logout — client-side: remove token from localStorage
+
+Please add login and signup functionality to the app using these endpoints. Store the JWT token in localStorage. Add a login/signup page or modal, protect any relevant routes or data, and show the logged-in user's name/email in the UI where appropriate.`,
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Auth setup failed')
     } finally {
@@ -57,23 +73,6 @@ export function AuthPanel({ className }: Props) {
     }
   }
 
-  function copyConfig() {
-    const config = {
-      authApiUrl: authWorkerUrl,
-      endpoints: {
-        register: `POST ${authWorkerUrl}/register  →  body: { email, password, name? }  →  returns { token, user }`,
-        login: `POST ${authWorkerUrl}/login  →  body: { email, password }  →  returns { token, user }`,
-        me: `GET ${authWorkerUrl}/me  →  header: Authorization: Bearer <token>  →  returns { user }`,
-        logout: 'client-side: remove token from localStorage',
-      },
-      usage: 'Store token in localStorage. Pass as Authorization: Bearer <token> on protected requests.',
-    }
-    navigator.clipboard.writeText(JSON.stringify(config, null, 2))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  // No sandbox yet
   if (!sandboxId) {
     return (
       <div className={cn('flex flex-col items-center justify-center h-full gap-3 p-6 text-center', className)}>
@@ -84,42 +83,37 @@ export function AuthPanel({ className }: Props) {
     )
   }
 
-  // No database yet
   if (!databaseId) {
     return (
       <div className={cn('flex flex-col items-center justify-center h-full gap-3 p-6 text-center', className)}>
         <ShieldIcon className="w-8 h-8 text-muted-foreground" />
         <p className="text-sm font-medium">Authentication</p>
-        <p className="text-xs text-muted-foreground">Add a database first — auth stores users in your D1 database</p>
+        <p className="text-xs text-muted-foreground">Add a database first — auth stores users there</p>
       </div>
     )
   }
 
-  // Auth enabled
   if (authEnabled && authWorkerUrl) {
     return (
       <div className={cn('flex flex-col h-full overflow-auto', className)}>
         <div className="flex flex-col gap-4 p-4">
-          {/* Status */}
           <div className="flex items-center gap-2">
             <CheckCircle2Icon className="w-4 h-4 text-green-500 shrink-0" />
             <span className="text-sm font-medium">Auth Active</span>
           </div>
 
-          {/* Worker URL */}
           <div className="flex flex-col gap-1">
-            <p className="text-xs text-muted-foreground">Auth API</p>
+            <p className="text-xs text-muted-foreground">Auth API endpoint</p>
             <code className="text-xs font-mono bg-secondary px-2 py-1.5 rounded-sm break-all">{authWorkerUrl}</code>
           </div>
 
-          {/* Endpoints */}
           <div className="flex flex-col gap-1.5">
             <p className="text-xs text-muted-foreground">Endpoints</p>
             {[
               ['POST /register', 'body: { email, password, name? }'],
               ['POST /login', 'body: { email, password }'],
               ['GET /me', 'header: Authorization: Bearer <token>'],
-              ['DELETE /logout', 'client-side: clear token'],
+              ['DELETE /logout', 'clear token from localStorage'],
             ].map(([ep, desc]) => (
               <div key={ep} className="flex flex-col bg-secondary rounded-sm px-2 py-1.5">
                 <code className="text-xs font-mono">{ep}</code>
@@ -128,20 +122,10 @@ export function AuthPanel({ className }: Props) {
             ))}
           </div>
 
-          {/* Copy config for AI */}
-          <button
-            type="button"
-            onClick={copyConfig}
-            className="flex items-center gap-2 px-3 py-2 rounded-md border border-primary/20 text-xs hover:bg-accent transition-colors"
-          >
-            <CopyIcon className="w-3.5 h-3.5" />
-            {copied ? 'Copied!' : 'Copy Config for AI'}
-          </button>
-          <p className="text-xs text-muted-foreground -mt-2">
-            Paste this in chat and ask: &ldquo;add login/signup using this auth config&rdquo;
-          </p>
+          {aiWorking && (
+            <p className="text-xs text-muted-foreground">Adding login/signup to your app...</p>
+          )}
 
-          {/* Users */}
           <div className="border-t border-primary/10 pt-3 flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 text-xs font-medium">
@@ -180,21 +164,20 @@ export function AuthPanel({ className }: Props) {
     )
   }
 
-  // Ready to enable
   return (
     <div className={cn('flex flex-col items-center justify-center h-full gap-4 p-6 text-center', className)}>
       <KeyRoundIcon className="w-8 h-8 text-muted-foreground" />
       <div className="flex flex-col gap-1">
         <p className="text-sm font-medium">User Authentication</p>
         <p className="text-xs text-muted-foreground max-w-xs">
-          Let users sign up, log in, and access their data. Runs on Cloudflare Workers — users are stored in your D1 database.
+          Let users sign up, log in, and access their data. User accounts are stored in your project database.
         </p>
       </div>
       {error && <p className="text-xs text-destructive max-w-xs">{error}</p>}
       <button
         type="button"
         onClick={handleEnable}
-        disabled={enabling}
+        disabled={enabling || aiWorking}
         className="flex items-center gap-2 px-4 py-2 rounded-md bg-foreground text-background text-sm font-medium hover:opacity-90 disabled:opacity-50"
       >
         {enabling ? (
