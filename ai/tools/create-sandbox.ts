@@ -2,7 +2,6 @@ import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import type { DataPart } from '../messages/data-parts'
 import { Sandbox } from '@vercel/sandbox'
 import { SCAFFOLD_FILES } from './scaffold'
-import { getTemplateFiles } from '../templates'
 import { getRichError } from './get-rich-error'
 import { tool } from 'ai'
 import description from './create-sandbox.md'
@@ -10,10 +9,9 @@ import z from 'zod/v3'
 
 interface Params {
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
-  templateId?: string | null
 }
 
-export const createSandbox = ({ writer, templateId }: Params) => {
+export const createSandbox = ({ writer }: Params) => {
   let sandboxCreated = false
 
   return tool({
@@ -53,16 +51,10 @@ export const createSandbox = ({ writer, templateId }: Params) => {
         const sandbox = await Sandbox.create({ timeout: timeout ?? 600000, ports })
         const sandboxId = sandbox.sandboxId
 
-        // Write base scaffold files + optional template files
+        // Write base scaffold files
         let scaffoldOk = false
         try {
-          const templateFiles = templateId ? getTemplateFiles(templateId) : []
-
-          // All files: base scaffold + template app files
-          const allFiles = [
-            ...SCAFFOLD_FILES,
-            ...templateFiles,
-          ].map((f) => ({
+          const allFiles = SCAFFOLD_FILES.map((f) => ({
             path: f.path,
             content: Buffer.from(f.content, 'utf8'),
           }))
@@ -97,28 +89,6 @@ export const createSandbox = ({ writer, templateId }: Params) => {
             `package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig.json, tsconfig.app.json, tsconfig.node.json, .npmrc, ` +
             `index.html, src/main.tsx, src/index.css, and all app-specific files.`
           )
-        }
-
-        if (templateId) {
-          const { getTemplate } = await import('../templates')
-          const tmpl = getTemplate(templateId)
-          if (tmpl) {
-            const preWritten = tmpl.scaffoldFiles.map(f => f.path).join(', ')
-            return (
-              `Sandbox created with ID: ${sandboxId}.\n` +
-              `${skippedScaffold}pnpm install is running in the background.\n\n` +
-              `Pre-written files (DO NOT regenerate): ${preWritten}\n\n` +
-              `TASK: ${tmpl.instruction}\n\n` +
-              `PERSONALITY FILES TO WRITE: ${tmpl.personalityFiles.join(', ')}\n\n` +
-              `MANDATORY RULES FOR PERSONALITY FILES:\n` +
-              `1. Brand name / title — use the exact brandName from the PROJECT BRIEF, not any placeholder\n` +
-              `2. Colors — derive entirely from the brief's colorPalette and tone. Dark vs light, warm vs cool, vibrant vs muted — YOU decide based on context. A steakhouse asking for "off-white" gets off-white. A cyberpunk game gets neon. NEVER keep default colors if the brief implies something different.\n` +
-              `3. Fonts — match the brief's fontPairing and personality. Serif for elegant/editorial, sans-serif for modern/tech, display for games/bold brands.\n` +
-              `4. All copy (taglines, nav links, headlines, feature names, menu items, pricing tiers) — write specifically for THIS brand from the brief. Zero generic text.\n` +
-              `5. Every single field must reflect the actual project requested. The defaults in the file are examples only — treat them as hints, not values to keep.\n\n` +
-              `After writing the personality file(s), run \`pnpm install\` then \`pnpm dev\`.`
-            )
-          }
         }
 
         return (

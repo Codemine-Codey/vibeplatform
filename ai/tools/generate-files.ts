@@ -41,30 +41,16 @@ if (!done) {
 interface Params {
   modelId: string
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
-  /** When set, only paths in this list are generated. Others are silently discarded.
-   *  Used for template mode to prevent the AI overwriting pre-built scaffold files. */
-  allowedPaths?: string[]
 }
 
-export const generateFiles = ({ writer, modelId, allowedPaths }: Params) =>
+export const generateFiles = ({ writer, modelId }: Params) =>
   tool({
     description,
     inputSchema: z.object({
       sandboxId: z.string(),
       paths: z.array(z.string()),
     }),
-    execute: async ({ sandboxId, paths: rawPaths }, { toolCallId, messages }) => {
-      // Server-side enforcement: for templates, only personality files are allowed.
-      // If the AI includes scaffold paths (index.html, App.tsx, etc.), drop them here.
-      const paths = allowedPaths
-        ? rawPaths.filter(p => allowedPaths.includes(p))
-        : rawPaths
-
-      if (allowedPaths && paths.length !== rawPaths.length) {
-        const rejected = rawPaths.filter(p => !allowedPaths.includes(p))
-        console.warn(`[generateFiles] Dropped ${rejected.length} disallowed path(s): ${rejected.join(', ')}`)
-      }
-
+    execute: async ({ sandboxId, paths }, { toolCallId, messages }) => {
       if (paths.length === 0) {
         return 'ERROR: paths list is empty. You must provide at least one file path to generate.'
       }
