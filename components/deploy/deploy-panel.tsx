@@ -22,6 +22,11 @@ export function DeployPanel({ className }: Props) {
   const deployedUrl = useSandboxStore((s) => s.deployedUrl)
   const deployError = useSandboxStore((s) => s.deployError)
   const setDeployState = useSandboxStore((s) => s.setDeployState)
+  const chatStatus = useSandboxStore((s) => s.chatStatus)
+  const paths = useSandboxStore((s) => s.paths)
+
+  const hasFiles = paths.length > 0
+  const aiWorking = chatStatus === 'streaming' || chatStatus === 'submitted'
 
   async function handleDeploy() {
     if (!sandboxId) return
@@ -48,7 +53,8 @@ export function DeployPanel({ className }: Props) {
     }
   }
 
-  const canDeploy = !!sandboxId && (deployStatus === 'idle' || deployStatus === 'error' || deployStatus === undefined)
+  const isDeployIdle = deployStatus === 'idle' || deployStatus === 'error' || deployStatus === undefined
+  const canDeploy = !!sandboxId && isDeployIdle
 
   return (
     <div className={cn('flex flex-col h-full bg-background border border-primary/18 rounded-sm', className)}>
@@ -70,12 +76,19 @@ export function DeployPanel({ className }: Props) {
                 <div className="flex flex-col items-center gap-1">
                   <RocketIcon className="w-8 h-8 text-muted-foreground mb-1" />
                   <p className="text-sm font-medium">Deploy to Cloudflare Pages</p>
-                  <p className="text-xs text-muted-foreground">Build your project and publish it live</p>
+                  <p className="text-xs text-muted-foreground">
+                    {aiWorking
+                      ? 'Waiting for generation to complete...'
+                      : !hasFiles
+                      ? 'Project files not ready yet'
+                      : 'Build your project and publish it live'}
+                  </p>
                 </div>
                 <button
                   type="button"
                   onClick={handleDeploy}
-                  className="flex items-center gap-2 px-4 py-2 rounded-md bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity"
+                  disabled={aiWorking || !hasFiles}
+                  className="flex items-center gap-2 px-4 py-2 rounded-md bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {deployStatus === 'error' ? (
                     <>
