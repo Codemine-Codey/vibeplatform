@@ -7,46 +7,58 @@ interface WarmEntry {
   createdAt: number
 }
 
-// 9 minutes — 1 min safety margin below the 10-min sandbox timeout
+const POOL_SIZE = 2
 const MAX_AGE_MS = 9 * 60 * 1000
 
-let warmEntry: WarmEntry | null = null
-let warming = false
+let pool: WarmEntry[] = []
+let warming = 0 // number of in-progress warm operations
 
-async function warm() {
-  if (warming || warmEntry) return
-  warming = true
+async function addOne() {
+  // Never exceed POOL_SIZE total (ready + in-progress)
+  if (warming + pool.length >= POOL_SIZE) return
+  warming++
   try {
     const sandbox = await Sandbox.create({ timeout: 600_000, ports: [3000] })
     await sandbox.writeFiles(
       SCAFFOLD_FILES.map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
     )
-    // Start pnpm install in background so it's done (or near-done) by the time a request uses this sandbox
+    // pnpm install runs in background — will be done (or nearly done) by the time this
+    // sandbox is assigned to a user request
     sandbox
       .runCommand({ detached: true, cmd: 'pnpm', args: ['install'] })
       .then(cmd => cmd.wait())
       .catch(() => {})
-    warmEntry = { sandbox, sandboxId: sandbox.sandboxId, createdAt: Date.now() }
+    pool.push({ sandbox, sandboxId: sandbox.sandboxId, createdAt: Date.now() })
   } catch {
-    // Ignore — pipeline will fall back to fresh creation
+    // Non-fatal — pipeline falls back to fresh creation
   } finally {
-    warming = false
+    warming--
+    fillPool()
+  }
+}
+
+function fillPool() {
+  const needed = POOL_SIZE - pool.length - warming
+  for (let i = 0; i < needed; i++) {
+    addOne().catch(() => {})
   }
 }
 
 export function getWarmEntry(): WarmEntry | null {
-  if (!warmEntry) return null
-  if (Date.now() - warmEntry.createdAt > MAX_AGE_MS) {
-    warmEntry = null
-    warm().catch(() => {})
+  // Evict expired entries
+  const now = Date.now()
+  pool = pool.filter(e => now - e.createdAt <= MAX_AGE_MS)
+
+  if (pool.length === 0) {
+    fillPool()
     return null
   }
-  const entry = warmEntry
-  warmEntry = null
-  // Replenish immediately in background
-  warm().catch(() => {})
+
+  const entry = pool.shift()!
+  // Immediately start refilling so the next user doesn't wait
+  fillPool()
   return entry
 }
 
-// Begin warming on module import (fires on first request to this route)
-warm().catch(() => {})
+// Begin warming both slots on module import
+fillPool()

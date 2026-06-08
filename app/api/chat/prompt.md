@@ -246,9 +246,8 @@ Each sub-page must have: a hero section, rich body content, and a clear CTA at t
 #### Technical requirements
 - React + Vite — NOT Next.js for websites
 - React Router v6 (`react-router-dom`) for all navigation
-- No external UI component libraries — Tailwind + custom components
+- Use shadcn/ui components (Button, Card, Input, etc.) from `@/components/ui/` — they're pre-installed. Custom Tailwind components for anything beyond what shadcn/ui covers.
 - Contact forms: HTML5 validation, no backend required
-- Package: `pnpm add react-router-dom`
 
 #### Anti-patterns — explicitly banned
 - Hash links (`href="#section"`) in the nav — ALWAYS use React Router `<Link>`
@@ -312,7 +311,7 @@ const load = (): T => JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') ??
 - React + Vite
 - React hooks for all state (useState, useReducer for complex state, useEffect, useMemo, useCallback)
 - TypeScript with proper types — all state shapes typed as interfaces
-- Tailwind CSS with a consistent design system
+- Tailwind CSS + shadcn/ui components (`@/components/ui/`) for forms, buttons, cards, dialogs — pre-installed, use freely
 - React Router v6 for multi-page apps
 - No external state management libraries — React context + hooks is sufficient
 
@@ -434,25 +433,41 @@ const playTone = (freq: number, duration: number, type: OscillatorType = 'square
 
 ## BASE SCAFFOLD — ALREADY IN YOUR WORKSPACE
 
-The moment your sandbox is created, these 8 files are **automatically pre-written** by the platform. They are correct and complete. **Do NOT generate them — they already exist:**
+The moment your sandbox is created, these files are **automatically pre-written** by the platform. They are correct and complete. **Do NOT generate them — they already exist:**
 
+### Config files (8)
 | File | Pre-configured with |
 |---|---|
-| `package.json` | React 18, Vite 6, TypeScript, Tailwind 3, React Router v6, Lucide React |
-| `vite.config.ts` | `host: '0.0.0.0', allowedHosts: true, port: 3000` |
-| `tailwind.config.js` | `./src/**/*.{js,ts,jsx,tsx}` content paths |
+| `package.json` | React 18, Vite 6, TypeScript, Tailwind 3, React Router v6, Lucide React, all Radix UI primitives, clsx, tailwind-merge, cva, tailwindcss-animate |
+| `vite.config.ts` | `host: '0.0.0.0', allowedHosts: true, port: 3000`, `@` path alias (`src/`) |
+| `tailwind.config.js` | CSS variable color tokens (background, foreground, primary, secondary, muted, accent, card, border, input, ring), darkMode: class, animate plugin |
 | `postcss.config.js` | tailwindcss + autoprefixer |
 | `tsconfig.json` | References app + node configs |
-| `tsconfig.app.json` | Strict TypeScript, react-jsx, ES2020 |
+| `tsconfig.app.json` | Strict TypeScript, react-jsx, ES2020, `@/*` path alias |
 | `tsconfig.node.json` | Strict TypeScript, ES2022 |
 | `.npmrc` | `prefer-offline=true, shamefully-hoist=true` |
+
+### shadcn/ui components (10) — import with `@/components/ui/...`
+| File | Exports |
+|---|---|
+| `src/lib/utils.ts` | `cn()` — merges Tailwind classes |
+| `src/components/ui/button.tsx` | `Button` — variants: default/destructive/outline/secondary/ghost/link; sizes: default/sm/lg/icon |
+| `src/components/ui/card.tsx` | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter` |
+| `src/components/ui/input.tsx` | `Input` |
+| `src/components/ui/label.tsx` | `Label` |
+| `src/components/ui/badge.tsx` | `Badge` — variants: default/secondary/destructive/outline |
+| `src/components/ui/textarea.tsx` | `Textarea` |
+| `src/components/ui/separator.tsx` | `Separator` — horizontal or vertical |
+| `src/components/ui/select.tsx` | `Select`, `SelectTrigger`, `SelectContent`, `SelectItem`, `SelectValue`, `SelectGroup`, `SelectLabel`, `SelectSeparator` |
+| `src/components/ui/dialog.tsx` | `Dialog`, `DialogTrigger`, `DialogContent`, `DialogHeader`, `DialogFooter`, `DialogTitle`, `DialogDescription`, `DialogClose` |
 
 **`pnpm install` starts automatically in the background the moment your sandbox is created.**
 
 **What this means:**
-- Your `generateFiles` paths list must NOT include any of the 8 scaffold files above
+- Your `generateFiles` paths list must NOT include any of the scaffold or shadcn/ui files above
 - Start your file list with: `index.html`, `src/main.tsx`, `src/index.css`, `src/App.tsx`, and all app-specific files
-- When you call `pnpm install`, it runs much faster — common packages already installed
+- **Use shadcn/ui components freely** — `import { Button } from '@/components/ui/button'` just works. No installation needed.
+- The Tailwind config already has CSS variable color tokens set up. Define your brand colors in `src/index.css` as CSS vars (e.g., `--primary: 220 90% 56%`) and they flow through the entire shadcn/ui system automatically.
 - If you need a package not in the scaffold (e.g., `framer-motion`, `date-fns`), generate a `package.json` with it added — `pnpm install` will pick it up
 
 ---

@@ -23,7 +23,6 @@ import { getSkillPack } from '@/ai/packs'
 import type { Skill } from '@/ai/types/project-brief'
 import { Sandbox } from '@vercel/sandbox'
 import { SCAFFOLD_FILES } from '@/ai/tools/scaffold'
-import { getTemplateFiles, getTemplate } from '@/ai/templates'
 import { getWarmEntry } from '@/ai/warm-pool'
 import prompt from './prompt.md'
 
@@ -101,13 +100,11 @@ export async function POST(req: Request) {
 
         let skill: Skill | null = null
         let clarify = false
-        let templateId: string | null = null
 
         try {
           const classResult = await classifyPrompt(userText)
           skill = classResult.skill
           clarify = classResult.clarify
-          templateId = classResult.templateId
         } catch {
           // Classification failed — fallback to agentic loop
         }
@@ -127,25 +124,17 @@ export async function POST(req: Request) {
           return runAgenticLoop({ writer, messages, systemPrompt: prompt })
         }
 
-        // Build system prompt: base + skill pack + brief + template note
-        const templateNote = templateId
-          ? `\n\n## PRE-BUILT SCAFFOLD: ${templateId}\n` +
-            `Core application files are already in the sandbox. Write ONLY the personality/brand file(s).\n` +
-            `Personality files: derive EVERY value from the PROJECT BRIEF. colorPalette → colors, fontPairing → fonts, brandName → all titles/names, tone → dark vs light.\n` +
-            `Override every default. NEVER say "template" or "scaffold" to the user.\n`
-          : ''
-
+        // Build system prompt: base + skill pack + brief
         const systemPrompt =
           `${prompt}\n\n## SKILL PACK — ${skill.toUpperCase()} PATTERNS\n` +
           `Apply these design and code patterns for this project type. These are non-negotiable quality standards.\n\n` +
           getSkillPack(skill) +
           `\n\n## PROJECT BRIEF (authoritative design spec — use this, do not ask clarifying questions)\n` +
           `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately call generateFiles.\n\n` +
-          formatBrief(brief) +
-          templateNote
+          formatBrief(brief)
 
         // ── SERVER-SIDE PIPELINE ────────────────────────────────────────────
-        await runPipeline({ writer, messages, systemPrompt, templateId, skill })
+        await runPipeline({ writer, messages, systemPrompt, skill })
       },
     }),
   })
@@ -188,13 +177,11 @@ async function runPipeline({
   writer,
   messages,
   systemPrompt,
-  templateId,
   skill,
 }: {
   writer: Writer
   messages: ChatUIMessage[]
   systemPrompt: string
-  templateId: string | null
   skill: Skill
 }) {
   // ── Step 1: Acquire sandbox (warm pool or fresh creation) ─────────────────
@@ -227,21 +214,12 @@ async function runPipeline({
 
   const sandboxId = sandbox.sandboxId
 
-  // Write files: warm sandbox already has scaffold, cold sandbox needs everything
+  // Write scaffold files for cold sandboxes (warm pool already has them)
   try {
-    const templateFiles = templateId ? getTemplateFiles(templateId) : []
-    const filesToWrite = hadWarmSandbox
-      ? templateFiles
-      : [...SCAFFOLD_FILES, ...templateFiles]
-
-    if (filesToWrite.length > 0) {
-      await sandbox.writeFiles(
-        filesToWrite.map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
-      )
-    }
-
-    // Only start bg install for cold sandboxes (warm pool already ran it)
     if (!hadWarmSandbox) {
+      await sandbox.writeFiles(
+        SCAFFOLD_FILES.map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
+      )
       sandbox
         .runCommand({ detached: true, cmd: 'pnpm', args: ['install'] })
         .then(cmd => cmd.wait())
@@ -257,84 +235,42 @@ async function runPipeline({
     data: { sandboxId, status: 'done' },
   })
 
-  // ── Step 2: Build pipeline-specific system prompt ─────────────────────────
-  const tmpl = templateId ? getTemplate(templateId) : null
-  const isTemplate = tmpl !== null
+  // ── Step 2: Build pipeline addendum ─────────────────────────────────────
   const scaffoldPaths = SCAFFOLD_FILES.map(f => f.path).join(', ')
-
-  let pipelineAddendum: string
-
-  if (isTemplate && tmpl) {
-    const scaffoldPaths = tmpl.scaffoldFiles.map(f => f.path)
-    // Include default personality file(s) as the exact structure to preserve
-    const starterFiles = getTemplateFiles(templateId!).filter(f =>
-      tmpl.personalityFiles.includes(f.path)
-    )
-    const starterStructure = starterFiles
-      .map(f => `\n### ${f.path} — STARTER STRUCTURE (replace values, keep ALL export names):\n\`\`\`ts\n${f.content}\n\`\`\``)
-      .join('\n')
-    pipelineAddendum =
-      `\n\n## SERVER PIPELINE — WORKSPACE READY\n` +
-      `sandboxId: ${sandboxId}\n` +
-      `Scaffold + pre-built files are already written. pnpm install is running in background.\n` +
-      `DO NOT call createSandbox — it is already done.\n` +
-      `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
-      `DO NOT call planProject — the plan is fixed for this scaffold.\n\n` +
-      `PERSONALITY FILES TO WRITE (the ONLY files you may pass to generateFiles):\n` +
-      tmpl.personalityFiles.map(p => `  - ${p}`).join('\n') + '\n\n' +
-      `BANNED — DO NOT include these in generateFiles (they are pre-built and will be ignored):\n` +
-      scaffoldPaths.map(p => `  - ${p}`).join('\n') + '\n\n' +
-      `${tmpl.instruction}\n\n` +
-      `CRITICAL — PRESERVE EXPORT STRUCTURE: The App imports specific named exports. Every export name in the starter must exist in your output — only change the values.${starterStructure}\n\n` +
-      `MANDATORY PERSONALITY RULES:\n` +
-      `1. Brand name → exact brandName from the PROJECT BRIEF above\n` +
-      `2. Colors → derived entirely from brief colorPalette + tone. A request for "off-white" gets off-white. Cyberpunk gets neon. Steakhouse gets dark warm. Override every default.\n` +
-      `3. Fonts → match brief fontPairing exactly\n` +
-      `4. All copy → written specifically for this brand, zero generic placeholders\n` +
-      `5. Every field must reflect the actual project — treat template defaults as examples, not values to keep\n\n` +
-      `YOUR ONLY JOB: call generateFiles with sandboxId="${sandboxId}" and paths=[${tmpl.personalityFiles.map(p => `"${p}"`).join(', ')}]. Nothing else.`
-  } else {
-    pipelineAddendum =
-      `\n\n## SERVER PIPELINE — WORKSPACE READY\n` +
-      `sandboxId: ${sandboxId}\n` +
-      `Scaffold pre-written. pnpm install running in background.\n` +
-      `DO NOT call createSandbox — it is already done.\n` +
-      `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
-      `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
-      `WORKFLOW: ${skill === 'website' ? '(1) call getUnsplashBatch for all images, (2) call planProject with complete file list, (3) call generateFiles with sandboxId="' + sandboxId + '" and all files' : '(1) call planProject with complete file list, (2) call generateFiles with sandboxId="' + sandboxId + '" and all files'}`
-  }
+  const pipelineAddendum =
+    `\n\n## SERVER PIPELINE — WORKSPACE READY\n` +
+    `sandboxId: ${sandboxId}\n` +
+    `Scaffold pre-written (including shadcn/ui components). pnpm install running in background.\n` +
+    `DO NOT call createSandbox — it is already done.\n` +
+    `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
+    `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
+    `WORKFLOW: ${skill === 'website' ? '(1) call getUnsplashBatch for all images, (2) call planProject with complete file list, (3) call generateFiles with sandboxId="' + sandboxId + '" and all files' : '(1) call planProject with complete file list, (2) call generateFiles with sandboxId="' + sandboxId + '" and all files'}`
 
   const fullSystem = systemPrompt + pipelineAddendum
 
-  // ── Step 3: AI generates file contents (one focused call, limited tools) ──
+  // ── Step 3: AI orchestrates with Pro; Flash writes the actual file contents ─
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  // Templates: Flash writes personality files (simple theme fill, quality doesn't matter much)
-  // From-scratch: Pro writes all code (better architecture, fewer missing imports, more complete)
-  const pipelineTools: Record<string, any> = isTemplate
-    ? { generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, allowedPaths: tmpl!.personalityFiles }) }
-    : skill === 'website'
+  const pipelineTools: Record<string, any> = skill === 'website'
     ? {
-        generateFiles: generateFiles({ writer, modelId: DEFAULT_MODEL }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
         planProject: planProject(),
         getUnsplashBatch: getUnsplashBatch(),
       }
     : {
-        generateFiles: generateFiles({ writer, modelId: DEFAULT_MODEL }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
         planProject: planProject(),
       }
 
-  // Template: text + 1 generateFiles call = 3 steps max (Flash — simple personality fill)
-  // From-scratch website: text + getUnsplashBatch + planProject + generateFiles (Pro — complex multi-file)
-  // From-scratch app/game: text + planProject + generateFiles (Pro — complex multi-file)
-  const maxSteps = isTemplate ? 3 : skill === 'website' ? 6 : 4
-  const generationModel = isTemplate ? FILE_GENERATION_MODEL : DEFAULT_MODEL
+  // website: text + getUnsplashBatch + planProject + generateFiles
+  // app/game: text + planProject + generateFiles
+  const maxSteps = skill === 'website' ? 6 : 4
 
   const aiResult = streamText({
-    ...getModelOptions(generationModel),
+    ...getModelOptions(DEFAULT_MODEL),
     system: fullSystem,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(maxSteps),
-    maxOutputTokens: isTemplate ? 2500 : 8000,
+    maxOutputTokens: 8000,
     tools: pipelineTools,
     onError: error => console.error('Pipeline AI error:', error),
   })
