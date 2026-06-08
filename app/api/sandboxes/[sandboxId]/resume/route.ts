@@ -1,4 +1,3 @@
-import { APIError } from '@vercel/sandbox/dist/api-client/api-error'
 import { NextRequest, NextResponse } from 'next/server'
 import { Sandbox } from '@vercel/sandbox'
 
@@ -10,7 +9,14 @@ export async function POST(
   try {
     const sandbox = await Sandbox.get({ sandboxId })
 
-    // Restart dev server in background
+    // Verify the sandbox can actually execute commands before claiming success
+    try {
+      await sandbox.runCommand({ cmd: 'echo', args: ['alive'] })
+    } catch {
+      return NextResponse.json({ status: 'dead' })
+    }
+
+    // Start dev server in background (fire-and-forget — takes ~10s to boot)
     sandbox
       .runCommand({
         detached: true,
@@ -22,13 +28,7 @@ export async function POST(
 
     const url = sandbox.domain(3000)
     return NextResponse.json({ status: 'ok', url })
-  } catch (error) {
-    if (
-      error instanceof APIError &&
-      error.json.error.code === 'sandbox_stopped'
-    ) {
-      return NextResponse.json({ status: 'dead' })
-    }
+  } catch {
     return NextResponse.json({ status: 'dead' })
   }
 }

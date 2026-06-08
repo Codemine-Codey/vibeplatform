@@ -22,7 +22,7 @@ interface Props {
   debounceTimeMs?: number
 }
 
-export function ErrorMonitor({ children, debounceTimeMs = 10000 }: Props) {
+export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
   const [pending, startTransition] = useTransition()
 
   // Individual stable selectors — no full-store subscription
@@ -108,7 +108,7 @@ export function ErrorMonitor({ children, debounceTimeMs = 10000 }: Props) {
 
   const handleErrors = (errors: Line[], prev: Line[]) => {
     const now = Date.now()
-    if (now - lastErrorReportTime.current < 60000) return
+    if (now - lastErrorReportTime.current < 20000) return
 
     const errorKeys = errors.map(getErrorKey)
     const uniqueErrorKeys = [...new Set(errorKeys)]

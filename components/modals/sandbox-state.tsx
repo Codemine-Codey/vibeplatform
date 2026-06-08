@@ -31,7 +31,7 @@ export function SandboxState() {
         const data = await res.json()
         if (data.status === 'ok') {
           // Give Vite a moment to start, then restore preview and close dialog
-          await new Promise(r => setTimeout(r, 6000))
+          await new Promise(r => setTimeout(r, 14000))
           if (data.url) setUrl(data.url, crypto.randomUUID())
           setStatus('running')
         } else {
@@ -92,7 +92,7 @@ function DirtyChecker({ sandboxId, setStatus }: DirtyCheckerProps) {
       const { status } = await response.json()
       return status
     },
-    { refreshInterval: 1000 }
+    { refreshInterval: 30000 }
   )
 
   useEffect(() => {
