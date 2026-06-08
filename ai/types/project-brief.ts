@@ -19,16 +19,28 @@ export interface ProjectBrief {
 export function formatBrief(brief: ProjectBrief): string {
   const sectionList = brief.sections.length ? brief.sections.join(' → ') : '(see features)'
   const featureList = brief.features.length ? brief.features.join(', ') : '(standard)'
+  const motionDesc = brief.motionIntensity === 'subtle'
+    ? 'Restrained — durations 0.5s, translate Y:16px, no spring physics. Let content breathe.'
+    : brief.motionIntensity === 'moderate'
+    ? 'Purposeful — durations 0.7s, translate Y:32px, hover lifts, smooth stagger on lists.'
+    : 'Dramatic — durations 1.0s, translate Y:64px, spring physics, bold stagger, kinetic hero entrance.'
 
   return `## PROJECT BRIEF — ${brief.brandName.toUpperCase()}
+**"${brief.tagline}"**
+
+### Creative Direction
 
 ${brief.visualNarrative}
 
-**Visual Identity:** ${brief.colorPalette} palette. Typography: ${brief.fontPairing}. Personality: ${brief.brandPersonality}. Tone: ${brief.tone}.
-**Layout:** ${brief.layoutStyle}
-**Motion:** ${brief.motionIntensity === 'subtle' ? 'Restrained — soft fade-ins on scroll, no jarring movement' : brief.motionIntensity === 'moderate' ? 'Purposeful — entrance animations, hover lifts, smooth transitions' : 'Dramatic — bold hero animations, parallax, stagger reveals, kinetic energy'}
-**Tagline:** "${brief.tagline}"
-**Structure:** ${sectionList}
-**Features:** ${featureList}
-**Tech:** ${brief.techStack}`
+### Design Spec
+- **Colors:** ${brief.colorPalette}
+- **Fonts:** ${brief.fontPairing}
+- **Layout archetype:** ${brief.layoutStyle}
+- **Brand personality:** ${brief.brandPersonality} · Tone: ${brief.tone}
+- **Motion:** ${motionDesc}
+
+### Build Spec
+- **Structure:** ${sectionList}
+- **Features:** ${featureList}
+- **Tech:** ${brief.techStack}`
 }

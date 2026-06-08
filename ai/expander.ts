@@ -39,7 +39,13 @@ Rules:
   * default / general purpose → "Plus Jakarta Sans + Inter"
 - tone: capture the emotional feel precisely — "warm, intimate, rustic" vs "dark, bold, upscale" vs "clean, airy, minimal"
 - brandPersonality: 2-3 words that a designer would use to describe the visual language
-- visualNarrative: write 2-3 sentences as if describing the experience to a developer. Make it sensory and evocative — what does a user feel in the first 30 seconds? What's the dominant mood? What does the hero look like? Think: "The hero is full-viewport, near-black with warm amber typography..." NOT "This is a website about coffee."
+- visualNarrative: write 5-7 sentences as a creative director briefing a developer. This is the most important field — it sets the entire visual language. Cover ALL of these in order:
+  1. Hero visual: what fills the viewport? (image placement, typography size and position, dominant color, mood)
+  2. Color story: specific hex hints or hue descriptions, light/dark mode, contrast feel
+  3. Typography scale: which font does what role? At what size? Tracking? Weight? What emotion does it carry?
+  4. Motion language: how do elements enter? How fast? What easing? What does interaction feel like?
+  5. Overall emotional impression: what does the user feel after 30 seconds? One sentence that captures the soul of the product.
+  Be specific and visual — "The hero is full-viewport near-black (#0D0A06) with 7xl Cormorant Garamond in warm amber, set left-of-center..." NOT "This is a dark elegant website."
 - layoutStyle: e.g. "editorial dark with large typography", "clean white minimal with generous whitespace", "bold geometric with strong color blocks", "immersive parallax with layered sections"
 - motionIntensity: "subtle" for luxury/wellness/minimal brands, "moderate" for SaaS/apps/restaurants, "dramatic" for games/agencies/bold brands
 - sections: be specific — this is exactly what will be built
@@ -59,7 +65,7 @@ Use the create_brief tool.`,
             fontPairing: z.string().describe('Exact Google Fonts pairing from the approved list, e.g. "Playfair Display + Source Sans 3"'),
             tone: z.string().describe('Brand personality adjectives, e.g. "warm, artisanal, premium"'),
             brandPersonality: z.string().describe('Visual and emotional feel in 2-3 words'),
-            visualNarrative: z.string().describe('2-3 sentences describing the sensory experience of using this product — mood, hero visual, dominant feeling. Evocative, not descriptive.'),
+            visualNarrative: z.string().describe('5-7 sentences covering: (1) hero viewport visual with specific colors+typography, (2) color story with hex hints, (3) typography roles and emotional weight, (4) motion language and easing feel, (5) overall emotional impression in one closing sentence. Specific and visual — no generic descriptions.'),
             layoutStyle: z.string().describe('Layout archetype, e.g. "editorial dark with oversized typography", "clean minimal with generous whitespace"'),
             motionIntensity: z.enum(['subtle', 'moderate', 'dramatic']).describe('Animation intensity — subtle for luxury/wellness, moderate for SaaS/restaurant, dramatic for games/bold brands'),
             sections: z.array(z.string()).describe('Ordered list of sections/screens/views to build'),
@@ -105,7 +111,7 @@ Use the create_brief tool.`,
     fontPairing: 'Plus Jakarta Sans + Inter',
     tone: 'modern, clean, professional',
     brandPersonality: 'modern, focused',
-    visualNarrative: 'A clean, modern interface that gets out of the way and lets the content shine. Generous whitespace, crisp typography, and purposeful color accents create a professional feel from the first glance.',
+    visualNarrative: 'The hero is full-viewport white with a bold 6xl Plus Jakarta Sans headline in near-black (#0F0F0F), left-aligned, with a single accent color strip. The color palette is clean neutrals — off-white (#FAFAFA) backgrounds, slate-900 text, one bold accent that earns attention without competing. Plus Jakarta Sans carries the headlines at display scale with tight tracking; Inter handles body copy at 17px with relaxed line height. Motion is purposeful: sections fade and rise 32px on scroll over 0.7s ease-out, cards lift 4px on hover with no spring physics. The overall feeling is a product that respects the user\'s time — clear, fast, professional.',
     layoutStyle: 'clean minimal with generous whitespace',
     motionIntensity: 'moderate' as const,
     techStack: 'React + Vite',
