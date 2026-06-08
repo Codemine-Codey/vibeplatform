@@ -1,21 +1,31 @@
-import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import type { LanguageModelV3 } from '@ai-sdk/provider'
 
-// Direct APIs — bypasses CF AI Gateway which adds ~12s latency per call
-// CF Gateway kept only for DeepSeek fallback (less latency-sensitive)
-const geminiProvider = createGoogleGenerativeAI({
-  apiKey: process.env.GEMINI_API_KEY ?? '',
-  // direct Google AI Studio — no gateway overhead
-})
-
 const anthropicProvider = createAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY ?? '',
-  // direct Anthropic API — no gateway overhead
 })
 
-// DeepSeek fallback via CF Gateway (or direct if env var not set)
+// OpenRouter — DeepSeek V4 Pro + any other OpenRouter-hosted models
+// include_reasoning: false injected via fetch wrapper to disable extended thinking
+const openrouterProvider = createOpenAI({
+  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: process.env.OPENROUTER_API_KEY ?? '',
+  fetch: async (url, init) => {
+    if (init?.body) {
+      try {
+        const body = JSON.parse(init.body as string)
+        body.include_reasoning = false
+        init = { ...init, body: JSON.stringify(body) }
+      } catch {
+        // Non-fatal — proceed with original body
+      }
+    }
+    return fetch(url, init)
+  },
+})
+
+// Direct DeepSeek API via CF AI Gateway (Flash model for error analysis fallback)
 const deepseekProvider = createOpenAI({
   baseURL: process.env.AI_GATEWAY_BASE_URL ?? 'https://api.deepseek.com/v1',
   apiKey: process.env.DEEPSEEK_API_KEY ?? '',
@@ -27,21 +37,10 @@ export interface ModelOptions {
   providerOptions?: Record<string, any>
 }
 
-const GEMINI_SAFE_OFF = [
-  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-] as const
-
 export function getModelOptions(modelId: string): ModelOptions {
-  if (modelId.startsWith('gemini')) {
-    return {
-      model: geminiProvider(modelId) as LanguageModelV3,
-      providerOptions: {
-        google: { safetySettings: GEMINI_SAFE_OFF },
-      },
-    }
+  // OpenRouter-hosted models (deepseek/, meta-llama/, etc.)
+  if (modelId.includes('/')) {
+    return { model: openrouterProvider.chat(modelId) }
   }
   if (modelId.startsWith('claude')) {
     return {
@@ -51,5 +50,6 @@ export function getModelOptions(modelId: string): ModelOptions {
       },
     }
   }
+  // Direct DeepSeek (Flash) via CF AI Gateway
   return { model: deepseekProvider.chat(modelId) }
 }
