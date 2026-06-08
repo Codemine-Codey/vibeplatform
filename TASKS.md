@@ -273,6 +273,22 @@ Research-backed speed improvements reducing total generation time ~35-50s:
 
 ---
 
+## PHASE 1.9 — Design System Upgrade ✅ COMPLETE (2026-06-09)
+
+### Design quality upgrades
+- [x] framer-motion@^11.18.2 added to scaffold package.json (all skills including game)
+- [x] src/index.css added to scaffold with complete shadcn/ui CSS variable defaults
+- [x] ProjectBrief interface: added visualNarrative, layoutStyle, motionIntensity fields
+- [x] formatBrief() rewritten as visual narrative/descriptive essay (not key-value)
+- [x] Expander system prompt: 9-brand font pairing lookup table (luxury→Cormorant, tech→Space Grotesk, gaming→Syne, etc.)
+- [x] Expander schema: new fields with rich descriptions to guide AI output
+- [x] Fallback brief: updated with new fields and default values
+- [x] Motion patterns in website.md: hero entrance, scroll reveal (useInView), stagger, hover lift
+- [x] Motion patterns in webapp.md: same patterns + UI transitions with AnimatePresence
+- [x] prompt.md: framer-motion available note, src/index.css mandatory rule, motionIntensity guidance
+
+---
+
 ## PHASE 2 — Cloudflare Pages Deployment [ ]
 
 - [ ] lib/cloudflare.ts

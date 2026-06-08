@@ -6,7 +6,7 @@
 
 ---
 
-## Current Build Status (as of 2026-06-07)
+## Current Build Status (as of 2026-06-09)
 
 **Phase 0 is complete.** Full pipeline working: DeepSeek v4 Pro → Vercel Sandbox → files generated → dev server runs → preview URL live in browser. All compatibility bugs resolved. Auto-refresh on file upload working.
 
@@ -50,6 +50,17 @@
 - AI never says "template" or "scaffold" to users (enforced in prompt.md)
 - Preview address bar white-labeled: shows `live.codemineapp.com` instead of `*.sandbox.vercel.app`
 - Target achieved: games ~30-40s (was 3-5min), websites ~45-60s
+
+**Phase 1.9 is complete — Design System Upgrade (2026-06-09):**
+- Model routing: DEFAULT_MODEL + FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-pro' via OpenRouter (thinking disabled). EDIT_MODEL + ERROR_MODEL = 'claude-haiku-4-5-20251001' via Anthropic SDK direct.
+- framer-motion@^11.18.2 added to scaffold package.json (pre-installed in every project)
+- src/index.css added to scaffold with complete shadcn/ui CSS variable defaults — AI must always override with brand-specific colors (safety net if AI skips it)
+- ProjectBrief upgraded: added visualNarrative (2-3 sentence sensory description), layoutStyle, motionIntensity fields
+- formatBrief() rewritten as a visual narrative/descriptive essay — AI now reads a designer brief, not a key-value form
+- Expander system prompt now has font pairing lookup table — 9 brand archetypes mapped to specific Google Fonts pairings (no more AI defaulting to Inter)
+- Expander schema: new fields visualNarrative, layoutStyle, motionIntensity — AI fills all of these from brand context
+- Motion patterns added to website.md and webapp.md skill packs: hero entrance, scroll reveal (useInView), stagger children, hover lift — Framer Motion primitives
+- Prompt.md updated: framer-motion is available, src/index.css MUST be generated, motion intensity guidance
 
 **Platform renamed: VibePlatform → Codemine.** All UI text, metadata, storage keys, and prompt identity updated. AI never mentions DeepSeek, Gemini, Claude, Unsplash, Cloudflare, or Vercel.
 
@@ -102,6 +113,7 @@ This pattern:
 | Images | Unsplash API | UNSPLASH_ACCESS_KEY, 50 req/hr free tier |
 | Storage | Browser localStorage (Phase 1) → Supabase (Phase 2) | |
 | CSS | Tailwind CSS only | |
+| Animation | framer-motion ^11.18.2 | Pre-installed in scaffold; use motion, useInView, AnimatePresence |
 | Icons | Lucide React only | No SVG anywhere |
 
 ---

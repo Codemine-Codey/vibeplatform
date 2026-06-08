@@ -241,8 +241,9 @@ Each sub-page must have: a hero section, rich body content, and a clear CTA at t
 - Derive the entire visual identity from brand context — color, type, imagery, spacing
 - Hero images: always via `getUnsplash` — real, contextual, high-quality
 - Typography: two Google Fonts — display/editorial for headlines, readable sans for body
-- Scroll animations: Intersection Observer, subtle translate+opacity, 400ms ease-out
-- Hover states: every link and button has a distinct, polished hover
+- Scroll animations: use **framer-motion** `useInView` for reveal animations. Wrap every section below the hero in a fade+translate reveal (see MOTION section in skill pack). Never Intersection Observer manually — framer-motion is cleaner.
+- Hero entrance: always animate — `initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: [0.25, 0.1, 0, 1] }}`
+- Hover states: every link and button has a distinct, polished hover — use `whileHover={{ y: -4 }}` on cards, color transitions on links
 - Mobile: deliberate mobile layouts, not just "it fits on small screen"
 
 #### Technical requirements
@@ -437,10 +438,10 @@ const playTone = (freq: number, duration: number, type: OscillatorType = 'square
 
 The moment your sandbox is created, these files are **automatically pre-written** by the platform. They are correct and complete. **Do NOT generate them — they already exist:**
 
-### Config files (8)
+### Config + base files (9)
 | File | Pre-configured with |
 |---|---|
-| `package.json` | React 18, Vite 6, TypeScript, Tailwind 3, React Router v6, Lucide React, all Radix UI primitives, clsx, tailwind-merge, cva, tailwindcss-animate |
+| `package.json` | React 18, Vite 6, TypeScript, Tailwind 3, React Router v6, **framer-motion**, Lucide React, all Radix UI primitives, clsx, tailwind-merge, cva, tailwindcss-animate |
 | `vite.config.ts` | `host: '0.0.0.0', allowedHosts: true, port: 3000`, `@` path alias (`src/`) |
 | `tailwind.config.js` | CSS variable color tokens (background, foreground, primary, secondary, muted, accent, card, border, input, ring), darkMode: class, animate plugin |
 | `postcss.config.js` | tailwindcss + autoprefixer |
@@ -448,6 +449,7 @@ The moment your sandbox is created, these files are **automatically pre-written*
 | `tsconfig.app.json` | Strict TypeScript, react-jsx, ES2020, `@/*` path alias |
 | `tsconfig.node.json` | Strict TypeScript, ES2022 |
 | `.npmrc` | `prefer-offline=true, shamefully-hoist=true` |
+| `src/index.css` | `@tailwind base/components/utilities` + neutral CSS variable defaults — **you MUST override this with brand-specific values** |
 
 ### shadcn/ui components (10) — import with `@/components/ui/...`
 
@@ -474,9 +476,11 @@ The moment your sandbox is created, these files are **automatically pre-written*
 **What this means:**
 - Your `generateFiles` paths list must NOT include any of the scaffold or shadcn/ui files above
 - Start your file list with: `index.html`, `src/main.tsx`, `src/index.css`, `src/App.tsx`, and all app-specific files
+- **`src/index.css` is the ONE scaffold file you MUST always generate.** It has neutral defaults in scaffold, but you must override every CSS variable with brand-specific values. Include the `@import` for Google Fonts, define `:root` CSS vars for your brand palette, and set `body` base styles.
 - **Use shadcn/ui components freely** — `import { Button } from '@/components/ui/button'` just works. No installation needed.
 - The Tailwind config already has CSS variable color tokens set up. Define your brand colors in `src/index.css` as CSS vars (e.g., `--primary: 220 90% 56%`) and they flow through the entire shadcn/ui system automatically.
-- If you need a package not in the scaffold (e.g., `framer-motion`, `date-fns`), generate a `package.json` with it added — `pnpm install` will pick it up
+- **framer-motion is pre-installed** — `import { motion, AnimatePresence, useInView } from 'framer-motion'` just works. No package.json change needed.
+- If you need a package not in the scaffold (e.g., `date-fns`, `recharts`), generate a `package.json` with it added — `pnpm install` will pick it up
 
 ---
 
@@ -534,9 +538,10 @@ That is 6 steps total. Do NOT call `planProject`. Do NOT call `getUnsplashBatch`
    - **If no photos are needed** (games, pure data apps, calculators): just call `createSandbox` alone — do NOT call `getUnsplashBatch` with irrelevant keywords.
 
 3. Generate ALL files in ONE `generateFiles` call using:
-   - Every file path you planned internally — no scaffold files
+   - Every file path you planned internally — no scaffold files **except `src/index.css` which you MUST include** with brand-specific CSS variables and Google Font import
    - The real image URLs from step 2
    - Verify every import is covered before submitting paths
+   - Use `motionIntensity` from the brief to calibrate animation duration/distance: subtle=0.5s/y:16, moderate=0.7s/y:32, dramatic=1.0s/y:64
 
 4. Run `pnpm install` — fast because background install already ran during steps 2-3.
 

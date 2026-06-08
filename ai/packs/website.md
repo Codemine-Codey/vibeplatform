@@ -94,3 +94,50 @@
 - No stock blue/grey unless brief explicitly calls for it
 - No inaccessible contrast (text must pass WCAG AA)
 - No images without alt text
+
+## MOTION & ANIMATION
+
+framer-motion is pre-installed. Use it for all animations. Import: `import { motion, AnimatePresence, useInView } from 'framer-motion'`
+
+**Hero entrance (always use this on every hero):**
+```tsx
+const heroVariants = {
+  hidden: { opacity: 0, y: 40 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: [0.25, 0.1, 0, 1] } }
+}
+<motion.div variants={heroVariants} initial="hidden" animate="visible">
+```
+
+**Scroll reveal (use on every section below the hero):**
+```tsx
+function FadeInSection({ children }: { children: React.ReactNode }) {
+  const ref = useRef(null)
+  const inView = useInView(ref, { once: true, margin: '-80px' })
+  return (
+    <motion.div ref={ref} initial={{ opacity: 0, y: 32 }} animate={inView ? { opacity: 1, y: 0 } : {}} transition={{ duration: 0.6, ease: 'easeOut' }}>
+      {children}
+    </motion.div>
+  )
+}
+```
+
+**Stagger children (for card grids, feature lists):**
+```tsx
+const container = { hidden: {}, visible: { transition: { staggerChildren: 0.1 } } }
+const item = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { duration: 0.5 } } }
+<motion.ul variants={container} initial="hidden" animate="visible">
+  {items.map(i => <motion.li key={i.id} variants={item}>...)
+</motion.ul>
+```
+
+**Hover lift (cards, buttons, image blocks):**
+```tsx
+<motion.div whileHover={{ y: -4, transition: { duration: 0.2 } }} whileTap={{ scale: 0.98 }}>
+```
+
+**Rules:**
+- ALWAYS add hero entrance animation — no static hero ever
+- ALWAYS wrap sections in FadeInSection for scroll reveal
+- Use stagger on any repeating element group (cards, features, menu items, testimonials)
+- Keep easing curves sophisticated: `[0.25, 0.1, 0, 1]` (ease-out) or `[0.43, 0.13, 0.23, 0.96]` (snappy)
+- `motionIntensity` from the brief controls scale: subtle = duration 0.6/y:20, moderate = duration 0.8/y:32, dramatic = duration 1.0/y:60 with spring physics

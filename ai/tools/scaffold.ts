@@ -17,6 +17,7 @@ function makePackageJson(skill?: Skill): string {
         react: '^18.3.1',
         'react-dom': '^18.3.1',
         ...(isGame ? {} : { 'react-router-dom': '^6.28.0' }),
+        'framer-motion': '^11.18.2',
         'lucide-react': '^0.468.0',
         ...(isGame ? {} : {
           '@radix-ui/react-dialog': '^1.1.4',
@@ -188,6 +189,47 @@ export default {
       },
       null, 2
     ),
+  },
+
+  // ── base CSS — AI MUST override this with brand-specific variables ───────────
+  {
+    path: 'src/index.css',
+    content: `@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Default CSS variables — AI always overwrites this file with brand-specific values */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+  --primary: 221.2 83.2% 53.3%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 221.2 83.2% 53.3%;
+  --radius: 0.5rem;
+}
+
+* { border-color: hsl(var(--border)); }
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  -webkit-font-smoothing: antialiased;
+}
+`,
   },
 
   // ── shadcn/ui utility ────────────────────────────────────────────────────────
