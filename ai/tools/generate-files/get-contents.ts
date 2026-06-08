@@ -61,12 +61,16 @@ export async function* getContents(
           content: z.string().describe('Complete file contents as a utf8 string'),
         }),
         execute: async ({ path, content }) => {
+          // Only write files that were explicitly requested — ignore extras the model invents
+          if (!params.paths.includes(path)) {
+            return `Skipped ${path} (not in requested list)`
+          }
           push({ files: [{ path, content }], paths: [path], written: [] })
           return `Wrote ${path}`
         },
       }),
     },
-    stopWhen: stepCountIs(params.paths.length + 5),
+    stopWhen: stepCountIs(params.paths.length + 2),
   }).then(
     () => push(null),
     (err) => {
