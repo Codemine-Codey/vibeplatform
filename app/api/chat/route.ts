@@ -244,7 +244,8 @@ async function runPipeline({
     `DO NOT call createSandbox — it is already done.\n` +
     `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
     `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
-    `WORKFLOW: ${skill === 'website' ? '(1) call getUnsplashBatch for all images, (2) call planProject with complete file list, (3) call generateFiles with sandboxId="' + sandboxId + '" and all files' : '(1) call planProject with complete file list, (2) call generateFiles with sandboxId="' + sandboxId + '" and all files'}`
+    `WORKFLOW: ${skill === 'website' ? '(1) call getUnsplashBatch for all images, (2) call planProject with complete file list, (3) call generateFiles with sandboxId="' + sandboxId + '" and all files' : '(1) call planProject with complete file list, (2) call generateFiles with sandboxId="' + sandboxId + '" and all files'}\n` +
+    (skill !== 'website' ? `getUnsplashBatch is NOT available for this skill type — do not call it.\n` : '')
 
   const fullSystem = systemPrompt + pipelineAddendum
 

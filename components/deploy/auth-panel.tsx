@@ -22,6 +22,7 @@ export function AuthPanel({ className }: Props) {
   const { chat } = useSharedChatContext()
 
   const [enabling, setEnabling] = useState(false)
+  const [maxUsers, setMaxUsers] = useState('')
   const [error, setError] = useState<string | undefined>()
   const [users, setUsers] = useState<{ id: string; email: string; name: string; created_at: number }[]>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
@@ -36,7 +37,7 @@ export function AuthPanel({ className }: Props) {
       const res = await fetch('/api/auth/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sandboxId, databaseId, projectName: deployProjectName }),
+        body: JSON.stringify({ sandboxId, databaseId, projectName: deployProjectName, maxUsers: maxUsers ? parseInt(maxUsers) : 0 }),
       })
       const data = await res.json() as { workerUrl?: string; error?: string }
       if (!res.ok || data.error) throw new Error(data.error ?? 'Setup failed')
@@ -172,6 +173,17 @@ Please add login and signup functionality to the app using these endpoints. Stor
         <p className="text-xs text-muted-foreground max-w-xs">
           Let users sign up, log in, and access their data. User accounts are stored in your project database.
         </p>
+      </div>
+      <div className="flex flex-col gap-1 w-full max-w-xs">
+        <label className="text-xs text-muted-foreground">Max users (0 = unlimited)</label>
+        <input
+          type="number"
+          min="0"
+          value={maxUsers}
+          onChange={(e) => setMaxUsers(e.target.value)}
+          placeholder="0 — unlimited"
+          className="text-xs bg-secondary rounded-sm px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30 placeholder:text-muted-foreground"
+        />
       </div>
       {error && <p className="text-xs text-destructive max-w-xs">{error}</p>}
       <button

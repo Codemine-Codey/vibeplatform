@@ -58,6 +58,11 @@ export default {
       if (path === '/register' && request.method === 'POST') {
         const { email, password, name } = await request.json();
         if (!email || !password) return Response.json({ error: 'Email and password required' }, { status: 400, headers: CORS });
+        const maxUsers = parseInt(env.MAX_USERS ?? '0') || 0;
+        if (maxUsers > 0) {
+          const countRow = await env.DB.prepare('SELECT COUNT(*) as c FROM cm_users').first();
+          if (countRow && Number(countRow.c) >= maxUsers) return Response.json({ error: 'This app has reached its user limit.' }, { status: 429, headers: CORS });
+        }
         const existing = await env.DB.prepare('SELECT id FROM cm_users WHERE email = ?').bind(email.toLowerCase()).first();
         if (existing) return Response.json({ error: 'Email already registered' }, { status: 409, headers: CORS });
         const salt = crypto.randomUUID();
@@ -105,8 +110,8 @@ export default {
 `
 
 export async function POST(req: Request) {
-  const body = await req.json() as { sandboxId?: string; databaseId?: string; projectName?: string }
-  const { sandboxId, databaseId } = body
+  const body = await req.json() as { sandboxId?: string; databaseId?: string; projectName?: string; maxUsers?: number }
+  const { sandboxId, databaseId, maxUsers } = body
 
   if (!sandboxId || !databaseId) {
     return NextResponse.json({ error: 'sandboxId and databaseId required' }, { status: 400 })
@@ -141,6 +146,7 @@ export async function POST(req: Request) {
     bindings: [
       { type: 'd1', name: 'DB', id: databaseId },
       { type: 'plain_text', name: 'JWT_SECRET', text: jwtSecret },
+      { type: 'plain_text', name: 'MAX_USERS', text: maxUsers && maxUsers > 0 ? String(maxUsers) : '0' },
     ],
     compatibility_date: '2024-09-23',
   })
