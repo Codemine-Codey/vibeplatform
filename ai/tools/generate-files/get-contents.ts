@@ -1,6 +1,5 @@
 import { generateText, tool, stepCountIs, type ModelMessage } from 'ai'
 import { getModelOptions } from '@/ai/gateway'
-import { FILE_GENERATION_MODEL } from '@/ai/constants'
 import z from 'zod/v3'
 
 export type File = {
@@ -42,7 +41,7 @@ export async function* getContents(
   }
 
   const genPromise = generateText({
-    ...getModelOptions(FILE_GENERATION_MODEL),
+    ...getModelOptions(params.modelId),
     maxOutputTokens: 64000,
     system:
       'You are a file content generator. Generate each file by calling the write_file tool once per file. Generate ALL requested files. NEVER generate lock files (pnpm-lock.yaml, package-lock.json, yarn.lock).',

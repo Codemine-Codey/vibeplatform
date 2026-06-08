@@ -300,16 +300,18 @@ async function runPipeline({
 
   // ── Step 3: AI generates file contents (one focused call, limited tools) ──
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // Templates: Flash writes personality files (simple theme fill, quality doesn't matter much)
+  // From-scratch: Pro writes all code (better architecture, fewer missing imports, more complete)
   const pipelineTools: Record<string, any> = isTemplate
     ? { generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, allowedPaths: tmpl!.personalityFiles }) }
     : skill === 'website'
     ? {
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
+        generateFiles: generateFiles({ writer, modelId: DEFAULT_MODEL }),
         planProject: planProject(),
         getUnsplashBatch: getUnsplashBatch(),
       }
     : {
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
+        generateFiles: generateFiles({ writer, modelId: DEFAULT_MODEL }),
         planProject: planProject(),
       }
 
