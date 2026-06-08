@@ -60,5 +60,5 @@ export function getWarmEntry(): WarmEntry | null {
   return entry
 }
 
-// Begin warming both slots on module import
-fillPool()
+// Only pre-warm when WARM_POOL=true — disable during pre-launch testing to avoid idle sandbox costs
+if (process.env.WARM_POOL === 'true') fillPool()
