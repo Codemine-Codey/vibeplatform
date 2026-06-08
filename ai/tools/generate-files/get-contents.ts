@@ -19,9 +19,8 @@ interface FileContentChunk {
   written: string[]
 }
 
-// Async channel — lets us yield each file immediately as the LLM tool-calls it,
-// rather than waiting for all files to batch at the end.
-// The rAF batching in chat.tsx makes rapid-fire yields safe (no render storm).
+// Async channel — yields each file immediately as the tool call resolves,
+// preserving the progressive UI (file list grows in real time).
 export async function* getContents(
   params: Params
 ): AsyncGenerator<FileContentChunk> {
@@ -40,40 +39,54 @@ export async function* getContents(
     })
   }
 
+  // Single write_all_files tool call — all files in one Gemini response.
+  // This collapses N sequential round-trips (old write_file per file) into 1,
+  // matching how competitors generate full projects in a single structured call.
   const genPromise = generateText({
     ...getModelOptions(params.modelId),
     maxOutputTokens: 64000,
     system:
-      'You are a file content generator. Generate each file by calling the write_file tool once per file. Generate ALL requested files. NEVER generate lock files (pnpm-lock.yaml, package-lock.json, yarn.lock).',
+      'You are a file content generator. Call write_all_files EXACTLY ONCE with every requested file in the array. Generate complete, correct file content for each. NEVER generate lock files (pnpm-lock.yaml, package-lock.json, yarn.lock).',
     messages: [
       ...params.messages,
       {
         role: 'user',
-        content: `Generate the content of the following files according to the conversation. Call write_file once for each file:\n${params.paths.map((p) => ` - ${p}`).join('\n')}`,
+        content: `Generate ALL of the following files in a single write_all_files call:\n${params.paths.map((p) => ` - ${p}`).join('\n')}`,
       },
     ],
     tools: {
-      write_file: tool({
-        description: 'Write a single file with its complete content',
+      write_all_files: tool({
+        description:
+          'Write ALL project files at once. Call this EXACTLY ONCE with the complete array — never call it multiple times.',
         inputSchema: z.object({
-          path: z.string().describe('File path relative to sandbox root'),
-          content: z.string().describe('Complete file contents as a utf8 string'),
+          files: z
+            .array(
+              z.object({
+                path: z.string().describe('File path relative to sandbox root'),
+                content: z
+                  .string()
+                  .describe('Complete file contents as a utf8 string'),
+              })
+            )
+            .describe('Array containing every file to write'),
         }),
-        execute: async ({ path, content }) => {
-          // Only write files that were explicitly requested — ignore extras the model invents
-          if (!params.paths.includes(path)) {
-            return `Skipped ${path} (not in requested list)`
+        execute: async ({ files }) => {
+          for (const { path, content } of files) {
+            // Only write paths that were explicitly requested — ignore extras
+            if (params.paths.includes(path)) {
+              push({ files: [{ path, content }], paths: [path], written: [] })
+            }
           }
-          push({ files: [{ path, content }], paths: [path], written: [] })
-          return `Wrote ${path}`
+          push(null)
+          return `Wrote ${files.length} files`
         },
       }),
     },
-    stopWhen: stepCountIs(params.paths.length + 2),
+    stopWhen: stepCountIs(2), // 1 tool call + optional closing text step
   }).then(
     () => push(null),
     (err) => {
-      // Always unblock the consumer even on failure — prevents infinite hang
+      // Always unblock consumer on failure — prevents infinite hang
       push(null)
       return Promise.reject(err)
     }
