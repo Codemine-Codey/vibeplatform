@@ -22,7 +22,7 @@ export function AuthPanel({ className }: Props) {
   const { chat } = useSharedChatContext()
 
   const [enabling, setEnabling] = useState(false)
-  const [maxUsers, setMaxUsers] = useState('')
+  const [maxUsers, setMaxUsers] = useState('100')
   const [error, setError] = useState<string | undefined>()
   const [users, setUsers] = useState<{ id: string; email: string; name: string; created_at: number }[]>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
@@ -181,7 +181,7 @@ Please add login and signup functionality to the app using these endpoints. Stor
           min="0"
           value={maxUsers}
           onChange={(e) => setMaxUsers(e.target.value)}
-          placeholder="0 — unlimited"
+          placeholder="100"
           className="text-xs bg-secondary rounded-sm px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30 placeholder:text-muted-foreground"
         />
       </div>
