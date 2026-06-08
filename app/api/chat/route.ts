@@ -266,6 +266,13 @@ async function runPipeline({
 
   if (isTemplate && tmpl) {
     const scaffoldPaths = tmpl.scaffoldFiles.map(f => f.path)
+    // Include default personality file(s) as the exact structure to preserve
+    const starterFiles = getTemplateFiles(templateId!).filter(f =>
+      tmpl.personalityFiles.includes(f.path)
+    )
+    const starterStructure = starterFiles
+      .map(f => `\n### ${f.path} — STARTER STRUCTURE (replace values, keep ALL export names):\n\`\`\`ts\n${f.content}\n\`\`\``)
+      .join('\n')
     pipelineAddendum =
       `\n\n## SERVER PIPELINE — WORKSPACE READY\n` +
       `sandboxId: ${sandboxId}\n` +
@@ -278,6 +285,7 @@ async function runPipeline({
       `BANNED — DO NOT include these in generateFiles (they are pre-built and will be ignored):\n` +
       scaffoldPaths.map(p => `  - ${p}`).join('\n') + '\n\n' +
       `${tmpl.instruction}\n\n` +
+      `CRITICAL — PRESERVE EXPORT STRUCTURE: The App imports specific named exports. Every export name in the starter must exist in your output — only change the values.${starterStructure}\n\n` +
       `MANDATORY PERSONALITY RULES:\n` +
       `1. Brand name → exact brandName from the PROJECT BRIEF above\n` +
       `2. Colors → derived entirely from brief colorPalette + tone. A request for "off-white" gets off-white. Cyberpunk gets neon. Steakhouse gets dark warm. Override every default.\n` +
