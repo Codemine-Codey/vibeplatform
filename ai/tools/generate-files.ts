@@ -84,8 +84,8 @@ export const generateFiles = ({ writer, modelId }: Params) =>
       const writeFiles = getWriteFiles({ sandbox, toolCallId, writer })
       const uploaded: File[] = []
 
-      // Split into parallel chunks for large file sets (saves ~40% on 10+ file projects)
-      const PARALLEL_THRESHOLD = 8
+      // Split into parallel chunks — lower threshold so even 4-file games get parallel treatment
+      const PARALLEL_THRESHOLD = 3
       const mid = Math.ceil(paths.length / 2)
       const pathChunks = paths.length > PARALLEL_THRESHOLD
         ? [paths.slice(0, mid), paths.slice(mid)]

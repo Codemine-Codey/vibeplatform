@@ -1,5 +1,27 @@
 # Game Skill Pack — Design & Code Patterns
 
+## CRITICAL — THIS IS A PURE GAME, NOT A WEBSITE
+
+**The app IS the game. Full stop.**
+
+- The app opens directly to a **game start screen** — no landing page, no marketing copy, no "About" section, no nav bar, no footer, no hero section
+- The entire viewport is the game at all times
+- Users interact with: Start Screen → Gameplay → Pause → Game Over → back to Start
+- These are **game state screens controlled by a state machine** — they are NOT separate HTML pages or routes. Everything lives in one React component tree
+- **Never** wrap the game in a website layout. No `<header>`, no `<nav>`, no `<footer>` around the game
+
+### Required screen flow (all state-based, not route-based):
+```
+[Start Screen] → PLAY → [Gameplay] → PAUSE → [Pause Overlay] → RESUME → [Gameplay]
+                                   → DIE  → [Game Over Screen] → PLAY AGAIN → [Gameplay]
+```
+
+### File structure for simple games (flappy bird, snake, tetris, pong, memory, tic-tac-toe):
+Generate ALL game logic in `src/App.tsx` ONLY. Do not create `hooks/`, `utils/`, or `components/` subfolders.
+One self-contained file. This is intentional — it's faster to generate and has fewer import errors.
+
+---
+
 ## State Machine (Required)
 Every game MUST use this state machine — no exceptions:
 ```ts

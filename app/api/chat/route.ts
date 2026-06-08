@@ -263,9 +263,9 @@ async function runPipeline({
         generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
       }
 
-  // website: text + getUnsplashBatch + generateFiles
-  // app/game: text + generateFiles
-  const maxSteps = skill === 'website' ? 4 : 3
+  // website: text + getUnsplashBatch + generateFiles (max 4 steps)
+  // app/game: text + generateFiles only — 2 steps, no room for a second generateFiles call
+  const maxSteps = skill === 'website' ? 4 : 2
 
   const aiResult = streamText({
     ...getModelOptions(DEFAULT_MODEL),
