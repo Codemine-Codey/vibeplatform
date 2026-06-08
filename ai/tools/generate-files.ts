@@ -144,6 +144,24 @@ export const generateFiles = ({ writer, modelId, allowedPaths }: Params) =>
         return richError.message
       }
 
+      // Retry any files the sub-model skipped on first pass
+      const writtenPaths = new Set(uploaded.map(f => f.path))
+      const missing = paths.filter(p => !writtenPaths.has(p))
+      if (missing.length > 0) {
+        console.warn(`[generateFiles] Retrying ${missing.length} missing file(s): ${missing.join(', ')}`)
+        const retryIterator = getContents({ messages, modelId, paths: missing })
+        try {
+          for await (const chunk of retryIterator) {
+            if (chunk.files.length > 0) {
+              const error = await writeFiles({ ...chunk, written: uploaded.map(f => f.path) })
+              if (!error) uploaded.push(...chunk.files)
+            }
+          }
+        } catch {
+          // retry failure is non-fatal — proceed with whatever was written
+        }
+      }
+
       // Plan C: in-sandbox Vite patch — belt-and-suspenders after the server-side patch.
       // Catches any vite.config variant the regex missed (.mjs, unusual formatting, etc.)
       try {

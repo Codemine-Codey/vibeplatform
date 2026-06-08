@@ -13,11 +13,19 @@ interface SandboxStore {
   chatStatus: ChatStatus
   clearGeneratedFiles: () => void
   commands: Command[]
+  databaseId?: string
+  databaseName?: string
+  deployedUrl?: string
+  deployError?: string
+  deployProjectName?: string
+  deployStatus?: 'idle' | 'building' | 'deploying' | 'done' | 'error'
   generatedFiles: Set<string>
   lastFilesUploadedAt?: number
   paths: string[]
   sandboxId?: string
   setChatStatus: (status: ChatStatus) => void
+  setDatabaseState: (s: Partial<Pick<SandboxStore, 'databaseId' | 'databaseName'>>) => void
+  setDeployState: (s: Partial<Pick<SandboxStore, 'deployedUrl' | 'deployStatus' | 'deployError' | 'deployProjectName'>>) => void
   setLastFilesUploadedAt: (t: number) => void
   setSandboxId: (id: string) => void
   setStatus: (status: 'running' | 'stopped') => void
@@ -116,6 +124,12 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
   chatStatus: 'ready',
   clearGeneratedFiles: () => set(() => ({ generatedFiles: new Set<string>() })),
   commands: [],
+  databaseId: undefined,
+  databaseName: undefined,
+  deployedUrl: undefined,
+  deployError: undefined,
+  deployProjectName: undefined,
+  deployStatus: 'idle',
   generatedFiles: new Set<string>(),
   lastFilesUploadedAt: undefined,
   paths: [],
@@ -123,6 +137,8 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
     set((state) =>
       state.chatStatus === status ? state : { chatStatus: status }
     ),
+  setDatabaseState: (s) => set(() => ({ ...s })),
+  setDeployState: (s) => set(() => ({ ...s })),
   setLastFilesUploadedAt: (t) => set(() => ({ lastFilesUploadedAt: t })),
   setSandboxId: (sandboxId) =>
     set(() => ({
@@ -132,6 +148,12 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
       paths: [],
       url: undefined,
       generatedFiles: new Set<string>(),
+      deployedUrl: undefined,
+      deployStatus: 'idle',
+      deployError: undefined,
+      deployProjectName: undefined,
+      databaseId: undefined,
+      databaseName: undefined,
     })),
   setStatus: (status) => set(() => ({ status })),
   setUrl: (url, urlUUID) => set(() => ({ url, urlUUID })),
