@@ -52,6 +52,40 @@ function hasActiveSandbox(messages: ChatUIMessage[]): boolean {
   )
 }
 
+// Scans message history to extract sandboxId + every file generated so far.
+// Injected into edit-turn system prompt so AI knows exactly what files exist.
+function getProjectContext(messages: ChatUIMessage[]): { sandboxId: string | null; filePaths: string[] } {
+  let sandboxId: string | null = null
+  const seen = new Set<string>()
+  const filePaths: string[] = []
+
+  for (const msg of messages) {
+    if (!Array.isArray(msg.parts)) continue
+    for (const part of msg.parts) {
+      if (
+        part.type === 'data-create-sandbox' &&
+        part.data?.sandboxId
+      ) {
+        sandboxId = part.data.sandboxId
+      }
+      if (
+        part.type === 'data-generating-files' &&
+        part.data?.status === 'done' &&
+        Array.isArray(part.data?.paths)
+      ) {
+        for (const p of part.data.paths as string[]) {
+          if (!seen.has(p)) {
+            seen.add(p)
+            filePaths.push(p)
+          }
+        }
+      }
+    }
+  }
+
+  return { sandboxId, filePaths }
+}
+
 function transformMessages(messages: ChatUIMessage[]): ChatUIMessage[] {
   return messages.map(message => {
     message.parts = message.parts.map(part => {
@@ -154,9 +188,24 @@ async function runAgenticLoop({
   // Edits use Haiku — patchFile/readFile are surgical tasks; fast + cheap beats powerful.
   // Fallback (clarification / unknown skill) uses Pro — it may end up doing full generation.
   const isEdit = hasActiveSandbox(messages)
+
+  // For edit turns: inject file tree + sandboxId so AI knows exactly what exists
+  let resolvedSystemPrompt = systemPrompt
+  if (isEdit) {
+    const { sandboxId, filePaths } = getProjectContext(messages)
+    if (sandboxId && filePaths.length > 0) {
+      resolvedSystemPrompt +=
+        `\n\n## YOUR CURRENT PROJECT\n` +
+        `sandboxId: ${sandboxId}\n\n` +
+        `Files in this project (these all exist — use readFile + patchFile to edit them):\n` +
+        filePaths.map(p => `- ${p}`).join('\n') +
+        `\n\nScaffold files that also exist (do NOT regenerate): package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig.json, src/lib/utils.ts, src/components/ui/*`
+    }
+  }
+
   const result = streamText({
     ...getModelOptions(isEdit ? EDIT_MODEL : DEFAULT_MODEL),
-    system: systemPrompt,
+    system: resolvedSystemPrompt,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(30),
     maxOutputTokens: 16000,
