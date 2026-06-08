@@ -448,7 +448,7 @@ async function runPipeline({
       onError: err => console.error('TSC auto-fix error:', err),
     })
     writer.merge(fixResult.toUIMessageStream({ sendReasoning: false, sendStart: false }))
-    await fixResult.text.catch(() => {})
+    await Promise.resolve(fixResult.text).catch(() => {})
   }
 
   // ── Step 5: Server starts dev server (background — runs forever) ──────────
