@@ -169,6 +169,40 @@ For any game: add on-screen buttons for mobile. Position absolutely over canvas:
 </div>
 ```
 
+## Canvas Sizing — MANDATORY
+
+The canvas must always fill the full viewport. **Never set a fixed pixel size.**
+
+```tsx
+// Root container fills the screen
+<div className="w-screen h-screen overflow-hidden relative bg-[#0a0a0a]">
+  <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+  {/* overlays go here */}
+</div>
+```
+
+For games with a fixed logical grid (Tetris, Snake), compute cell size dynamically:
+```ts
+useEffect(() => {
+  const canvas = canvasRef.current!
+  canvas.width = canvas.clientWidth
+  canvas.height = canvas.clientHeight
+  // e.g. for Tetris:
+  const blockW = Math.floor(canvas.width / COLS)
+  const blockH = Math.floor(canvas.height / ROWS)
+  const blockSize = Math.min(blockW, blockH)
+}, [])
+```
+
+Also handle resize:
+```ts
+useEffect(() => {
+  const onResize = () => { /* re-run above logic */ }
+  window.addEventListener('resize', onResize)
+  return () => window.removeEventListener('resize', onResize)
+}, [])
+```
+
 ## Anti-Patterns to Avoid
 - Never use `setInterval` for game loop — use `requestAnimationFrame`
 - Never store fast-changing game data (position, velocity) in React state — use refs
@@ -176,3 +210,4 @@ For any game: add on-screen buttons for mobile. Position absolutely over canvas:
 - Never forget `cancelAnimationFrame` cleanup in useEffect
 - Never ship without a restart mechanism
 - Never let the game loop run when `gameState !== 'playing'`
+- **Never hardcode canvas pixel dimensions** (`width={300}`, `style={{width:'300px'}}`) — always full viewport

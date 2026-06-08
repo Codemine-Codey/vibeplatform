@@ -84,12 +84,9 @@ export const generateFiles = ({ writer, modelId }: Params) =>
       const writeFiles = getWriteFiles({ sandbox, toolCallId, writer })
       const uploaded: File[] = []
 
-      // Split into parallel chunks — lower threshold so even 4-file games get parallel treatment
-      const PARALLEL_THRESHOLD = 3
-      const mid = Math.ceil(paths.length / 2)
-      const pathChunks = paths.length > PARALLEL_THRESHOLD
-        ? [paths.slice(0, mid), paths.slice(mid)]
-        : [paths]
+      // write_all_files generates ALL files in a single Gemini call — never split.
+      // Splitting caused Gemini to lose cross-file context and miss files entirely.
+      const pathChunks = [paths]
 
       async function processChunk(chunkPaths: string[]): Promise<void> {
         const iterator = getContents({ messages, modelId, paths: chunkPaths })
