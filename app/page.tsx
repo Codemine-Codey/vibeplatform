@@ -5,6 +5,9 @@ import { Horizontal } from '@/components/layout/panels'
 import { Logs } from './logs'
 import { Preview } from './preview'
 import { RightPanel } from '@/components/layout/right-panel'
+import { DeployPanel } from '@/components/deploy/deploy-panel'
+import { DatabasePanel } from '@/components/deploy/database-panel'
+import { AuthPanel } from '@/components/deploy/auth-panel'
 import { TabContent, TabItem } from '@/components/tabs'
 import { Welcome } from '@/components/modals/welcome'
 import { cookies } from 'next/headers'
@@ -20,11 +23,14 @@ export default async function Page() {
       <Welcome defaultOpen={banner} onDismissAction={hideBanner} />
       <div className="flex flex-col h-screen max-h-screen overflow-hidden p-2 space-x-2">
         <Header className="flex items-center w-full" />
-        <ul className="flex space-x-5 font-mono text-sm tracking-tight px-1 py-2 md:hidden">
+        <ul className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-sm tracking-tight px-1 py-2 md:hidden">
           <TabItem tabId="chat">Chat</TabItem>
           <TabItem tabId="preview">Preview</TabItem>
           <TabItem tabId="file-explorer">Code</TabItem>
           <TabItem tabId="logs">Logs</TabItem>
+          <TabItem tabId="deploy">Deploy</TabItem>
+          <TabItem tabId="database">Database</TabItem>
+          <TabItem tabId="auth">Auth</TabItem>
         </ul>
 
         {/* Mobile layout */}
@@ -40,6 +46,15 @@ export default async function Page() {
           </TabContent>
           <TabContent tabId="logs" className="flex-1">
             <Logs className="flex-1 overflow-hidden" />
+          </TabContent>
+          <TabContent tabId="deploy" className="flex-1">
+            <DeployPanel className="flex-1 overflow-hidden" />
+          </TabContent>
+          <TabContent tabId="database" className="flex-1">
+            <DatabasePanel className="flex-1 overflow-hidden" />
+          </TabContent>
+          <TabContent tabId="auth" className="flex-1">
+            <AuthPanel className="flex-1 overflow-hidden" />
           </TabContent>
         </div>
 
