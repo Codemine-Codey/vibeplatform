@@ -1,6 +1,7 @@
 import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import type { DataPart } from '../messages/data-parts'
 import { Sandbox } from '@vercel/sandbox'
+import { getContents, type File } from './generate-files/get-contents'
 import { getRichError } from './get-rich-error'
 import { getWriteFiles } from './generate-files/get-write-files'
 import { tool } from 'ai'
@@ -36,32 +37,26 @@ if (!done) {
 `.trim()
 
 interface Params {
+  modelId: string
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
 }
 
-export const generateFiles = ({ writer }: Params) =>
+export const generateFiles = ({ writer, modelId }: Params) =>
   tool({
     description,
     inputSchema: z.object({
-      sandboxId: z.string().describe('The sandbox ID to write files into'),
-      files: z
-        .array(
-          z.object({
-            path: z.string().describe('File path relative to sandbox root, e.g. src/App.tsx'),
-            content: z.string().describe('Complete file content as a UTF-8 string — no placeholders, no stubs'),
-          })
-        )
-        .describe('Every file to write. Must include COMPLETE content. Call this tool exactly once.'),
+      sandboxId: z.string(),
+      paths: z.array(z.string()),
     }),
-    execute: async ({ sandboxId, files }, { toolCallId }) => {
-      if (files.length === 0) {
-        return 'ERROR: files array is empty. Provide every file with its complete content.'
+    execute: async ({ sandboxId, paths }, { toolCallId, messages }) => {
+      if (paths.length === 0) {
+        return 'ERROR: paths list is empty. You must provide at least one file path to generate.'
       }
 
       writer.write({
         id: toolCallId,
         type: 'data-generating-files',
-        data: { paths: files.map(f => f.path), status: 'generating' },
+        data: { paths: [], status: 'generating' },
       })
 
       let sandbox: Sandbox | null = null
@@ -69,7 +64,11 @@ export const generateFiles = ({ writer }: Params) =>
       try {
         sandbox = await Sandbox.get({ sandboxId })
       } catch (error) {
-        const richError = getRichError({ action: 'get sandbox by id', args: { sandboxId }, error })
+        const richError = getRichError({
+          action: 'get sandbox by id',
+          args: { sandboxId },
+          error,
+        })
         writer.write({
           id: toolCallId,
           type: 'data-generating-files',
@@ -79,16 +78,57 @@ export const generateFiles = ({ writer }: Params) =>
       }
 
       const writeFiles = getWriteFiles({ sandbox, toolCallId, writer })
+      const uploaded: File[] = []
 
-      const error = await writeFiles({
-        files,
-        paths: files.map(f => f.path),
-        written: [],
-      })
+      const iterator = getContents({ messages, modelId, paths })
+      try {
+        for await (const chunk of iterator) {
+          if (chunk.files.length > 0) {
+            const error = await writeFiles({
+              ...chunk,
+              written: uploaded.map((f) => f.path),
+            })
+            if (!error) uploaded.push(...chunk.files)
+          } else {
+            writer.write({
+              id: toolCallId,
+              type: 'data-generating-files',
+              data: { status: 'generating', paths: chunk.paths },
+            })
+          }
+        }
+      } catch (error) {
+        const richError = getRichError({
+          action: 'generate file contents',
+          args: { modelId, paths },
+          error,
+        })
+        writer.write({
+          id: toolCallId,
+          type: 'data-generating-files',
+          data: { error: richError.error, status: 'error', paths },
+        })
+      }
 
-      if (error) return error
+      // Retry any files the sub-model skipped on first pass
+      const writtenPaths = new Set(uploaded.map(f => f.path))
+      const missing = paths.filter(p => !writtenPaths.has(p))
+      if (missing.length > 0) {
+        console.warn(`[generateFiles] Retrying ${missing.length} missing file(s): ${missing.join(', ')}`)
+        const retryIterator = getContents({ messages, modelId, paths: missing })
+        try {
+          for await (const chunk of retryIterator) {
+            if (chunk.files.length > 0) {
+              const error = await writeFiles({ ...chunk, written: uploaded.map(f => f.path) })
+              if (!error) uploaded.push(...chunk.files)
+            }
+          }
+        } catch {
+          // retry failure is non-fatal
+        }
+      }
 
-      // In-sandbox Vite patch — belt-and-suspenders after the server-side patch.
+      // In-sandbox Vite patch — belt-and-suspenders after server-side patch
       try {
         await sandbox.writeFiles([
           { path: '.cm-patch.cjs', content: Buffer.from(VITE_PATCH_SCRIPT, 'utf8') },
@@ -98,16 +138,15 @@ export const generateFiles = ({ writer }: Params) =>
         const rmCmd = await sandbox.runCommand({ detached: true, cmd: 'rm', args: ['-f', '.cm-patch.cjs'] })
         await rmCmd.wait()
       } catch {
-        // Non-fatal — server-side patch covers most cases
+        // Non-fatal
       }
 
       writer.write({
         id: toolCallId,
         type: 'data-generating-files',
-        data: { paths: files.map(f => f.path), status: 'done' },
+        data: { paths: uploaded.map((file) => file.path), status: 'done' },
       })
 
-      // Return only paths — not content. Content in tool result = 30-80k wasted tokens.
-      return `Successfully wrote ${files.length} files:\n${files.map(f => f.path).join('\n')}`
+      return `Successfully generated and uploaded ${uploaded.length} files:\n${uploaded.map((f) => f.path).join('\n')}`
     },
   })

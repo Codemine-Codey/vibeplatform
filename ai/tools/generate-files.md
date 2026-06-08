@@ -1,20 +1,20 @@
-Write all project files into the sandbox in a single call. You MUST provide the complete content for every file — there is no separate file-generation step.
+Use this tool to generate and upload all project files into the sandbox. Provide the list of file paths — the platform handles writing the actual content.
 
-## Required usage
+All file paths must be relative to the sandbox root (e.g., `src/index.ts`, `src/components/Button.tsx`).
 
-Call this tool EXACTLY ONCE with:
-- `sandboxId`: the sandbox ID from createSandbox
-- `files`: an array of `{ path, content }` objects — one per file, with COMPLETE content
+## When to use
+
+- Creating a new project — list every file the project needs
+- Adding new files to an existing project
 
 ## Rules
 
-- Every file you planned must be in this array with its full, runnable content
+- List EVERY file the project needs in one call — do not call this tool twice
 - Do NOT include scaffold files: package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig files, .npmrc, src/lib/utils.ts, src/components/ui/*
-- DO include `src/index.css` — this is the one scaffold file you must provide with brand-specific colors and Google Font import
-- Never call this tool twice — all files go into one call
-- No placeholders, no stubs, no TODO comments in the content — complete and functional
+- DO include src/index.css — always include it with brand-specific colors
+- If you need extra packages, include package.json in the paths
 
-## Examples of paths to include
+## Example paths
 
 ```
 index.html
@@ -25,5 +25,4 @@ src/pages/Home.tsx
 src/pages/About.tsx
 src/components/Nav.tsx
 src/components/Footer.tsx
-src/components/HeroSection.tsx
 ```

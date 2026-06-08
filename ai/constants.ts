@@ -2,9 +2,9 @@
 // Used for: orchestration, planning, classifier, expander, pipeline AI
 export const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro'
 
-// File generation model — DeepSeek V4 Pro via OpenRouter (same model, thinking disabled)
-// write_all_files: single structured call for all project files
-export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-pro'
+// File generation model — DeepSeek V4 Flash via OpenRouter — fast code writer
+// Nested call inside generateFiles tool; Pro plans architecture, Flash writes the code
+export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-flash'
 
 // Edit model — Claude Haiku 4.5 for user edit turns (fast, surgical, cheap)
 export const EDIT_MODEL = 'claude-haiku-4-5-20251001'

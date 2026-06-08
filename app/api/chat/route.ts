@@ -8,7 +8,7 @@ import {
 } from 'ai'
 import type { UIMessage, UIMessageStreamWriter } from 'ai'
 import type { DataPart } from '@/ai/messages/data-parts'
-import { DEFAULT_MODEL, EDIT_MODEL } from '@/ai/constants'
+import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL } from '@/ai/constants'
 import { NextResponse } from 'next/server'
 import { getModelOptions } from '@/ai/gateway'
 import { checkBotId } from 'botid/server'
@@ -207,7 +207,7 @@ async function runAgenticLoop({
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(30),
     maxOutputTokens: 16000,
-    tools: tools({ writer }),
+    tools: tools({ modelId: FILE_GENERATION_MODEL, writer }),
     onError: error => {
       console.error('Error communicating with AI')
       console.error(JSON.stringify(error, null, 2))
@@ -294,11 +294,10 @@ async function runPipeline({
     `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
     `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
     `WORKFLOW: ${skill === 'website'
-      ? `(1) call getUnsplashBatch for all images, (2) call generateFiles with sandboxId="${sandboxId}" and the files array containing EVERY file with its COMPLETE content — write all code directly in the tool call`
-      : `(1) call generateFiles with sandboxId="${sandboxId}" and the files array containing EVERY file with its COMPLETE content — write all code directly in the tool call`}\n` +
+      ? `(1) call getUnsplashBatch for all images, (2) call generateFiles with sandboxId="${sandboxId}" and ALL file paths — list every file you need in the paths array`
+      : `(1) call generateFiles with sandboxId="${sandboxId}" and ALL file paths — list every file you need in the paths array`}\n` +
     (skill !== 'website' ? `getUnsplashBatch is NOT available for this skill type — do not call it.\n` : '') +
-    `If you need packages not in the scaffold, include package.json in your generateFiles files array.\n` +
-    `generateFiles takes { sandboxId, files: [{ path, content }] } — you write every file's COMPLETE content inline.\n`
+    `If you need packages not in the scaffold, include package.json in your generateFiles paths.\n`
 
   const fullSystem = systemPrompt + pipelineAddendum
 
@@ -306,11 +305,11 @@ async function runPipeline({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pipelineTools: Record<string, any> = skill === 'website'
     ? {
-        generateFiles: generateFiles({ writer }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
         getUnsplashBatch: getUnsplashBatch(),
       }
     : {
-        generateFiles: generateFiles({ writer }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
       }
 
   // website: text + getUnsplashBatch + generateFiles (max 4 steps)
@@ -322,7 +321,7 @@ async function runPipeline({
     system: fullSystem,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(maxSteps),
-    maxOutputTokens: 64000,
+    maxOutputTokens: 16000,
     tools: pipelineTools,
     onError: error => console.error('Pipeline AI error:', error),
   })

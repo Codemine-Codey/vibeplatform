@@ -11,13 +11,14 @@ import { readFile } from './read-file'
 import { runCommand } from './run-command'
 
 interface Params {
+  modelId: string
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
 }
 
-export function tools({ writer }: Params) {
+export function tools({ modelId, writer }: Params) {
   return {
     createSandbox: createSandbox({ writer }),
-    generateFiles: generateFiles({ writer }),
+    generateFiles: generateFiles({ writer, modelId }),
     getSandboxURL: getSandboxURL({ writer }),
     runCommand: runCommand({ writer }),
     getUnsplash: getUnsplash(),

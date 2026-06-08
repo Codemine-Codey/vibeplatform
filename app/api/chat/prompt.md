@@ -474,14 +474,13 @@ The moment your sandbox is created, these files are **automatically pre-written*
 **`pnpm install` starts automatically in the background the moment your sandbox is created.**
 
 **What this means:**
-- `generateFiles` takes `{ sandboxId, files: [{ path, content }] }` — you write COMPLETE file content inline in the tool call. There is no separate generation step. All code goes directly into the `files` array.
-- Your `files` array must NOT include scaffold files (package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig files, .npmrc, src/lib/utils.ts, src/components/ui/*)
-- Start your files array with: `index.html`, `src/main.tsx`, `src/index.css`, `src/App.tsx`, and all app-specific files
-- **`src/index.css` is the ONE scaffold file you MUST always include.** Override every CSS variable with brand-specific values, include the `@import` for Google Fonts, define `:root` CSS vars for your brand palette.
+- Your `generateFiles` paths list must NOT include scaffold files (package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig files, .npmrc, src/lib/utils.ts, src/components/ui/*)
+- Start your paths list with: `index.html`, `src/main.tsx`, `src/index.css`, `src/App.tsx`, and all app-specific files
+- **`src/index.css` is the ONE scaffold file you MUST always include in paths.** Override every CSS variable with brand-specific values, include the `@import` for Google Fonts, define `:root` CSS vars for your brand palette.
 - **Use shadcn/ui components freely** — `import { Button } from '@/components/ui/button'` just works. No installation needed.
 - The Tailwind config already has CSS variable color tokens set up. Define your brand colors in `src/index.css` as CSS vars (e.g., `--primary: 220 90% 56%`) and they flow through the entire shadcn/ui system automatically.
 - **framer-motion is pre-installed** — `import { motion, AnimatePresence, useInView } from 'framer-motion'` just works. No package.json change needed.
-- If you need a package not in the scaffold (e.g., `date-fns`, `recharts`), include `package.json` in your files array with it added — `pnpm install` will pick it up
+- If you need a package not in the scaffold (e.g., `date-fns`, `recharts`), include `package.json` in your generateFiles paths — `pnpm install` will pick it up
 
 ---
 
