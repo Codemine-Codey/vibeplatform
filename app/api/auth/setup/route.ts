@@ -136,7 +136,10 @@ export async function POST(req: Request) {
     }),
   })
   if (!tableRes.ok) {
-    const err = await tableRes.json() as { errors?: { message: string }[] }
+    const raw = await tableRes.text()
+    console.error('[auth/setup] create table failed:', raw)
+    let err: { errors?: { message: string }[] }
+    try { err = JSON.parse(raw) } catch { err = {} }
     return NextResponse.json({ error: err.errors?.[0]?.message ?? 'Failed to create users table' }, { status: 500 })
   }
 

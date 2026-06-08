@@ -79,6 +79,7 @@ export default defineConfig({
     host: '0.0.0.0',
     allowedHosts: true,
     port: 3000,
+    hmr: { overlay: false },
   },
 })
 `,

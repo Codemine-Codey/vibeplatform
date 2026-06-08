@@ -476,7 +476,8 @@ The moment your sandbox is created, these files are **automatically pre-written*
 **What this means:**
 - Your `generateFiles` paths list must NOT include scaffold files (package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig files, .npmrc, src/lib/utils.ts, src/components/ui/*)
 - Start your paths list with: `index.html`, `src/main.tsx`, `src/index.css`, `src/App.tsx`, and all app-specific files
-- **`src/index.css` is the ONE scaffold file you MUST always include in paths.** Override every CSS variable with brand-specific values, include the `@import` for Google Fonts, define `:root` CSS vars for your brand palette.
+- **`src/index.css` is the ONE scaffold file you MUST always include in paths.** Override every CSS variable with brand-specific values, include the `@import url(...)` for Google Fonts at the top, define `:root` CSS vars for your brand palette.
+- **CRITICAL CSS RULE**: In `src/index.css` always start with `@tailwind base;` / `@tailwind components;` / `@tailwind utilities;` — NEVER write `@import 'tailwindcss/base'` or similar (those resolve to JS files and crash the dev server).
 - **Use shadcn/ui components freely** — `import { Button } from '@/components/ui/button'` just works. No installation needed.
 - The Tailwind config already has CSS variable color tokens set up. Define your brand colors in `src/index.css` as CSS vars (e.g., `--primary: 220 90% 56%`) and they flow through the entire shadcn/ui system automatically.
 - **framer-motion is pre-installed** — `import { motion, AnimatePresence, useInView } from 'framer-motion'` just works. No package.json change needed.

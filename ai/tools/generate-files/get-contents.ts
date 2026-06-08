@@ -46,7 +46,7 @@ export async function* getContents(
     ...getModelOptions(params.modelId),
     maxOutputTokens: 64000,
     system:
-      'You are a file content generator. Call write_all_files EXACTLY ONCE with every requested file in the array. Generate complete, correct file content for each. NEVER generate lock files (pnpm-lock.yaml, package-lock.json, yarn.lock).',
+      'You are a file content generator. Call write_all_files EXACTLY ONCE with every requested file in the array. Generate complete, correct file content for each. NEVER generate lock files (pnpm-lock.yaml, package-lock.json, yarn.lock). CRITICAL CSS RULE: In src/index.css ALWAYS use @tailwind base; @tailwind components; @tailwind utilities; — NEVER use @import \'tailwindcss/base\' or @import \'tailwindcss/components\' or @import \'tailwindcss/utilities\' (those are JS files and will crash PostCSS).',
     messages: [
       ...params.messages,
       {

@@ -2,16 +2,17 @@
 
 interface Props {
   elapsed: number
+  label?: string
 }
 
-export function CubeLoader({ elapsed }: Props) {
+export function CubeLoader({ elapsed, label: labelProp }: Props) {
   const mins = Math.floor(elapsed / 60)
   const secs = elapsed % 60
   const timeLabel = mins > 0
     ? `${mins}:${String(secs).padStart(2, '0')}`
     : `${secs}s`
 
-  const label = elapsed < 60 ? 'Thinking...' : 'Building your project...'
+  const label = labelProp ?? (elapsed < 60 ? 'Thinking...' : 'Building your project...')
 
   return (
     <div className="flex flex-col items-center justify-center gap-20">

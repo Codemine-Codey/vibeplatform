@@ -4,30 +4,39 @@ import crypto from 'node:crypto'
 
 export const maxDuration = 120
 
-const CF_API_TOKEN = process.env.CF_API_TOKEN!
-const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID!
+const CF_API_TOKEN = process.env.CF_API_TOKEN
+const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID
+
+function cfHeaders(contentType = true) {
+  const h: Record<string, string> = { Authorization: `Bearer ${CF_API_TOKEN}` }
+  if (contentType) h['Content-Type'] = 'application/json'
+  return h
+}
 
 function projectName(sandboxId: string) {
   return 'cm-' + sandboxId.replace(/[^a-z0-9]/gi, '').toLowerCase().slice(0, 20)
 }
 
 async function ensureProject(name: string) {
-  // Try to get project first
   const get = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/pages/projects/${name}`,
-    { headers: { Authorization: `Bearer ${CF_API_TOKEN}` } }
+    { headers: cfHeaders(false) }
   )
-  if (get.ok) return // already exists
+  if (get.ok) return
 
-  // Create project
-  await fetch(
+  const res = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/pages/projects`,
     {
       method: 'POST',
-      headers: { Authorization: `Bearer ${CF_API_TOKEN}`, 'Content-Type': 'application/json' },
+      headers: cfHeaders(),
       body: JSON.stringify({ name, production_branch: 'main' }),
     }
   )
+  if (!res.ok) {
+    const body = await res.text()
+    console.error('[deploy] ensureProject failed:', body)
+    throw new Error('Failed to create project')
+  }
 }
 
 async function readSandboxFile(sandbox: Sandbox, path: string): Promise<Buffer> {
@@ -49,13 +58,16 @@ async function readSandboxFile(sandbox: Sandbox, path: string): Promise<Buffer> 
 export async function POST(req: Request) {
   const { sandboxId } = await req.json() as { sandboxId: string }
   if (!sandboxId) return NextResponse.json({ error: 'sandboxId required' }, { status: 400 })
-  if (!CF_API_TOKEN || !CF_ACCOUNT_ID) return NextResponse.json({ error: 'CF credentials not configured' }, { status: 500 })
+  if (!CF_API_TOKEN || !CF_ACCOUNT_ID) {
+    console.error('[deploy] Missing CF_API_TOKEN or CF_ACCOUNT_ID')
+    return NextResponse.json({ error: 'Deployment not configured' }, { status: 500 })
+  }
 
   let sandbox: Sandbox
   try {
     sandbox = await Sandbox.get({ sandboxId })
   } catch {
-    return NextResponse.json({ error: 'Sandbox not found' }, { status: 404 })
+    return NextResponse.json({ error: 'Workspace not found or has expired' }, { status: 404 })
   }
 
   // Step 1: Build
@@ -66,10 +78,12 @@ export async function POST(req: Request) {
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Build timed out after 90s')), 90_000)),
     ])
   } catch (err) {
-    return NextResponse.json({ error: `Build failed: ${err instanceof Error ? err.message : 'unknown'}` }, { status: 500 })
+    const msg = err instanceof Error ? err.message : 'unknown'
+    console.error('[deploy] build failed:', msg)
+    return NextResponse.json({ error: `Build failed: ${msg}` }, { status: 500 })
   }
 
-  // Step 2: List dist/ files using a helper script
+  // Step 2: List dist/ files
   try {
     await sandbox.writeFiles([{
       path: '.cm-list.cjs',
@@ -81,10 +95,10 @@ export async function POST(req: Request) {
     const listCmd = await sandbox.runCommand({ detached: true, cmd: 'node', args: ['.cm-list.cjs'] })
     await listCmd.wait()
   } catch {
-    return NextResponse.json({ error: 'Failed to list build output' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to read build output' }, { status: 500 })
   }
 
-  // Step 3: Read file list
+  // Step 3: Parse file list
   let distFiles: string[]
   try {
     const listContent = await readSandboxFile(sandbox, '.cm-files.json')
@@ -94,7 +108,7 @@ export async function POST(req: Request) {
   }
 
   if (distFiles.length === 0) {
-    return NextResponse.json({ error: 'No build output found in dist/' }, { status: 500 })
+    return NextResponse.json({ error: 'No build output found — run pnpm build first' }, { status: 500 })
   }
 
   // Step 4: Read all dist/ files and compute hashes
@@ -106,24 +120,22 @@ export async function POST(req: Request) {
       const relativePath = filePath.replace(/^dist\//, '')
       files.push({ path: relativePath, content, hash })
     } catch {
-      // Skip unreadable files
+      // skip unreadable files
     }
   }
 
-  // Step 5: Ensure CF Pages project exists
+  // Step 5: Ensure Pages project exists
   const name = projectName(sandboxId)
   try {
     await ensureProject(name)
-  } catch {
-    return NextResponse.json({ error: 'Failed to create CF Pages project' }, { status: 500 })
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Failed to create project' }, { status: 500 })
   }
 
-  // Step 6: Upload deployment via CF Pages Direct Upload API
+  // Step 6: Direct Upload via CF Pages API
   try {
     const manifest: Record<string, string> = {}
-    for (const f of files) {
-      manifest['/' + f.path] = f.hash
-    }
+    for (const f of files) manifest['/' + f.path] = f.hash
 
     const formData = new FormData()
     formData.append('manifest', JSON.stringify(manifest))
@@ -133,20 +145,23 @@ export async function POST(req: Request) {
 
     const deployRes = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/pages/projects/${name}/deployments`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${CF_API_TOKEN}` },
-        body: formData,
-      }
+      { method: 'POST', headers: cfHeaders(false), body: formData }
     )
-    const deployData = await deployRes.json() as { success: boolean; result?: { url?: string } }
+    const raw = await deployRes.text()
+    let deployData: { success: boolean; result?: { url?: string }; errors?: { message: string }[] }
+    try { deployData = JSON.parse(raw) } catch { deployData = { success: false } }
+
     if (!deployData.success) {
-      return NextResponse.json({ error: 'CF Pages deployment failed' }, { status: 500 })
+      console.error('[deploy] upload failed:', raw)
+      const msg = deployData.errors?.[0]?.message ?? 'Upload failed'
+      return NextResponse.json({ error: msg }, { status: 500 })
     }
 
     const deployedUrl = `https://${name}.pages.dev`
     return NextResponse.json({ url: deployedUrl, projectName: name })
   } catch (err) {
-    return NextResponse.json({ error: `Deploy failed: ${err instanceof Error ? err.message : 'unknown'}` }, { status: 500 })
+    const msg = err instanceof Error ? err.message : 'unknown'
+    console.error('[deploy] upload exception:', msg)
+    return NextResponse.json({ error: `Deployment failed: ${msg}` }, { status: 500 })
   }
 }
