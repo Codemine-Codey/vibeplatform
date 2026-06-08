@@ -158,7 +158,7 @@ async function runAgenticLoop({
     system: systemPrompt,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(30),
-    maxOutputTokens: 8000,
+    maxOutputTokens: 16000,
     tools: tools({ modelId: FILE_GENERATION_MODEL, writer }),
     onError: error => {
       console.error('Error communicating with AI')
@@ -271,7 +271,7 @@ async function runPipeline({
     system: fullSystem,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(maxSteps),
-    maxOutputTokens: 8000,
+    maxOutputTokens: 16000,
     tools: pipelineTools,
     onError: error => console.error('Pipeline AI error:', error),
   })
@@ -281,8 +281,15 @@ async function runPipeline({
   // Wait for all AI steps (text + all tool calls) to complete
   try {
     await aiResult.text
-  } catch {
-    return // AI failed — abort pipeline, leave writer open for any partial output
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('Pipeline AI failed:', msg)
+    writer.write({
+      id: 'srv-error',
+      type: 'data-report-errors',
+      data: { summary: `Generation failed: ${msg}. Please try again.`, paths: [] },
+    })
+    return
   }
 
   // Verify generateFiles was actually called — if AI only produced text (rare edge case),
