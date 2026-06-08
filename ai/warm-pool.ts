@@ -22,10 +22,10 @@ async function addOne() {
     await sandbox.writeFiles(
       SCAFFOLD_FILES.map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
     )
-    // pnpm install runs in background — will be done (or nearly done) by the time this
-    // sandbox is assigned to a user request
+    // bun install (falls back to pnpm if bun unavailable) — runs in background so it's
+    // done (or nearly done) by the time this sandbox is assigned to a user request
     sandbox
-      .runCommand({ detached: true, cmd: 'pnpm', args: ['install'] })
+      .runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'] })
       .then(cmd => cmd.wait())
       .catch(() => {})
     pool.push({ sandbox, sandboxId: sandbox.sandboxId, createdAt: Date.now() })

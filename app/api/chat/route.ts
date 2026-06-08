@@ -14,7 +14,6 @@ import { getModelOptions } from '@/ai/gateway'
 import { checkBotId } from 'botid/server'
 import { tools } from '@/ai/tools'
 import { generateFiles } from '@/ai/tools/generate-files'
-import { planProject } from '@/ai/tools/plan-project'
 import { getUnsplashBatch } from '@/ai/tools/get-unsplash-batch'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
@@ -22,7 +21,7 @@ import { formatBrief } from '@/ai/types/project-brief'
 import { getSkillPack } from '@/ai/packs'
 import type { Skill } from '@/ai/types/project-brief'
 import { Sandbox } from '@vercel/sandbox'
-import { SCAFFOLD_FILES } from '@/ai/tools/scaffold'
+import { SCAFFOLD_FILES, getScaffoldFiles } from '@/ai/tools/scaffold'
 import { getWarmEntry } from '@/ai/warm-pool'
 import prompt from './prompt.md'
 
@@ -218,10 +217,10 @@ async function runPipeline({
   try {
     if (!hadWarmSandbox) {
       await sandbox.writeFiles(
-        SCAFFOLD_FILES.map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
+        getScaffoldFiles(skill).map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
       )
       sandbox
-        .runCommand({ detached: true, cmd: 'pnpm', args: ['install'] })
+        .runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'] })
         .then(cmd => cmd.wait())
         .catch(() => {})
     }
@@ -236,35 +235,37 @@ async function runPipeline({
   })
 
   // ── Step 2: Build pipeline addendum ─────────────────────────────────────
-  const scaffoldPaths = SCAFFOLD_FILES.map(f => f.path).join(', ')
+  const scaffoldFiles = getScaffoldFiles(skill)
+  const scaffoldPaths = scaffoldFiles.map(f => f.path).join(', ')
   const pipelineAddendum =
     `\n\n## SERVER PIPELINE — WORKSPACE READY\n` +
     `sandboxId: ${sandboxId}\n` +
-    `Scaffold pre-written (including shadcn/ui components). pnpm install running in background.\n` +
+    `Scaffold pre-written (including shadcn/ui components). Dependencies installing in background.\n` +
     `DO NOT call createSandbox — it is already done.\n` +
     `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
     `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
-    `WORKFLOW: ${skill === 'website' ? '(1) call getUnsplashBatch for all images, (2) call planProject with complete file list, (3) call generateFiles with sandboxId="' + sandboxId + '" and all files' : '(1) call planProject with complete file list, (2) call generateFiles with sandboxId="' + sandboxId + '" and all files'}\n` +
-    (skill !== 'website' ? `getUnsplashBatch is NOT available for this skill type — do not call it.\n` : '')
+    `WORKFLOW: ${skill === 'website'
+      ? `(1) call getUnsplashBatch for all images, (2) call generateFiles with sandboxId="${sandboxId}" and ALL file paths — list every file you need in the paths array, there is no separate planning step`
+      : `(1) call generateFiles with sandboxId="${sandboxId}" and ALL file paths — list every file you need in the paths array, there is no separate planning step`}\n` +
+    (skill !== 'website' ? `getUnsplashBatch is NOT available for this skill type — do not call it.\n` : '') +
+    `If you need packages not in the scaffold, include package.json in your generateFiles paths to add them.\n`
 
   const fullSystem = systemPrompt + pipelineAddendum
 
-  // ── Step 3: AI orchestrates with Pro; Flash writes the actual file contents ─
+  // ── Step 3: AI generates directly — no planning round-trip ───────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pipelineTools: Record<string, any> = skill === 'website'
     ? {
         generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
-        planProject: planProject(),
         getUnsplashBatch: getUnsplashBatch(),
       }
     : {
         generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
-        planProject: planProject(),
       }
 
-  // website: text + getUnsplashBatch + planProject + generateFiles
-  // app/game: text + planProject + generateFiles
-  const maxSteps = skill === 'website' ? 6 : 4
+  // website: text + getUnsplashBatch + generateFiles
+  // app/game: text + generateFiles
+  const maxSteps = skill === 'website' ? 4 : 3
 
   const aiResult = streamText({
     ...getModelOptions(DEFAULT_MODEL),
@@ -311,31 +312,30 @@ async function runPipeline({
     // Can't verify — proceed anyway
   }
 
-  // ── Step 4: Server finalizes pnpm install ─────────────────────────────────
-  // Background install from Step 1 should be nearly done (AI took 25-35s, install
-  // takes 15-20s). Running it again verifies and is fast for already-installed packages.
-  // 90s timeout prevents hanging if the sandbox has a network hiccup.
+  // ── Step 4: Server finalizes install ─────────────────────────────────────
+  // Background install from Step 1 should be nearly done. Re-running is fast
+  // for already-installed packages. 90s timeout covers cold installs.
   writer.write({
     id: 'srv-install',
     type: 'data-run-command',
-    data: { sandboxId, command: 'pnpm', args: ['install'], status: 'waiting' },
+    data: { sandboxId, command: 'bun', args: ['install'], status: 'waiting' },
   })
   try {
     const installCmd = await sandbox.runCommand({
       detached: true,
-      cmd: 'pnpm',
-      args: ['install'],
+      cmd: 'bash',
+      args: ['-c', 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'],
     })
     await Promise.race([
       installCmd.wait(),
       new Promise<void>((_, reject) =>
-        setTimeout(() => reject(new Error('pnpm install timed out')), 90_000)
+        setTimeout(() => reject(new Error('install timed out')), 90_000)
       ),
     ])
     writer.write({
       id: 'srv-install',
       type: 'data-run-command',
-      data: { sandboxId, command: 'pnpm', args: ['install'], status: 'done', exitCode: 0 },
+      data: { sandboxId, command: 'bun', args: ['install'], status: 'done', exitCode: 0 },
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'install failed'
@@ -344,27 +344,26 @@ async function runPipeline({
       type: 'data-run-command',
       data: {
         sandboxId,
-        command: 'pnpm',
+        command: 'bun',
         args: ['install'],
         error: { message },
         status: 'error',
       },
     })
-    // pnpm install failure is non-fatal — pnpm dev may still work if packages were
-    // already installed by the background install from Step 1.
+    // Non-fatal — dev server may still work if background install finished.
   }
 
-  // ── Step 5: Server starts pnpm dev (background — runs forever) ────────────
+  // ── Step 5: Server starts dev server (background — runs forever) ──────────
   writer.write({
     id: 'srv-dev',
     type: 'data-run-command',
-    data: { sandboxId, command: 'pnpm', args: ['dev'], status: 'executing' },
+    data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' },
   })
   try {
     const devCmd = await sandbox.runCommand({
       detached: true,
-      cmd: 'pnpm',
-      args: ['dev'],
+      cmd: 'bash',
+      args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'],
     })
     writer.write({
       id: 'srv-dev',
@@ -372,8 +371,8 @@ async function runPipeline({
       data: {
         sandboxId,
         commandId: devCmd.cmdId,
-        command: 'pnpm',
-        args: ['dev'],
+        command: 'bun',
+        args: ['run', 'dev'],
         status: 'running',
       },
     })
@@ -384,8 +383,8 @@ async function runPipeline({
       type: 'data-run-command',
       data: {
         sandboxId,
-        command: 'pnpm',
-        args: ['dev'],
+        command: 'bun',
+        args: ['run', 'dev'],
         error: { message },
         status: 'error',
       },

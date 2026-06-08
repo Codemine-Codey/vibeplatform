@@ -62,9 +62,9 @@ export const createSandbox = ({ writer }: Params) => {
           await sandbox.writeFiles(allFiles)
           scaffoldOk = true
 
-          // Start pnpm install in background (runs while AI generates personality files)
+          // Start install in background (bun if available, pnpm fallback)
           sandbox
-            .runCommand({ detached: true, cmd: 'pnpm', args: ['install'] })
+            .runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'] })
             .then((cmd) => cmd.wait())
             .catch(() => {})
         } catch {
@@ -79,7 +79,7 @@ export const createSandbox = ({ writer }: Params) => {
 
         // Build the return message
         const skippedScaffold = scaffoldOk
-          ? `Base scaffold pre-written (package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig.json, tsconfig.app.json, tsconfig.node.json, .npmrc). `
+          ? `Base scaffold pre-written (package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig.json, tsconfig.app.json, tsconfig.node.json, .npmrc). Dependencies installing in background. `
           : ''
 
         if (!scaffoldOk) {

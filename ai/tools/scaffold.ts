@@ -1,3 +1,54 @@
+type Skill = 'website' | 'webapp' | 'game'
+
+function makePackageJson(skill?: Skill): string {
+  const isGame = skill === 'game'
+  return JSON.stringify(
+    {
+      name: 'codemine-app',
+      private: true,
+      version: '0.0.0',
+      type: 'module',
+      scripts: {
+        dev: 'vite --port 3000',
+        build: 'tsc -b && vite build',
+        preview: 'vite preview',
+      },
+      dependencies: {
+        react: '^18.3.1',
+        'react-dom': '^18.3.1',
+        ...(isGame ? {} : { 'react-router-dom': '^6.28.0' }),
+        'lucide-react': '^0.468.0',
+        ...(isGame ? {} : {
+          '@radix-ui/react-dialog': '^1.1.4',
+          '@radix-ui/react-dropdown-menu': '^2.1.4',
+          '@radix-ui/react-label': '^2.1.1',
+          '@radix-ui/react-select': '^2.1.4',
+          '@radix-ui/react-separator': '^1.1.1',
+          '@radix-ui/react-tooltip': '^1.1.6',
+        }),
+        '@radix-ui/react-slot': '^1.1.1',
+        'class-variance-authority': '^0.7.1',
+        clsx: '^2.1.1',
+        'tailwind-merge': '^2.6.0',
+        'tailwindcss-animate': '^1.0.7',
+      },
+      devDependencies: {
+        '@types/node': '^22.0.0',
+        '@types/react': '^18.3.12',
+        '@types/react-dom': '^18.3.1',
+        '@vitejs/plugin-react': '^4.3.4',
+        autoprefixer: '^10.4.20',
+        postcss: '^8.4.49',
+        tailwindcss: '^3.4.16',
+        typescript: '^5.6.3',
+        vite: '^6.0.5',
+      },
+    },
+    null,
+    2
+  )
+}
+
 // Base scaffold written to every sandbox on creation.
 // Includes: Vite+React+TypeScript+Tailwind config, shadcn/ui packages + 8 core components,
 // path alias (@→src), and lib/utils. The AI skips all of these in generateFiles.
@@ -8,53 +59,7 @@ export const SCAFFOLD_FILES: Array<{ path: string; content: string }> = [
   },
   {
     path: 'package.json',
-    content: JSON.stringify(
-      {
-        name: 'codemine-app',
-        private: true,
-        version: '0.0.0',
-        type: 'module',
-        scripts: {
-          dev: 'vite --port 3000',
-          build: 'tsc -b && vite build',
-          preview: 'vite preview',
-        },
-        dependencies: {
-          // Core
-          react: '^18.3.1',
-          'react-dom': '^18.3.1',
-          'react-router-dom': '^6.28.0',
-          // Icons
-          'lucide-react': '^0.468.0',
-          // shadcn/ui — Radix primitives
-          '@radix-ui/react-dialog': '^1.1.4',
-          '@radix-ui/react-dropdown-menu': '^2.1.4',
-          '@radix-ui/react-label': '^2.1.1',
-          '@radix-ui/react-select': '^2.1.4',
-          '@radix-ui/react-separator': '^1.1.1',
-          '@radix-ui/react-slot': '^1.1.1',
-          '@radix-ui/react-tooltip': '^1.1.6',
-          // shadcn/ui — utilities
-          'class-variance-authority': '^0.7.1',
-          clsx: '^2.1.1',
-          'tailwind-merge': '^2.6.0',
-          'tailwindcss-animate': '^1.0.7',
-        },
-        devDependencies: {
-          '@types/node': '^22.0.0',
-          '@types/react': '^18.3.12',
-          '@types/react-dom': '^18.3.1',
-          '@vitejs/plugin-react': '^4.3.4',
-          autoprefixer: '^10.4.20',
-          postcss: '^8.4.49',
-          tailwindcss: '^3.4.16',
-          typescript: '^5.6.3',
-          vite: '^6.0.5',
-        },
-      },
-      null,
-      2
-    ),
+    content: makePackageJson(),
   },
   {
     path: 'vite.config.ts',
@@ -592,3 +597,12 @@ export { Dialog, DialogPortal, DialogOverlay, DialogClose, DialogTrigger, Dialog
 `,
   },
 ]
+
+// Returns skill-appropriate scaffold. Games get a leaner package.json (no router, fewer Radix deps).
+// Warm pool always uses full SCAFFOLD_FILES since skill is unknown at pre-warm time.
+export function getScaffoldFiles(skill: Skill): Array<{ path: string; content: string }> {
+  if (skill !== 'game') return SCAFFOLD_FILES
+  return SCAFFOLD_FILES.map(f =>
+    f.path === 'package.json' ? { ...f, content: makePackageJson('game') } : f
+  )
+}
