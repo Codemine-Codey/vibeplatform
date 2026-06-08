@@ -1,4 +1,4 @@
-import { FILE_GENERATION_MODEL } from '@/ai/constants'
+import { ERROR_MODEL } from '@/ai/constants'
 import { getModelOptions } from '@/ai/gateway'
 import { NextResponse } from 'next/server'
 import { checkBotId } from 'botid/server'
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
 
   try {
     await generateText({
-      ...getModelOptions(FILE_GENERATION_MODEL),
+      ...getModelOptions(ERROR_MODEL),
       system: prompt,
       messages: [{ role: 'user', content: JSON.stringify(parsedBody.data) }],
       tools: {

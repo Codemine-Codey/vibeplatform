@@ -1,20 +1,27 @@
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
+import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import type { LanguageModelV3 } from '@ai-sdk/provider'
 
-const deepseekApiKey = process.env.DEEPSEEK_API_KEY
-if (!deepseekApiKey) {
-  throw new Error(
-    'DEEPSEEK_API_KEY is not set. Add it to .env.local:\nDEEPSEEK_API_KEY=your-key-here'
-  )
-}
+const ACCOUNT_ID = process.env.CF_ACCOUNT_ID ?? '77da4568eb934dee94fa9fc54faec977'
+const CF_BASE = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/codemine`
 
-// All AI calls route through CF AI Gateway → DeepSeek.
-// CF Gateway URL: AI_GATEWAY_BASE_URL (set in .env.local + Vercel env vars).
-// Falls back to DeepSeek direct if the env var is missing.
-// .chat() forces /v1/chat/completions — DeepSeek does not support /v1/responses.
+// Gemini via CF AI Gateway → Google AI Studio
+const geminiProvider = createGoogleGenerativeAI({
+  apiKey: process.env.GEMINI_API_KEY ?? '',
+  baseURL: `${CF_BASE}/google-ai-studio/v1beta`,
+})
+
+// Claude via CF AI Gateway → Anthropic
+const anthropicProvider = createAnthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY ?? '',
+  baseURL: `${CF_BASE}/anthropic`,
+})
+
+// DeepSeek via CF AI Gateway — fallback model
 const deepseekProvider = createOpenAI({
   baseURL: process.env.AI_GATEWAY_BASE_URL ?? 'https://api.deepseek.com/v1',
-  apiKey: deepseekApiKey,
+  apiKey: process.env.DEEPSEEK_API_KEY ?? '',
 })
 
 export interface ModelOptions {
@@ -22,5 +29,12 @@ export interface ModelOptions {
 }
 
 export function getModelOptions(modelId: string): ModelOptions {
+  if (modelId.startsWith('gemini')) {
+    return { model: geminiProvider(modelId) as LanguageModelV3 }
+  }
+  if (modelId.startsWith('claude')) {
+    return { model: anthropicProvider(modelId) as LanguageModelV3 }
+  }
+  // DeepSeek (fallback)
   return { model: deepseekProvider.chat(modelId) }
 }
