@@ -6,6 +6,9 @@ export const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro'
 // write_all_files: single structured call for all project files
 export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-pro'
 
+// Edit model — Claude Haiku 4.5 for user edit turns (fast, surgical, cheap)
+export const EDIT_MODEL = 'claude-haiku-4-5-20251001'
+
 // Error analysis model — Claude Haiku 4.5 (precise at reading stack traces + fixing code)
 export const ERROR_MODEL = 'claude-haiku-4-5-20251001'
 

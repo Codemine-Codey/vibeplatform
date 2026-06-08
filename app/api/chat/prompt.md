@@ -450,18 +450,24 @@ The moment your sandbox is created, these files are **automatically pre-written*
 | `.npmrc` | `prefer-offline=true, shamefully-hoist=true` |
 
 ### shadcn/ui components (10) — import with `@/components/ui/...`
+
+**MANDATORY: Check this list before writing any UI element from scratch. If it's here, import it. Never hand-write a button, card, input, or dialog.**
+
 | File | Exports |
 |---|---|
 | `src/lib/utils.ts` | `cn()` — merges Tailwind classes |
-| `src/components/ui/button.tsx` | `Button` — variants: default/destructive/outline/secondary/ghost/link; sizes: default/sm/lg/icon |
+| `src/components/ui/button.tsx` | `Button` — variants: `default` `destructive` `outline` `secondary` `ghost` `link`; sizes: `default` `sm` `lg` `icon` |
 | `src/components/ui/card.tsx` | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter` |
 | `src/components/ui/input.tsx` | `Input` |
 | `src/components/ui/label.tsx` | `Label` |
-| `src/components/ui/badge.tsx` | `Badge` — variants: default/secondary/destructive/outline |
+| `src/components/ui/badge.tsx` | `Badge` — variants: `default` `secondary` `destructive` `outline` |
 | `src/components/ui/textarea.tsx` | `Textarea` |
-| `src/components/ui/separator.tsx` | `Separator` — horizontal or vertical |
+| `src/components/ui/separator.tsx` | `Separator` — `orientation="horizontal"` or `"vertical"` |
 | `src/components/ui/select.tsx` | `Select`, `SelectTrigger`, `SelectContent`, `SelectItem`, `SelectValue`, `SelectGroup`, `SelectLabel`, `SelectSeparator` |
 | `src/components/ui/dialog.tsx` | `Dialog`, `DialogTrigger`, `DialogContent`, `DialogHeader`, `DialogFooter`, `DialogTitle`, `DialogDescription`, `DialogClose` |
+
+**Radix primitives also available** (already in node_modules, use directly if you need something not in the list above):
+`@radix-ui/react-dropdown-menu`, `@radix-ui/react-tooltip`, `@radix-ui/react-label`, `@radix-ui/react-slot`
 
 **`pnpm install` starts automatically in the background the moment your sandbox is created.**
 
@@ -579,34 +585,47 @@ If `createSandbox` returns any error (authentication error, token error, timeout
 
 Do NOT call `planProject` or `createSandbox` during edits — the workspace already exists.
 
-### DEFAULT RULE: patchFile first. generateFiles is the last resort.
+---
 
-**Use `patchFile` for (the vast majority of edits):**
-- Color changes — `bg-blue-500` → `bg-emerald-500`
-- Text / copy changes
-- Adding or removing a CSS class
-- Changing a prop value
-- Updating a function body that already exists
-- Adding a new element inside an existing JSX block
-- Changing logic in an existing function
-- Any edit that touches less than ~30 lines in a file
+### ⛔ ABSOLUTE RULE: generateFiles is BANNED for edits on existing files
 
-**Use `generateFiles` ONLY when:**
-- Creating a brand new file that does not exist yet
-- A change requires restructuring more than half the file
-- Adding an entirely new page or major feature that rewrites the component's structure
+Calling `generateFiles` on a file that already exists is always wrong. No exceptions. It:
+- Takes 3+ minutes to regenerate code the user already has working
+- Frequently introduces new bugs into code that was previously running
+- Signals laziness and destroys user confidence in the platform
 
-**If in doubt: use `patchFile`. Never use `generateFiles` when `patchFile` can do the job.**
+**The only code-writing tool for edits is `patchFile`.** There is no situation where rewriting an entire existing file is the right move.
 
-### Edit workflow
-1. `readFile` — read the current file to get exact content. Never guess.
-2. `patchFile` — replace the precise string with the new string. `oldString` must match character-for-character including whitespace.
-3. If `patchFile` fails (string not found): `readFile` again, copy the exact string, retry once.
-4. If a new image is needed: call `getUnsplash` first, use the URL in the patch.
-5. Do NOT call `runCommand('pnpm dev')` after a patch — the dev server is already running and hot-reloads automatically.
+The only valid uses of `generateFiles` during an edit session:
+1. Creating a **brand new file** that does not exist anywhere in the project
+2. Adding a new page/route/feature that requires entirely new files (not modifying old ones)
+
+If you are about to call `generateFiles` on a file that already exists: stop. Use `patchFile` instead.
+
+---
+
+### Edit workflow — mandatory sequence
+
+1. **`readFile`** — read the target file to get exact current content. Never guess or reconstruct from memory. Always do this first.
+2. **`patchFile`** — replace the precise string. `oldString` must match the file character-for-character including all whitespace and newlines.
+3. If `patchFile` fails (string not found): call `readFile` again, copy the exact string from the output, retry once.
+4. If a new image is needed: call `getUnsplash` first, then use the returned URL in the patch.
+5. Do NOT call `runCommand('pnpm dev')` after patching — the dev server is already running and hot-reloads automatically.
+
+### What to patch for common edit types
+
+| User says | What to patch |
+|---|---|
+| "change the button color" | The Tailwind class in the JSX — `bg-blue-500` → `bg-green-500` |
+| "make the font bigger" | The text size class — `text-sm` → `text-lg` |
+| "update the heading" | The text string in JSX |
+| "add a new section" | Add JSX after the existing last section in the component |
+| "the background is wrong" | The bg class on the root div |
+| "fix the spacing" | The padding/margin class |
+| "change the player speed" | The constant at the top of the file |
 
 ### Multi-file edits
-Apply `patchFile` calls sequentially — one per file. Never batch multiple file changes into a single `generateFiles` call unless ALL the files are new.
+Call `patchFile` once per file sequentially. Read each file before patching it. Never batch unrelated file changes.
 
 ---
 

@@ -20,7 +20,7 @@ function ensureViteAllowedHosts(content: string): string {
 
 export const patchFile = () =>
   tool({
-    description: 'Apply a targeted string replacement to a file. Use for small edits instead of regenerating the whole file. Always use readFile first to get the exact current content.',
+    description: 'Apply a targeted string replacement to a file. This is the ONLY tool for editing existing files — never use generateFiles on a file that already exists. Always call readFile first to get the exact string to match.',
     inputSchema: z.object({
       sandboxId: z.string().describe('The workspace ID'),
       path: z.string().describe('Path to the file to patch'),

@@ -8,13 +8,15 @@ import {
 } from 'ai'
 import type { UIMessage, UIMessageStreamWriter } from 'ai'
 import type { DataPart } from '@/ai/messages/data-parts'
-import { DEFAULT_MODEL, FILE_GENERATION_MODEL } from '@/ai/constants'
+import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL } from '@/ai/constants'
 import { NextResponse } from 'next/server'
 import { getModelOptions } from '@/ai/gateway'
 import { checkBotId } from 'botid/server'
 import { tools } from '@/ai/tools'
 import { generateFiles } from '@/ai/tools/generate-files'
 import { getUnsplashBatch } from '@/ai/tools/get-unsplash-batch'
+import { patchFile } from '@/ai/tools/patch-file'
+import { readFile } from '@/ai/tools/read-file'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
 import { formatBrief } from '@/ai/types/project-brief'
@@ -149,11 +151,11 @@ async function runAgenticLoop({
   messages: ChatUIMessage[]
   systemPrompt: string
 }) {
-  // Edits use Flash — patchFile/readFile are fast, precise tasks that don't need Pro reasoning.
+  // Edits use Haiku — patchFile/readFile are surgical tasks; fast + cheap beats powerful.
   // Fallback (clarification / unknown skill) uses Pro — it may end up doing full generation.
   const isEdit = hasActiveSandbox(messages)
   const result = streamText({
-    ...getModelOptions(isEdit ? FILE_GENERATION_MODEL : DEFAULT_MODEL),
+    ...getModelOptions(isEdit ? EDIT_MODEL : DEFAULT_MODEL),
     system: systemPrompt,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(30),
@@ -351,6 +353,53 @@ async function runPipeline({
       },
     })
     // Non-fatal — dev server may still work if background install finished.
+  }
+
+  // ── Step 4.5: TypeScript check — fix errors before user sees blank preview ──
+  // Runs tsc --noEmit after install so @types/* are available.
+  // If real TS errors found (not just missing npm packages), auto-fix before starting Vite.
+  let tscErrors = ''
+  try {
+    const tscCmd = await sandbox.runCommand({
+      detached: true,
+      cmd: 'bash',
+      args: ['-c', 'pnpm exec tsc --noEmit 2>&1'],
+    })
+    const tscDone = await Promise.race([
+      tscCmd.wait(),
+      new Promise<null>(r => setTimeout(() => r(null), 30_000)),
+    ])
+    if (tscDone && tscDone.exitCode !== 0) {
+      const output = await tscDone.stdout()
+      // Filter out TS2307/TS2688 — "Cannot find module" = missing npm package, not a code bug
+      const codes = [...output.matchAll(/error TS(\d+)/g)].map(m => Number(m[1]))
+      const hasRealErrors = codes.some(c => c !== 2307 && c !== 2688)
+      if (hasRealErrors) tscErrors = output.slice(0, 3500)
+    }
+  } catch {
+    // Non-fatal — tsc unavailable or timeout; proceed to dev server
+  }
+
+  if (tscErrors) {
+    const fixResult = streamText({
+      ...getModelOptions(DEFAULT_MODEL),
+      system: fullSystem,
+      messages: [
+        ...(await convertToModelMessages(transformMessages(messages))),
+        {
+          role: 'user' as const,
+          content:
+            `TypeScript errors in the generated code. Fix ONLY the broken lines using readFile then patchFile. ` +
+            `NEVER call generateFiles. sandboxId: ${sandboxId}\n\nErrors:\n\`\`\`\n${tscErrors}\n\`\`\``,
+        },
+      ],
+      stopWhen: stepCountIs(12),
+      maxOutputTokens: 8000,
+      tools: { readFile: readFile(), patchFile: patchFile() },
+      onError: err => console.error('TSC auto-fix error:', err),
+    })
+    writer.merge(fixResult.toUIMessageStream({ sendReasoning: false, sendStart: false }))
+    await fixResult.text.catch(() => {})
   }
 
   // ── Step 5: Server starts dev server (background — runs forever) ──────────
