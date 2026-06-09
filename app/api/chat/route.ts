@@ -503,6 +503,19 @@ async function runPipeline({
         console.warn('[css-check] Appended missing :root CSS variables')
       }
 
+      // Fix 3: strip @apply directives — custom color names in @apply (e.g. @apply bg-cafe-coral/30)
+      // crash PostCSS fatally when the color isn't in tailwind.config.js. Vite then returns 500
+      // for ALL requests including index.html, so the error bridge never loads and ErrorMonitor
+      // can't catch it. Strip every @apply line — JSX should use Tailwind classes directly.
+      if (css.includes('@apply')) {
+        const before = css
+        css = css.split('\n').filter(line => !line.trimStart().startsWith('@apply')).join('\n')
+        if (css !== before) {
+          changed = true
+          console.warn('[css-check] Stripped @apply directives from index.css')
+        }
+      }
+
       if (changed) {
         await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(css, 'utf8') }])
       }
@@ -521,7 +534,22 @@ async function runPipeline({
     data: { status: 'loading' },
   })
   const url = sandbox.domain(3000)
-  await waitForDevServer(url)
+  const devError = await waitForDevServer(url)
+
+  // If the dev server is up but the page is broken (500 from Vite/PostCSS crash),
+  // emit a data-report-errors so the AI sees the problem in its next turn and fixes it.
+  // The URL is still emitted so the user sees the error state transparently.
+  if (devError) {
+    writer.write({
+      id: 'srv-check',
+      type: 'data-report-errors',
+      data: {
+        summary: devError,
+        paths: ['src/index.css', 'src/App.tsx'],
+      },
+    })
+  }
+
   writer.write({
     id: 'srv-url',
     type: 'data-get-sandbox-url',
@@ -530,16 +558,40 @@ async function runPipeline({
 }
 
 // Poll the sandbox URL until the dev server responds (non-502 = port is listening).
-// Times out after maxWaitMs and emits URL anyway — preview's "Try again" handles it.
-async function waitForDevServer(url: string, maxWaitMs = 45_000): Promise<void> {
+// Returns an error string if the page is serving 500s (Vite/PostCSS crash), null if healthy.
+// Times out after maxWaitMs and emits URL anyway.
+async function waitForDevServer(url: string, maxWaitMs = 45_000): Promise<string | null> {
   const deadline = Date.now() + maxWaitMs
+  let consecutiveFiveHundreds = 0
+
   while (Date.now() < deadline) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(4000) })
-      if (res.status !== 502) return
+      if (res.status === 502) {
+        // Not listening yet — keep polling
+        consecutiveFiveHundreds = 0
+      } else if (res.status === 500) {
+        // Vite is up but crashing (PostCSS error, import error, etc.)
+        consecutiveFiveHundreds++
+        if (consecutiveFiveHundreds >= 2) {
+          // Confirmed crash — read body for error details
+          let errorDetail = 'The page is returning a 500 error — likely a CSS @apply with an unknown class, a broken import, or a PostCSS/Vite compilation error.'
+          try {
+            const body = await res.text()
+            const match = body.match(/\[postcss\][^\n]+|Error[^\n]+/)
+            if (match) errorDetail = match[0].trim()
+          } catch { /* non-fatal */ }
+          return `Preview page is broken (500): ${errorDetail} Fix src/index.css and any files with broken imports.`
+        }
+      } else {
+        // Non-502, non-500 — server is up and page is loading
+        return null
+      }
     } catch {
       // AbortError, network error — not ready yet
+      consecutiveFiveHundreds = 0
     }
     await new Promise(r => setTimeout(r, 2500))
   }
+  return null // timed out — emit URL anyway
 }
