@@ -88,6 +88,51 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
     })
   }, [])
 
+  // ── Dedicated browser runtime-error path ────────────────────────────────────
+  // A blank preview is either a thrown runtime error or a silent empty #root —
+  // both arrive here as 'cm-browser-console' logs (see scaffold error bridge).
+  // These are ALWAYS real, so they bypass getSummary's judgment and the 20s
+  // stderr debounce: we send a focused fix request directly so the preview
+  // self-heals fast. Dedup + 15s cooldown prevent fix loops.
+  const browserSeen = useRef<Set<string>>(new Set())
+  const lastBrowserFix = useRef<number>(0)
+  useEffect(() => {
+    return useSandboxStore.subscribe((state) => {
+      if (fixErrors === false) return
+      if (chat.status !== 'ready') return // never interrupt an in-flight turn
+      const cmd = state.commands.find((c) => c.cmdId === 'cm-browser-console')
+      const latest = cmd?.logs?.[cmd.logs.length - 1]
+      if (!latest) return
+      const key = latest.data.slice(0, 160)
+      if (browserSeen.current.has(key)) return
+      const now = Date.now()
+      if (now - lastBrowserFix.current < 15000) return
+      browserSeen.current.add(key)
+      lastBrowserFix.current = now
+      setTimeout(() => {
+        try {
+          sendMessage({
+            role: 'user',
+            parts: [
+              {
+                type: 'data-report-errors',
+                data: {
+                  summary:
+                    'The live preview is blank or throwing a runtime error. Diagnose and fix it now: read src/App.tsx and the first page/component it renders, find the bug, and patch it with patchFile. Do NOT regenerate the whole project. Common causes: a component returning nothing, an undefined variable accessed during render, a bad import, or a hook used incorrectly.\n\nError detail:\n' +
+                    latest.data,
+                  paths: ['src/App.tsx'],
+                },
+              },
+            ],
+          })
+        } catch {
+          /* non-fatal */
+        }
+      }, 1200)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat, fixErrors])
+
   const clearSubmitTimeout = useCallback(() => {
     if (submitTimeout.current) {
       setScheduled(false)

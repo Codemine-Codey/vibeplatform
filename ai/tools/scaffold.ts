@@ -50,17 +50,27 @@ function makePackageJson(skill?: Skill): string {
   )
 }
 
-// Error bridge injected into every index.html — forwards JS runtime errors to the parent window
-// so ErrorMonitor can auto-fix them. Pre-injecting here means the AI never needs to include
-// index.html in generateFiles, eliminating a major source of blank previews.
+// Error bridge — placed in <head> so it runs BEFORE the React module script and
+// installs window.onerror first. Forwards runtime errors AND silent blank screens
+// to the parent window so ErrorMonitor can auto-fix them. Pre-injecting here means
+// the AI never writes index.html — eliminating a major blank-preview source.
+//
+// Two layers of detection:
+//   1. Thrown errors: window.onerror, unhandledrejection, console.error
+//   2. SILENT blanks: after load, if #root is empty, report it. This is the
+//      "snapshot" check — it catches pages that mount nothing without throwing
+//      (component returns null, render never ran, etc.), which is the exact
+//      failure that previously went undetected.
 const ERROR_BRIDGE_SCRIPT = `<script>
 (function(){
-  var _w=window,_p=_w.parent;
-  function _send(m,s){try{_p.postMessage({type:'cm-error',message:m,source:s},'*');}catch(e){}}
+  var _w=window,_p=_w.parent,_sent={};
+  function _send(m,s){try{var k=(s||'')+String(m).slice(0,120);if(_sent[k])return;_sent[k]=1;_p.postMessage({type:'cm-error',message:m,source:s},'*');}catch(e){}}
   _w.onerror=function(m,s,l,c){_send(m+'\\n'+s+':'+l+':'+c,'onerror');return false;};
-  _w.addEventListener('unhandledrejection',function(e){_send(String(e.reason),'unhandledrejection');});
+  _w.addEventListener('unhandledrejection',function(e){_send(String(e.reason&&e.reason.stack||e.reason),'unhandledrejection');});
   var _ce=_w.console.error.bind(_w.console);
   _w.console.error=function(){var m=Array.from(arguments).map(String).join(' ');_send(m,'console.error');_ce.apply(_w.console,arguments);};
+  function _blankCheck(){var r=document.getElementById('root');if(r&&r.childElementCount===0&&(!r.textContent||!r.textContent.trim())){_send('Blank screen: the app loaded but #root is empty. A component threw during render or returned nothing — check src/App.tsx and the page/component files for runtime errors.','blank-check');}}
+  _w.addEventListener('load',function(){setTimeout(_blankCheck,2500);setTimeout(_blankCheck,5000);});
 })();
 </script>`
 
@@ -70,30 +80,18 @@ const INDEX_HTML = `<!DOCTYPE html>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>App</title>
+${ERROR_BRIDGE_SCRIPT}
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
-${ERROR_BRIDGE_SCRIPT}
 </html>`
 
-const MAIN_TSX_WITH_ROUTER = `import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
-import './index.css'
-import App from './App'
-
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </StrictMode>,
-)
-`
-
-const MAIN_TSX_NO_ROUTER = `import { StrictMode } from 'react'
+// main.tsx renders ONLY <App/> — it does NOT wrap with BrowserRouter.
+// The AI's App.tsx owns the router (its natural pattern), which avoids the
+// double-<BrowserRouter> bug that breaks routing when both wrap it.
+const MAIN_TSX = `import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
@@ -704,10 +702,7 @@ export { Dialog, DialogPortal, DialogOverlay, DialogClose, DialogTrigger, Dialog
 // and a main.tsx without BrowserRouter. Websites/apps get main.tsx with BrowserRouter pre-wired.
 // Warm pool always uses full SCAFFOLD_FILES since skill is unknown at pre-warm time.
 export function getScaffoldFiles(skill: Skill): Array<{ path: string; content: string }> {
-  const mainTsx = {
-    path: 'src/main.tsx',
-    content: skill === 'game' ? MAIN_TSX_NO_ROUTER : MAIN_TSX_WITH_ROUTER,
-  }
+  const mainTsx = { path: 'src/main.tsx', content: MAIN_TSX }
   if (skill === 'game') {
     return [
       ...SCAFFOLD_FILES.map(f =>
@@ -718,3 +713,29 @@ export function getScaffoldFiles(skill: Skill): Array<{ path: string; content: s
   }
   return [...SCAFFOLD_FILES, mainTsx]
 }
+
+// Deterministic set of every scaffold file path — used by the import-closure
+// pass to know which imported files already exist and must NOT be regenerated.
+export const SCAFFOLD_PATH_SET: ReadonlySet<string> = new Set([
+  'index.html',
+  '.npmrc',
+  'package.json',
+  'vite.config.ts',
+  'tailwind.config.js',
+  'postcss.config.js',
+  'tsconfig.json',
+  'tsconfig.app.json',
+  'tsconfig.node.json',
+  'src/index.css',
+  'src/main.tsx',
+  'src/lib/utils.ts',
+  'src/components/ui/button.tsx',
+  'src/components/ui/card.tsx',
+  'src/components/ui/input.tsx',
+  'src/components/ui/label.tsx',
+  'src/components/ui/badge.tsx',
+  'src/components/ui/textarea.tsx',
+  'src/components/ui/separator.tsx',
+  'src/components/ui/select.tsx',
+  'src/components/ui/dialog.tsx',
+])

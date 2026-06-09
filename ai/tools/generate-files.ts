@@ -4,9 +4,55 @@ import { Sandbox } from '@vercel/sandbox'
 import { getContents, type File } from './generate-files/get-contents'
 import { getRichError } from './get-rich-error'
 import { getWriteFiles } from './generate-files/get-write-files'
+import { SCAFFOLD_PATH_SET } from './scaffold'
 import { tool } from 'ai'
 import description from './generate-files.md'
 import z from 'zod/v3'
+
+// ── Import-closure helpers ────────────────────────────────────────────────────
+// The #1 cause of broken builds: the AI imports a local file (types.ts, a
+// component) it never generated. These helpers find such imports so we can
+// generate the missing files and guarantee the import graph is complete.
+
+function extractLocalImports(content: string): string[] {
+  const specs = new Set<string>()
+  const reFrom = /(?:import|export)[^'"]*?from\s*['"]([^'"]+)['"]/g
+  const reBare = /import\s*['"]([^'"]+)['"]/g
+  let m: RegExpExecArray | null
+  while ((m = reFrom.exec(content)) !== null) specs.add(m[1])
+  while ((m = reBare.exec(content)) !== null) specs.add(m[1])
+  return [...specs].filter(s => s.startsWith('./') || s.startsWith('../') || s.startsWith('@/'))
+}
+
+function resolveBase(spec: string, importerPath: string): string {
+  if (spec.startsWith('@/')) return 'src/' + spec.slice(2)
+  const dir = importerPath.split('/').slice(0, -1)
+  for (const p of spec.split('/')) {
+    if (p === '.' || p === '') continue
+    else if (p === '..') dir.pop()
+    else dir.push(p)
+  }
+  return dir.join('/')
+}
+
+function importCandidates(spec: string, importerPath: string): string[] {
+  const base = resolveBase(spec, importerPath)
+  const exts = ['.tsx', '.ts', '.jsx', '.js']
+  const out = [base]
+  for (const e of exts) out.push(base + e)
+  for (const e of exts) out.push(base + '/index' + e)
+  return out
+}
+
+// The concrete path we'd generate for a missing import (null = skip: external,
+// css, or json — those are handled by the scaffold or not generatable as code).
+function targetPathFor(spec: string, importerPath: string): string | null {
+  const base = resolveBase(spec, importerPath)
+  if (/\.(css|json)$/.test(base)) return null
+  if (/\.(tsx|jsx|ts|js)$/.test(base)) return base
+  const last = base.split('/').pop() || ''
+  return /^[A-Z]/.test(last) ? base + '.tsx' : base + '.ts'
+}
 
 // Runs inside the sandbox after file generation to guarantee Vite allowedHosts.
 const VITE_PATCH_SCRIPT = `
@@ -118,6 +164,72 @@ export const generateFiles = ({ writer, modelId }: Params) =>
         } catch {
           // retry failure is non-fatal
         }
+      }
+
+      // ── Import-closure pass: generate any imported file that wasn't created ──
+      // Deterministically closes the import graph. Scans every generated file's
+      // local imports; any referenced file that doesn't exist gets generated,
+      // with the importing files as context so exports/types are inferred right.
+      // Loops until no new missing files (max 2 rounds). This is the fix for the
+      // "Cannot find module './types'" class of blank previews.
+      try {
+        for (let round = 0; round < 2; round++) {
+          const existing = new Set<string>([
+            ...uploaded.map(f => f.path),
+            ...SCAFFOLD_PATH_SET,
+          ])
+          const missingMap = new Map<string, Set<string>>() // target -> importers
+          for (const file of uploaded) {
+            if (!/\.(tsx|jsx|ts|js)$/.test(file.path)) continue
+            for (const spec of extractLocalImports(file.content)) {
+              if (importCandidates(spec, file.path).some(c => existing.has(c))) continue
+              const target = targetPathFor(spec, file.path)
+              if (!target || SCAFFOLD_PATH_SET.has(target)) continue
+              const set = missingMap.get(target) ?? new Set<string>()
+              set.add(file.path)
+              missingMap.set(target, set)
+            }
+          }
+          if (missingMap.size === 0) break
+          const missingPaths = [...missingMap.keys()].slice(0, 12)
+          console.warn(`[closure] round ${round}: generating ${missingPaths.length} missing file(s): ${missingPaths.join(', ')}`)
+
+          const importerPaths = new Set<string>()
+          for (const p of missingPaths) for (const ip of missingMap.get(p) ?? []) importerPaths.add(ip)
+          const importerSnippets = [...importerPaths]
+            .map(ip => {
+              const f = uploaded.find(u => u.path === ip)
+              return f ? `// ${ip}\n${f.content.slice(0, 1800)}` : ''
+            })
+            .filter(Boolean)
+            .join('\n\n')
+
+          const closureMessages = [
+            ...messages,
+            {
+              role: 'user' as const,
+              content:
+                'These files are imported but do not exist yet. Create each one COMPLETELY so every import resolves. ' +
+                'Infer the EXACT exports, types, interfaces, props, and function signatures from how they are used in the importing files shown below. ' +
+                'Match the import style (default vs named) exactly. Use real, production-quality code — no stubs.\n\n' +
+                'Importing files for context:\n' + importerSnippets,
+            },
+          ]
+
+          let gotAny = false
+          const closureIter = getContents({ messages: closureMessages, modelId, paths: missingPaths })
+          try {
+            for await (const chunk of closureIter) {
+              if (chunk.files.length > 0) {
+                const err = await writeFiles({ ...chunk, written: uploaded.map(f => f.path) })
+                if (!err) { uploaded.push(...chunk.files); gotAny = true }
+              }
+            }
+          } catch { /* non-fatal */ }
+          if (!gotAny) break
+        }
+      } catch (e) {
+        console.warn('[closure] pass failed (non-fatal):', e instanceof Error ? e.message : e)
       }
 
       // In-sandbox Vite patch — belt-and-suspenders after server-side patch

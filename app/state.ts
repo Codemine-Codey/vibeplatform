@@ -52,7 +52,9 @@ function getBackgroundCommandErrorLines(commands: Command[]) {
       logs.map((log) => ({ command, args, background, ...log }))
     )
     .sort((logA, logB) => logA.timestamp - logB.timestamp)
-    .filter((log) => log.stream === 'stderr' && log.background)
+    // Exclude 'browser' — runtime/blank errors get a dedicated, faster fix path
+    // in ErrorMonitor that bypasses getSummary (they are always real).
+    .filter((log) => log.stream === 'stderr' && log.background && log.command !== 'browser')
 }
 
 // Exported so ErrorMonitor can use it outside React render cycle
