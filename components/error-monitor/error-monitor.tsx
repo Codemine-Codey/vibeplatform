@@ -111,17 +111,17 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
       lastBrowserFix.current = now
       setTimeout(() => {
         try {
+          // Send as a normal chat message (not the special "Auto-detected errors"
+          // widget) so it reads conversationally. The AI still receives the exact
+          // error detail and fixes it — same functionality, cleaner presentation.
           sendMessage({
             role: 'user',
             parts: [
               {
-                type: 'data-report-errors',
-                data: {
-                  summary:
-                    'The live preview is blank or throwing a runtime error. Diagnose and fix it now: read src/App.tsx and the first page/component it renders, find the bug, and patch it with patchFile. Do NOT regenerate the whole project. Common causes: a component returning nothing, an undefined variable accessed during render, a bad import, or a hook used incorrectly.\n\nError detail:\n' +
-                    latest.data,
-                  paths: ['src/App.tsx'],
-                },
+                type: 'text',
+                text:
+                  "The preview isn't displaying right — can you fix it? Read the relevant files and patch the bug (don't regenerate the whole project).\n\nError detail:\n" +
+                  latest.data,
               },
             ],
           })

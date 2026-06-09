@@ -211,82 +211,78 @@ async function verifyAndRepair({
   sandboxId: string
   writer: Writer
 }): Promise<void> {
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    writer.write({
-      id: `srv-verify-${attempt}`,
-      type: 'data-run-command',
-      data: { sandboxId, command: 'verify', args: ['build'], status: 'executing' },
-    })
+  // One friendly, user-facing status. The repair rounds are internal — we never
+  // surface "failed" to the user (that's alarming and meaningless to them).
+  writer.write({
+    id: 'srv-finalize',
+    type: 'data-run-command',
+    data: { sandboxId, command: 'Finalizing your project', args: [], status: 'executing' },
+  })
+  try {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      // vite build only (no tsc — type errors don't blank the preview; CSS/import/
+      // syntax errors do, and vite build catches all of those deterministically).
+      let log = ''
+      try {
+        const cmd = await sandbox.runCommand({
+          detached: true,
+          cmd: 'bash',
+          args: [
+            '-c',
+            '(./node_modules/.bin/vite build 2>&1; echo "##EXIT:$?") | tee /tmp/cm-verify.log >/dev/null',
+          ],
+        })
+        await Promise.race([
+          cmd.wait(),
+          new Promise<void>((_, rej) => setTimeout(() => rej(new Error('build timeout')), 90_000)),
+        ])
+      } catch {
+        /* timeout — read whatever was logged */
+      }
 
-    // vite build only (no tsc — type errors don't blank the preview; CSS/import/
-    // syntax errors do, and vite build catches all of those deterministically).
-    let log = ''
-    try {
-      const cmd = await sandbox.runCommand({
-        detached: true,
-        cmd: 'bash',
-        args: [
-          '-c',
-          '(./node_modules/.bin/vite build 2>&1; echo "##EXIT:$?") | tee /tmp/cm-verify.log >/dev/null',
-        ],
-      })
-      await Promise.race([
-        cmd.wait(),
-        new Promise<void>((_, rej) => setTimeout(() => rej(new Error('build timeout')), 90_000)),
-      ])
-    } catch {
-      /* timeout — read whatever was logged */
-    }
+      log = (await readSandboxFile(sandbox, '/tmp/cm-verify.log')) ?? ''
+      const exitMatch = log.match(/##EXIT:(\d+)/)
+      const ok = exitMatch ? exitMatch[1] === '0' : !/error/i.test(log)
+      if (ok) return // compiles cleanly — preview WILL render
 
-    log = (await readSandboxFile(sandbox, '/tmp/cm-verify.log')) ?? ''
-    const exitMatch = log.match(/##EXIT:(\d+)/)
-    const ok = exitMatch ? exitMatch[1] === '0' : !/error/i.test(log)
+      const errorBlock = extractBuildError(log)
+      const files = extractErrorFiles(log)
+      console.warn(`[verify] attempt ${attempt} failed. files=${files.join(',')} err=${errorBlock.slice(0, 160)}`)
 
-    if (ok) {
-      writer.write({
-        id: `srv-verify-${attempt}`,
-        type: 'data-run-command',
-        data: { sandboxId, command: 'verify', args: ['build'], status: 'done', exitCode: 0 },
-      })
-      return // compiles cleanly — preview WILL render
-    }
+      if (files.length === 0) {
+        // Can't localize — last-ditch: re-sanitize the CSS, the most common
+        // un-localized crash (PostCSS error without a clear file path).
+        const css = await readSandboxFile(sandbox, 'src/index.css')
+        if (css) {
+          const fixed = sanitizeCss(css)
+          if (fixed !== css) {
+            await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(fixed, 'utf8') }])
+            continue
+          }
+        }
+        return
+      }
 
-    writer.write({
-      id: `srv-verify-${attempt}`,
-      type: 'data-run-command',
-      data: { sandboxId, command: 'verify', args: ['build'], status: 'error', exitCode: 1 },
-    })
-
-    const errorBlock = extractBuildError(log)
-    const files = extractErrorFiles(log)
-    console.warn(`[verify] attempt ${attempt} failed. files=${files.join(',')} err=${errorBlock.slice(0, 160)}`)
-
-    if (files.length === 0) {
-      // Can't localize — last-ditch: re-sanitize the CSS, which is the most common
-      // un-localized crash (PostCSS error without a clear file path).
-      const css = await readSandboxFile(sandbox, 'src/index.css')
-      if (css) {
-        const fixed = sanitizeCss(css)
-        if (fixed !== css) {
-          await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(fixed, 'utf8') }])
-          continue
+      let repairedAny = false
+      for (const path of files.slice(0, 5)) {
+        const content = await readSandboxFile(sandbox, path)
+        if (!content) continue
+        const fixed = await repairFile(path, content, errorBlock)
+        if (fixed && fixed !== content) {
+          const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : fixed
+          await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
+          repairedAny = true
         }
       }
-      return // nothing we can localize — bail, error monitor will catch runtime issues
+      if (!repairedAny) return
     }
-
-    let repairedAny = false
-    for (const path of files.slice(0, 5)) {
-      const content = await readSandboxFile(sandbox, path)
-      if (!content) continue
-      const fixed = await repairFile(path, content, errorBlock)
-      if (fixed && fixed !== content) {
-        const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : fixed
-        await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
-        repairedAny = true
-      }
-    }
-    if (!repairedAny) return // no change possible — avoid burning the remaining rounds
+  } finally {
+    // Always close the status as done — repair is best-effort, never user-facing failure.
+    writer.write({
+      id: 'srv-finalize',
+      type: 'data-run-command',
+      data: { sandboxId, command: 'Finalizing your project', args: [], status: 'done', exitCode: 0 },
+    })
   }
 }
 

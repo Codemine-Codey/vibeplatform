@@ -91,14 +91,50 @@ ${ERROR_BRIDGE_SCRIPT}
 // main.tsx renders ONLY <App/> — it does NOT wrap with BrowserRouter.
 // The AI's App.tsx owns the router (its natural pattern), which avoids the
 // double-<BrowserRouter> bug that breaks routing when both wrap it.
-const MAIN_TSX = `import { StrictMode } from 'react'
+//
+// It DOES wrap App in an ErrorBoundary (Layer 2 of reliability): a render-time
+// crash anywhere in the tree shows a branded fallback instead of a white blank,
+// AND reports the error to the parent window so the platform auto-fixes it.
+// This file is scaffolded and never touched by the AI, so every app has it.
+const MAIN_TSX = `import { StrictMode, Component, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
 
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null }
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    try {
+      window.parent.postMessage(
+        { type: 'cm-error', message: (error?.stack || String(error)) + '\\n' + (info?.componentStack || ''), source: 'error-boundary' },
+        '*'
+      )
+    } catch {}
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', fontFamily: 'system-ui, sans-serif', background: '#fafafa', color: '#111' }}>
+          <div style={{ maxWidth: '26rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>✨</div>
+            <h1 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.5rem' }}>Putting the final touches on this page</h1>
+            <p style={{ fontSize: '0.9rem', opacity: 0.65 }}>One moment — refreshing automatically.</p>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )
 `
