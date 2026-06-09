@@ -6,8 +6,11 @@ const anthropicProvider = createAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY ?? '',
 })
 
-// OpenRouter — DeepSeek V4 Pro and other non-Kimi models
-// include_reasoning: false disables DeepSeek extended thinking tokens
+// OpenRouter — DeepSeek V4 Pro and other non-Kimi models.
+// DeepSeek Pro on OpenRouter runs extended thinking by default — this adds
+// 4-6 minutes of silent server-side reasoning before the first token reaches
+// the client. Both flags are needed: include_reasoning:false hides the tokens,
+// thinking:{type:'disabled'} actually stops the reasoning from running.
 const openrouterProvider = createOpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
   apiKey: process.env.OPENROUTER_API_KEY ?? '',
@@ -16,6 +19,7 @@ const openrouterProvider = createOpenAI({
       try {
         const body = JSON.parse(init.body as string)
         body.include_reasoning = false
+        body.thinking = { type: 'disabled' }
         init = { ...init, body: JSON.stringify(body) }
       } catch { }
     }
