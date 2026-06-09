@@ -1,7 +1,10 @@
 'use client'
 
-import { useState } from 'react'
-import { MonitorIcon, FolderOpenIcon, TerminalIcon, LoaderIcon, RocketIcon, DatabaseIcon, KeyRoundIcon } from 'lucide-react'
+import { useRef, useState } from 'react'
+import {
+  MonitorIcon, FolderOpenIcon, TerminalIcon, LoaderIcon, RocketIcon,
+  DatabaseIcon, KeyRoundIcon, MaximizeIcon, SmartphoneIcon, ScanIcon,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Preview } from '@/app/preview'
 import { FileExplorer } from '@/app/file-explorer'
@@ -12,6 +15,7 @@ import { DatabasePanel } from '@/components/deploy/database-panel'
 import { AuthPanel } from '@/components/deploy/auth-panel'
 
 type Tab = 'preview' | 'files' | 'logs' | 'deploy' | 'database' | 'auth'
+type ViewMode = 'fit' | 'mobile' | 'fullscreen'
 
 const TABS = [
   { id: 'preview' as Tab, label: 'Preview', icon: MonitorIcon },
@@ -28,8 +32,20 @@ interface Props {
 
 export function RightPanel({ className }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('preview')
+  const [viewMode, setViewMode] = useState<ViewMode>('fit')
+  const previewContainerRef = useRef<HTMLDivElement>(null)
   const chatStatus = useSandboxStore((s) => s.chatStatus)
   const isWorking = chatStatus === 'streaming' || chatStatus === 'submitted'
+
+  function handleViewMode(mode: ViewMode) {
+    if (mode === 'fullscreen') {
+      if (previewContainerRef.current) {
+        previewContainerRef.current.requestFullscreen?.().catch(() => {})
+      }
+      return
+    }
+    setViewMode(mode)
+  }
 
   return (
     <div className={cn('flex flex-col h-full min-h-0', className)}>
@@ -52,19 +68,71 @@ export function RightPanel({ className }: Props) {
           </button>
         ))}
 
-        {/* Loading indicator — visible while AI is working */}
+        {/* Loading indicator */}
         {isWorking && (
-          <div className="ml-auto mr-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <div className="ml-auto mr-1 flex items-center gap-1.5 text-xs text-muted-foreground">
             <LoaderIcon className="w-3 h-3 animate-spin" />
             <span className="font-mono">Building...</span>
           </div>
         )}
+
+        {/* Preview view controls — only when on Preview tab */}
+        {activeTab === 'preview' && (
+          <div className={cn('flex items-center gap-0.5', isWorking ? 'mr-0' : 'ml-auto')}>
+            <button
+              type="button"
+              title="Fit to screen"
+              onClick={() => handleViewMode('fit')}
+              className={cn(
+                'flex items-center justify-center w-7 h-7 rounded-sm text-xs transition-colors',
+                viewMode === 'fit'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+              )}
+            >
+              <ScanIcon className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              title="Mobile view"
+              onClick={() => handleViewMode('mobile')}
+              className={cn(
+                'flex items-center justify-center w-7 h-7 rounded-sm text-xs transition-colors',
+                viewMode === 'mobile'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+              )}
+            >
+              <SmartphoneIcon className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              title="Fullscreen"
+              onClick={() => handleViewMode('fullscreen')}
+              className="flex items-center justify-center w-7 h-7 rounded-sm text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              <MaximizeIcon className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Content — all panels stay mounted; only visibility toggled to preserve iframe state */}
-      <div className="flex-1 min-h-0 relative">
+      {/* Content */}
+      <div className="flex-1 min-h-0 relative" ref={previewContainerRef}>
         <div className={cn('absolute inset-0', activeTab !== 'preview' && 'hidden')}>
-          <Preview className="h-full rounded-t-none" />
+          {viewMode === 'mobile' ? (
+            <div className="flex items-center justify-center h-full bg-secondary/50 overflow-hidden">
+              {/* Phone bezel */}
+              <div className="relative flex flex-col rounded-[2.5rem] border-[8px] border-foreground/20 shadow-2xl bg-black overflow-hidden"
+                style={{ width: 390, height: 'min(844px, calc(100% - 32px))' }}>
+                {/* Notch */}
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-5 bg-foreground/15 rounded-full z-10" />
+                <Preview className="w-full h-full rounded-none" />
+              </div>
+            </div>
+          ) : (
+            <Preview className="h-full rounded-t-none" />
+          )}
         </div>
         <div className={cn('absolute inset-0', activeTab !== 'files' && 'hidden')}>
           <FileExplorer className="h-full rounded-t-none" />

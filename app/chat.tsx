@@ -144,8 +144,12 @@ export function Chat({ className }: Props) {
   }, [status, setChatStatus])
 
   // Auto-submit messages injected by other UI panels (e.g. "Add Database" button)
+  const pendingFiredRef = useRef<string | null>(null)
   useEffect(() => {
     if (!pendingChatMessage || isWorking) return
+    // Guard against React StrictMode double-invoke firing the same message twice
+    if (pendingFiredRef.current === pendingChatMessage) return
+    pendingFiredRef.current = pendingChatMessage
     const msg = pendingChatMessage
     setPendingChatMessage(null)
     validateAndSubmitMessage(msg)
