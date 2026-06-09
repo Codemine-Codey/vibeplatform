@@ -215,6 +215,7 @@ export function useDataStateMapper() {
   const upsertCommand = useSandboxStore((s) => s.upsertCommand)
   const addGeneratedFiles = useSandboxStore((s) => s.addGeneratedFiles)
   const setLastFilesUploadedAt = useSandboxStore((s) => s.setLastFilesUploadedAt)
+  const setDatabaseState = useSandboxStore((s) => s.setDatabaseState)
   // setCursor is an action — stable, never triggers re-render
   const setCursor = useMonitorState((s) => s.setCursor)
 
@@ -267,11 +268,13 @@ export function useDataStateMapper() {
             }
           }
           break
+        case 'data-database-created':
+          setDatabaseState({ databaseId: data.data.databaseId, databaseName: data.data.databaseName })
+          break
         default:
           break
       }
     },
-    // All deps are stable action references — this callback is effectively created once
-    [addGeneratedFiles, addPaths, setCursor, setSandboxId, setLastFilesUploadedAt, setUrl, upsertCommand]
+    [addGeneratedFiles, addPaths, setCursor, setSandboxId, setLastFilesUploadedAt, setUrl, upsertCommand, setDatabaseState]
   )
 }

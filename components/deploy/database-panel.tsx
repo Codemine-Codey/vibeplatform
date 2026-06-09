@@ -104,7 +104,7 @@ export function DatabasePanel({ className }: Props) {
             <DatabaseIcon className="w-8 h-8 text-muted-foreground" />
             <p className="text-sm font-medium">No database yet</p>
             <p className="text-xs text-muted-foreground leading-relaxed max-w-[220px]">
-              Click below and the AI will ask what you need, then set it up automatically.
+              A real backend database for your project — store users, posts, orders, or anything you need. The AI will set it up and connect it automatically.
             </p>
           </div>
           {createError && (

@@ -98,6 +98,7 @@ export function DeployPanel({ className }: Props) {
   const deployError = useSandboxStore((s) => s.deployError)
   const deployProjectName = useSandboxStore((s) => s.deployProjectName)
   const setDeployState = useSandboxStore((s) => s.setDeployState)
+  const setPendingChatMessage = useSandboxStore((s) => s.setPendingChatMessage)
   const chatStatus = useSandboxStore((s) => s.chatStatus)
   const paths = useSandboxStore((s) => s.paths)
 
@@ -130,10 +131,12 @@ export function DeployPanel({ className }: Props) {
       await new Promise((r) => setTimeout(r, 800))
       setDeployState({ deployStatus: 'done', deployedUrl: data.url, deployProjectName: data.projectName })
     } catch (err) {
-      setDeployState({
-        deployStatus: 'error',
-        deployError: err instanceof Error ? err.message : 'Something went wrong. Please try again.',
-      })
+      const errMsg = err instanceof Error ? err.message : 'Something went wrong. Please try again.'
+      setDeployState({ deployStatus: 'error', deployError: errMsg })
+      // Send error to AI so it can diagnose and fix
+      setPendingChatMessage(
+        `Deployment failed with this error:\n\n${errMsg}\n\nCan you fix the issue so I can publish the project?`
+      )
     }
   }
 
@@ -215,13 +218,13 @@ export function DeployPanel({ className }: Props) {
                 <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center mb-1">
                   <RocketIcon className="w-5 h-5 text-foreground" />
                 </div>
-                <p className="text-sm font-medium">Publish your project</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm font-medium">Deploy to the web</p>
+                <p className="text-xs text-muted-foreground leading-relaxed max-w-[200px]">
                   {aiWorking
-                    ? 'Finish generating first'
+                    ? 'Wait for the AI to finish first'
                     : !hasFiles
-                    ? 'Project not ready yet'
-                    : 'Build and publish your app live with a shareable link'}
+                    ? 'Generate a project first'
+                    : 'Your project will go live on Codemine edge servers worldwide with a shareable link'}
                 </p>
               </div>
               <button
