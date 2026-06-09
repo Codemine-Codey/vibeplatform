@@ -105,15 +105,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Build error: ${msg}` }, { status: 500 })
   }
 
-  // Step 2: List dist/ files
+  // Step 2: Add _redirects for SPA routing + list dist/ files
   try {
-    await sandbox.writeFiles([{
-      path: '.cm-list.cjs',
-      content: Buffer.from(
-        `const fs=require('fs'),path=require('path');function w(d){const r=[];for(const f of fs.readdirSync(d)){const p=path.join(d,f);fs.statSync(p).isDirectory()?r.push(...w(p)):r.push(p)}return r}fs.writeFileSync('.cm-files.json',JSON.stringify(w('dist')))`,
-        'utf8'
-      ),
-    }])
+    await sandbox.writeFiles([
+      // SPA fallback — CF Pages returns index.html for all non-asset routes
+      { path: 'dist/_redirects', content: Buffer.from('/*  /index.html  200\n', 'utf8') },
+      {
+        path: '.cm-list.cjs',
+        content: Buffer.from(
+          `const fs=require('fs'),path=require('path');function w(d){const r=[];for(const f of fs.readdirSync(d)){const p=path.join(d,f);fs.statSync(p).isDirectory()?r.push(...w(p)):r.push(p)}return r}fs.writeFileSync('.cm-files.json',JSON.stringify(w('dist')))`,
+          'utf8'
+        ),
+      },
+    ])
     const listCmd = await sandbox.runCommand({ detached: true, cmd: 'node', args: ['.cm-list.cjs'] })
     await listCmd.wait()
   } catch {
@@ -170,7 +174,7 @@ export async function POST(req: Request) {
       { method: 'POST', headers: cfHeaders(false), body: formData }
     )
     const raw = await deployRes.text()
-    let deployData: { success: boolean; result?: { url?: string }; errors?: { message: string }[] }
+    let deployData: { success: boolean; result?: { url?: string; subdomain?: string }; errors?: { message: string }[] }
     try { deployData = JSON.parse(raw) } catch { deployData = { success: false } }
 
     if (!deployData.success) {
@@ -179,7 +183,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: msg }, { status: 500 })
     }
 
-    const deployedUrl = `https://${name}.pages.dev`
+    // Use the URL CF returns (deployment-specific subdomain), fall back to production domain
+    const deployedUrl = deployData.result?.url ?? `https://${name}.pages.dev`
     return NextResponse.json({ url: deployedUrl, projectName: name })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown'

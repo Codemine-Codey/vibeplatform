@@ -1,4 +1,4 @@
-export const DEFAULT_MODEL = 'kimi-k2.6'
+export const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro'
 export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-flash'
 export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek/deepseek-v4-flash'

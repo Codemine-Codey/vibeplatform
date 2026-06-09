@@ -43,8 +43,8 @@ function BuildingAnimation() {
         ))}
       </div>
       <div className="flex flex-col gap-1">
-        <p className="text-sm font-medium">Building your project</p>
-        <p className="text-xs text-muted-foreground">Up to 90 seconds</p>
+        <p className="text-sm font-medium">Deploying your project to Codemine servers</p>
+        <p className="text-xs text-muted-foreground">Please wait...</p>
       </div>
       {/* Step list */}
       <div className="flex flex-col gap-1.5 text-left">
@@ -332,9 +332,6 @@ export function DeployPanel({ className }: Props) {
           {/* Environment Variables */}
           <div className="flex flex-col gap-2">
             <p className="text-xs font-medium">Environment Variables</p>
-            <p className="text-xs text-muted-foreground -mt-1">
-              Accessible via <code className="font-mono">import.meta.env.VITE_*</code>
-            </p>
             <div className="flex flex-col gap-1.5">
               {envVars.map((v, i) => (
                 <div key={i} className="flex gap-1.5 items-center">
