@@ -14,7 +14,7 @@ export const createDatabase = ({ writer }: Params) =>
       'Create a real Cloudflare D1 database for the project and connect it automatically. ' +
       'Use this when the user asks to add a database. ' +
       'ALWAYS ask the user what they want to store before calling this tool.',
-    parameters: z.object({
+    inputSchema: z.object({
       sandboxId: z.string().describe('The sandbox ID for this project'),
       name: z.string().describe('Short slug for the database, e.g. "tasklist", "products", "users"'),
     }),
