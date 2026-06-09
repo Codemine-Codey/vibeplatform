@@ -405,6 +405,31 @@ async function runPipeline({
     // Non-fatal — dev server may still work if background install finished.
   }
 
+  // ── Step 4.5: TypeScript compilation check (background) ──────────────────
+  // Run tsc --noEmit after packages are installed. Stdout redirected to stderr
+  // so ErrorMonitor picks up compiler errors and auto-triggers AI fix.
+  // Runs in parallel with dev server start — no extra latency on happy path.
+  try {
+    const tscCmd = await sandbox.runCommand({
+      detached: true,
+      cmd: 'bash',
+      args: ['-c', './node_modules/.bin/tsc --noEmit 1>&2 || true'],
+    })
+    writer.write({
+      id: tscCmd.cmdId,
+      type: 'data-run-command',
+      data: {
+        sandboxId,
+        commandId: tscCmd.cmdId,
+        command: 'tsc',
+        args: ['--noEmit'],
+        status: 'running',
+      },
+    })
+  } catch {
+    // Non-fatal — proceed even if tsc check fails to start
+  }
+
   // ── Step 5: Server starts dev server (background — runs forever) ──────────
   writer.write({
     id: 'srv-dev',

@@ -1,6 +1,5 @@
-// All generation models — DeepSeek V4 Flash via OpenRouter (384k output, 1M context)
-// Flash handles everything: orchestration, planning, file generation, edits.
-export const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash'
+// Orchestration model — DeepSeek V4 Pro via OpenRouter (best design quality for planning + composition)
+export const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro'
 export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-flash'
 export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
 
