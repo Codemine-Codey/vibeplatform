@@ -1,5 +1,7 @@
-import { generateText, type ModelMessage } from 'ai'
+import { streamText, tool, stepCountIs } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
+import z from 'zod/v3'
+import type { ModelMessage } from 'ai'
 
 export type File = {
   path: string
@@ -18,10 +20,9 @@ interface FileContentChunk {
   written: string[]
 }
 
-// Specialized provider for file generation — injects response_format: json_object and
-// include_reasoning: false into every request body via fetch wrapper.
-// Kept local to this file so gateway.ts callers are unaffected.
-function makeFileGenProvider(modelId: string) {
+// Provider with thinking disabled — prevents silent 5-min reasoning before first token.
+// Both flags needed: include_reasoning hides tokens, thinking:{type:'disabled'} stops it.
+function makeProvider(modelId: string) {
   const isOpenRouter = modelId.includes('/')
   return createOpenAI({
     baseURL: isOpenRouter
@@ -34,7 +35,6 @@ function makeFileGenProvider(modelId: string) {
       if (init?.body) {
         try {
           const body = JSON.parse(init.body as string)
-          body.response_format = { type: 'json_object' }
           if (isOpenRouter) {
             body.include_reasoning = false
             body.thinking = { type: 'disabled' }
@@ -47,84 +47,94 @@ function makeFileGenProvider(modelId: string) {
   })
 }
 
-// Generates file contents using DeepSeek JSON Output mode.
-// Returns a single chunk containing all files after parsing and validating the JSON response.
-// The async generator interface is preserved so generate-files.ts requires no structural change.
+function fixCss(path: string, content: string): string {
+  if (path !== 'src/index.css') return content
+  return content
+    .replace(/@import\s+['"]tailwindcss\/base['"]\s*;?/g, '@tailwind base;')
+    .replace(/@import\s+['"]tailwindcss\/components['"]\s*;?/g, '@tailwind components;')
+    .replace(/@import\s+['"]tailwindcss\/utilities['"]\s*;?/g, '@tailwind utilities;')
+}
+
+// Generates files using streaming tool calls — each file is yielded individually
+// as soon as Flash finishes writing it. The UI shows files appearing one by one
+// instead of waiting for a full JSON blob to complete.
 export async function* getContents(
   params: Params
 ): AsyncGenerator<FileContentChunk> {
-  const provider = makeFileGenProvider(params.modelId)
+  const { messages, modelId, paths } = params
+  const provider = makeProvider(modelId)
 
-  let result: Awaited<ReturnType<typeof generateText>>
-  try {
-    result = await generateText({
-      model: provider.chat(params.modelId),
-      maxOutputTokens: 384000,
-      system:
-        'You are a file content generator. Output a JSON object with a "files" array containing every requested file.\n' +
-        'Format: {"files": [{"path": "relative/path/to/file.tsx", "content": "complete utf8 file content here"}]}\n' +
-        'Rules:\n' +
-        '- Generate COMPLETE content for every file. Never truncate or abbreviate.\n' +
-        '- NEVER include lock files (pnpm-lock.yaml, package-lock.json, yarn.lock, bun.lockb).\n' +
-        '- CRITICAL CSS: In src/index.css always use @tailwind base; @tailwind components; @tailwind utilities; — NEVER write @import \'tailwindcss/base\' or similar (resolves to JS and crashes PostCSS).\n' +
-        '- Output ONLY the raw JSON object. No markdown fences, no explanation text, no preamble.',
-      messages: [
-        ...params.messages,
-        {
-          role: 'user',
-          content:
-            `Generate ALL of the following files. Output ONLY the JSON object {"files": [...]}:\n` +
-            params.paths.map((p) => ` - ${p}`).join('\n'),
+  // Queue-based channel between tool execute() and the async generator.
+  // execute() pushes files and resolves the current signal promise.
+  // The generator drains the queue and waits on the signal when empty.
+  const queue: File[] = []
+  let finished = false
+  let notify!: () => void
+  let signal = new Promise<void>(r => { notify = r })
+
+  function enqueue(file: File) {
+    queue.push(file)
+    const prev = notify
+    signal = new Promise<void>(r => { notify = r })
+    prev()
+  }
+
+  const result = streamText({
+    model: provider.chat(modelId),
+    maxOutputTokens: 16000,
+    system:
+      'You are a code file generator. Write each file completely using the writeFile tool.\n' +
+      'One writeFile call per file. Write COMPLETE production-quality code — never truncate or abbreviate.\n' +
+      'File order: write shared utilities and types first, then components, then pages.\n' +
+      'CSS rule: in src/index.css always use @tailwind base/components/utilities — NEVER @import.\n' +
+      'No <svg> tags. No placeholder content. Real code only.',
+    messages: [
+      ...messages,
+      {
+        role: 'user' as const,
+        content:
+          'Write ALL of the following files completely using writeFile. One call per file:\n' +
+          paths.map(p => `- ${p}`).join('\n'),
+      },
+    ],
+    tools: {
+      writeFile: tool({
+        description: 'Write one complete source file with its full content',
+        inputSchema: z.object({
+          path: z.string().describe('File path relative to project root'),
+          content: z.string().describe('Complete file content — never truncate'),
+        }),
+        execute: async ({ path, content }) => {
+          if (!paths.includes(path)) return 'skipped: not in requested list'
+          if (content.trim().length < 5) return 'skipped: empty content'
+          enqueue({ path, content: fixCss(path, content) })
+          return 'ok'
         },
-      ],
-    })
-  } catch (err) {
-    console.error('[getContents] generateText failed:', err)
-    return
-  }
+      }),
+    },
+    stopWhen: stepCountIs(paths.length + 5),
+    onFinish: () => {
+      finished = true
+      notify()
+    },
+    onError: err => console.error('[getContents] stream error:', err),
+  })
 
-  const files: File[] = []
-  try {
-    // Strip markdown fences if model wrapped output despite instructions
-    const raw = result.text
-      .trim()
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```$/, '')
+  // Start consuming the stream (non-blocking — generator runs concurrently)
+  result.consumeStream()
 
-    const parsed = JSON.parse(raw) as {
-      files?: Array<{ path?: string; content?: string }>
-    }
+  const written = new Set<string>()
 
-    for (const f of parsed.files ?? []) {
-      if (!f.path || typeof f.content !== 'string') continue
-      if (!params.paths.includes(f.path)) continue // only requested paths
-      if (/lock\.(yaml|json|b)$/.test(f.path)) continue // no lock files
-      if (f.content.trim().length < 5) {
-        console.warn(`[getContents] Skipping empty file: ${f.path}`)
-        continue
+  while (true) {
+    // Drain all queued files before waiting
+    while (queue.length > 0) {
+      const file = queue.shift()!
+      if (!written.has(file.path)) {
+        written.add(file.path)
+        yield { files: [file], paths: [file.path], written: [] }
       }
-
-      let content = f.content
-
-      // Apply CSS sanity fix in-memory — catches wrong tailwind import before disk write
-      if (f.path === 'src/index.css') {
-        content = content
-          .replace(/@import\s+['"]tailwindcss\/base['"]\s*;?/g, '@tailwind base;')
-          .replace(/@import\s+['"]tailwindcss\/components['"]\s*;?/g, '@tailwind components;')
-          .replace(/@import\s+['"]tailwindcss\/utilities['"]\s*;?/g, '@tailwind utilities;')
-      }
-
-      files.push({ path: f.path, content })
     }
-
-    console.log(`[getContents] Parsed ${files.length}/${params.paths.length} files from JSON response`)
-  } catch (err) {
-    console.error('[getContents] JSON parse failed:', err)
-    console.error('[getContents] Raw response (first 500 chars):', result.text.slice(0, 500))
-    return
-  }
-
-  if (files.length > 0) {
-    yield { files, paths: files.map((f) => f.path), written: [] }
+    if (finished && queue.length === 0) break
+    await signal
   }
 }
