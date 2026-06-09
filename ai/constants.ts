@@ -1,9 +1,7 @@
-export const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro'
+export const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash'
 export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-flash'
 export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
-
-// Error analysis model — Claude Haiku 4.5 (precise at stack traces, visual check, error fixes)
-export const ERROR_MODEL = 'claude-haiku-4-5-20251001'
+export const ERROR_MODEL = 'deepseek/deepseek-v4-flash'
 
 export const SUPPORTED_MODELS: string[] = [DEFAULT_MODEL]
 

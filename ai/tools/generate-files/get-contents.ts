@@ -35,7 +35,10 @@ function makeFileGenProvider(modelId: string) {
         try {
           const body = JSON.parse(init.body as string)
           body.response_format = { type: 'json_object' }
-          if (isOpenRouter) body.include_reasoning = false
+          if (isOpenRouter) {
+            body.include_reasoning = false
+            body.thinking = { type: 'disabled' }
+          }
           init = { ...init, body: JSON.stringify(body) }
         } catch { /* non-fatal */ }
       }
