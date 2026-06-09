@@ -6,11 +6,11 @@ const anthropicProvider = createAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY ?? '',
 })
 
-// OpenRouter — DeepSeek V4 Pro and other non-Kimi models.
-// DeepSeek Pro on OpenRouter runs extended thinking by default — this adds
-// 4-6 minutes of silent server-side reasoning before the first token reaches
-// the client. Both flags are needed: include_reasoning:false hides the tokens,
-// thinking:{type:'disabled'} actually stops the reasoning from running.
+// OpenRouter — DeepSeek V4 (Flash/Pro) and other non-Kimi models.
+// Reasoning DISABLED by default — for bulk file generation and orchestration we
+// want speed, not a multi-minute silent thinking phase. OpenRouter's correct
+// control is `reasoning: { enabled: false }` (the older thinking/include_reasoning
+// flags are kept as belt-and-suspenders for providers that read them).
 const openrouterProvider = createOpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
   apiKey: process.env.OPENROUTER_API_KEY ?? '',
@@ -18,8 +18,30 @@ const openrouterProvider = createOpenAI({
     if (init?.body) {
       try {
         const body = JSON.parse(init.body as string)
+        body.reasoning = { enabled: false }
         body.include_reasoning = false
         body.thinking = { type: 'disabled' }
+        init = { ...init, body: JSON.stringify(body) }
+      } catch { }
+    }
+    return fetch(url, init)
+  },
+})
+
+// OpenRouter with reasoning ENABLED (effort: high) — used ONLY for the short
+// design/planning step (expander). DeepSeek V4 Flash supports `reasoning: {effort}`
+// with levels `high` and `xhigh`. The brief is a few hundred tokens, so the
+// latency cost is small, but the design quality gain is large.
+const openrouterReasoningProvider = createOpenAI({
+  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: process.env.OPENROUTER_API_KEY ?? '',
+  fetch: async (url, init) => {
+    if (init?.body) {
+      try {
+        const body = JSON.parse(init.body as string)
+        body.reasoning = { effort: 'high' }
+        delete body.include_reasoning
+        delete body.thinking
         init = { ...init, body: JSON.stringify(body) }
       } catch { }
     }
@@ -77,7 +99,10 @@ export interface ModelOptions {
   providerOptions?: Record<string, any>
 }
 
-export function getModelOptions(modelId: string): ModelOptions {
+export function getModelOptions(
+  modelId: string,
+  opts?: { reasoning?: boolean }
+): ModelOptions {
   // Kimi models — direct API when KIMI_API_KEY is set, OpenRouter otherwise
   // Both paths have thinking disabled to avoid 5+ min silent reasoning phases
   if (modelId.startsWith('kimi-')) {
@@ -88,6 +113,10 @@ export function getModelOptions(modelId: string): ModelOptions {
   }
   // OpenRouter-hosted models (deepseek/, moonshotai/, meta-llama/, etc.)
   if (modelId.includes('/')) {
+    // Reasoning-enabled path — only the design/planning step opts in
+    if (opts?.reasoning) {
+      return { model: openrouterReasoningProvider.chat(modelId) }
+    }
     return { model: openrouterProvider.chat(modelId) }
   }
   if (modelId.startsWith('claude')) {

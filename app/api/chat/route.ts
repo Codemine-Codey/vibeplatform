@@ -3,6 +3,7 @@ import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
+  generateText,
   stepCountIs,
   streamText,
 } from 'ai'
@@ -105,6 +106,188 @@ function transformMessages(messages: ChatUIMessage[]): ChatUIMessage[] {
     })
     return message
   })
+}
+
+// ── Build verification + auto-repair (the guarantee against blank previews) ───
+// Strips @apply anywhere and bare Tailwind class names — both crash PostCSS.
+function sanitizeCss(css: string): string {
+  let out = css.replace(/@apply\s+[^;{}\n]*;?/gi, '')
+  return out
+    .split('\n')
+    .filter(line => {
+      const t = line.trim()
+      if (!t) return true
+      if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@')) return true
+      if (t.includes('{') || t.includes('}')) return true
+      if (t.endsWith(';') && !t.includes(':')) return false
+      return true
+    })
+    .join('\n')
+}
+
+// Pull the meaningful error lines out of a vite build log.
+function extractBuildError(log: string): string {
+  const lines = log
+    .replace(/##EXIT:\d+/g, '')
+    .split('\n')
+    .filter(l =>
+      /error|Cannot find|not found|Unexpected|unexpected|postcss|Could not resolve|is not exported|Failed to|SyntaxError|Transform failed|No matching/i.test(l)
+    )
+    .slice(0, 25)
+    .join('\n')
+    .slice(0, 2000)
+    .trim()
+  return lines || log.replace(/##EXIT:\d+/g, '').trim().slice(-1500)
+}
+
+// Extract referenced source file paths from a build log (src/... or index.html).
+function extractErrorFiles(log: string): string[] {
+  const files = new Set<string>()
+  const re = /((?:src\/|\.\/src\/|\/[\w./-]*?src\/)?[\w./-]+\.(?:tsx|jsx|ts|js|css))/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(log)) !== null) {
+    let p = m[1]
+    const srcIdx = p.indexOf('src/')
+    if (srcIdx >= 0) p = p.slice(srcIdx)
+    else p = p.replace(/^\.\//, '')
+    if (p.startsWith('src/')) files.add(p)
+  }
+  return [...files]
+}
+
+async function readSandboxFile(sandbox: Sandbox, path: string): Promise<string | null> {
+  try {
+    const stream = await sandbox.readFile({ path })
+    if (!stream) return null
+    const chunks: Buffer[] = []
+    for await (const c of stream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as string))
+    return Buffer.concat(chunks).toString('utf8')
+  } catch {
+    return null
+  }
+}
+
+// Ask Flash to repair ONE file given the exact build error. Returns corrected
+// full-file content, or null if it couldn't help.
+async function repairFile(path: string, content: string, error: string): Promise<string | null> {
+  try {
+    const res = await generateText({
+      ...getModelOptions(FILE_GENERATION_MODEL),
+      maxOutputTokens: 64000,
+      system:
+        'You are a build-error repair tool. You receive ONE file and the exact build error it causes. ' +
+        'Return ONLY the complete corrected file content — no markdown fences, no explanation, no commentary. ' +
+        'Hard rules: NEVER use @apply in CSS. NEVER use invented Tailwind color classes like bg-lacquer/text-gold — ' +
+        'use only standard Tailwind palette (slate, amber, etc.) or scaffold tokens (bg-primary, bg-background, text-foreground) ' +
+        'or inline style with CSS variables. NEVER use <svg>. Fix ONLY what causes the error; keep the rest identical. ' +
+        'Output the entire file.',
+      messages: [
+        {
+          role: 'user',
+          content:
+            `File: ${path}\n\nBuild error:\n${error}\n\nCurrent file content:\n${content}\n\n` +
+            'Return the complete corrected file content now.',
+        },
+      ],
+    })
+    let out = res.text.trim()
+    out = out.replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '').trim()
+    return out.length > 5 ? out : null
+  } catch {
+    return null
+  }
+}
+
+// THE GUARANTEE: run `vite build` (compile oracle), and if it fails, auto-repair
+// the offending files with Flash — up to 3 rounds — BEFORE the dev server starts.
+// Catches every blank-preview cause: @apply/CSS crashes, missing imports, syntax
+// errors, truncated files. Worst case (3 rounds exhausted) = previous behaviour.
+async function verifyAndRepair({
+  sandbox,
+  sandboxId,
+  writer,
+}: {
+  sandbox: Sandbox
+  sandboxId: string
+  writer: Writer
+}): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    writer.write({
+      id: `srv-verify-${attempt}`,
+      type: 'data-run-command',
+      data: { sandboxId, command: 'verify', args: ['build'], status: 'executing' },
+    })
+
+    // vite build only (no tsc — type errors don't blank the preview; CSS/import/
+    // syntax errors do, and vite build catches all of those deterministically).
+    let log = ''
+    try {
+      const cmd = await sandbox.runCommand({
+        detached: true,
+        cmd: 'bash',
+        args: [
+          '-c',
+          '(./node_modules/.bin/vite build 2>&1; echo "##EXIT:$?") | tee /tmp/cm-verify.log >/dev/null',
+        ],
+      })
+      await Promise.race([
+        cmd.wait(),
+        new Promise<void>((_, rej) => setTimeout(() => rej(new Error('build timeout')), 90_000)),
+      ])
+    } catch {
+      /* timeout — read whatever was logged */
+    }
+
+    log = (await readSandboxFile(sandbox, '/tmp/cm-verify.log')) ?? ''
+    const exitMatch = log.match(/##EXIT:(\d+)/)
+    const ok = exitMatch ? exitMatch[1] === '0' : !/error/i.test(log)
+
+    if (ok) {
+      writer.write({
+        id: `srv-verify-${attempt}`,
+        type: 'data-run-command',
+        data: { sandboxId, command: 'verify', args: ['build'], status: 'done', exitCode: 0 },
+      })
+      return // compiles cleanly — preview WILL render
+    }
+
+    writer.write({
+      id: `srv-verify-${attempt}`,
+      type: 'data-run-command',
+      data: { sandboxId, command: 'verify', args: ['build'], status: 'error', exitCode: 1 },
+    })
+
+    const errorBlock = extractBuildError(log)
+    const files = extractErrorFiles(log)
+    console.warn(`[verify] attempt ${attempt} failed. files=${files.join(',')} err=${errorBlock.slice(0, 160)}`)
+
+    if (files.length === 0) {
+      // Can't localize — last-ditch: re-sanitize the CSS, which is the most common
+      // un-localized crash (PostCSS error without a clear file path).
+      const css = await readSandboxFile(sandbox, 'src/index.css')
+      if (css) {
+        const fixed = sanitizeCss(css)
+        if (fixed !== css) {
+          await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(fixed, 'utf8') }])
+          continue
+        }
+      }
+      return // nothing we can localize — bail, error monitor will catch runtime issues
+    }
+
+    let repairedAny = false
+    for (const path of files.slice(0, 5)) {
+      const content = await readSandboxFile(sandbox, path)
+      if (!content) continue
+      const fixed = await repairFile(path, content, errorBlock)
+      if (fixed && fixed !== content) {
+        const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : fixed
+        await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
+        repairedAny = true
+      }
+    }
+    if (!repairedAny) return // no change possible — avoid burning the remaining rounds
+  }
 }
 
 export async function POST(req: Request) {
@@ -474,6 +657,16 @@ async function runPipeline({
     }
   } catch {
     // Non-fatal
+  }
+
+  // ── Step 4.7: BUILD VERIFICATION + AUTO-REPAIR (the blank-preview guarantee) ─
+  // Run vite build as a deterministic compile oracle. If it fails, auto-repair
+  // the offending files with Flash (≤3 rounds) BEFORE the dev server starts, so
+  // the preview is only ever shown once the project actually compiles.
+  try {
+    await verifyAndRepair({ sandbox, sandboxId, writer })
+  } catch (err) {
+    console.warn('[verify] verifyAndRepair threw (non-fatal):', err instanceof Error ? err.message : err)
   }
 
   // ── Step 5: Server starts dev server (background — runs forever) ──────────

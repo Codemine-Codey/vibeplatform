@@ -18,7 +18,10 @@ export async function expandPrompt(
 
   try {
     await generateText({
-      ...getModelOptions(FILE_GENERATION_MODEL),
+      // Reasoning ON — the design brief is the single highest-leverage step for
+      // visual quality. A few hundred tokens of thinking here makes the whole
+      // project look intentional. Bulk file generation stays non-reasoning (fast).
+      ...getModelOptions(FILE_GENERATION_MODEL, { reasoning: true }),
       stopWhen: stepCountIs(2),
       system: `You are a creative director for a premium web builder. Expand the user's prompt into a detailed project brief.
 
