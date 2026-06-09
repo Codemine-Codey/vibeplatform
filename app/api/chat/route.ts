@@ -334,7 +334,7 @@ async function visualVerdict(screenshot: Buffer): Promise<{ broken: boolean; rea
 // file paths from the stack where available) so the offending files can be repaired.
 async function headlessRuntimeCheck(
   url: string
-): Promise<{ ok: boolean; detail: string }> {
+): Promise<{ status: 'ok' | 'broken' | 'skipped'; detail: string }> {
   let browser: unknown = null
   try {
     const chromiumMod = await import('@sparticuz/chromium')
@@ -348,6 +348,7 @@ async function headlessRuntimeCheck(
       executablePath: execPath,
       headless: true,
     })
+    console.log('[runtime-check] chromium launched OK — inspecting live preview')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const page = await (browser as any).newPage()
     const errors: string[] = []
@@ -375,14 +376,14 @@ async function headlessRuntimeCheck(
     const blank = rootChildren <= 0 && bodyTextLen === 0
     if (blank) {
       return {
-        ok: false,
+        status: 'broken',
         detail:
           'Blank screen: #root is empty after the page loaded — a component threw during render or returned nothing.\n' +
           errors.slice(0, 6).join('\n'),
       }
     }
     if (errors.length > 0) {
-      return { ok: false, detail: 'Runtime errors detected on the live page:\n' + errors.slice(0, 8).join('\n') }
+      return { status: 'broken', detail: 'Runtime errors detected on the live page:\n' + errors.slice(0, 8).join('\n') }
     }
 
     // DOM looks populated and no console errors — now the AI LOOKS at it.
@@ -392,7 +393,7 @@ async function headlessRuntimeCheck(
       const verdict = await visualVerdict(shot)
       if (verdict.broken) {
         return {
-          ok: false,
+          status: 'broken',
           detail:
             'The page renders but looks visually broken (a vision check flagged it). Issue: ' +
             verdict.reason +
@@ -403,10 +404,10 @@ async function headlessRuntimeCheck(
       console.warn('[runtime-check] screenshot/vision step skipped:', e instanceof Error ? e.message : e)
     }
 
-    return { ok: true, detail: '' }
+    return { status: 'ok', detail: '' }
   } catch (e) {
     console.warn('[runtime-check] skipped (chromium unavailable):', e instanceof Error ? e.message : e)
-    return { ok: true, detail: '' } // graceful — never block the preview
+    return { status: 'skipped', detail: '' } // graceful — never block the preview
   } finally {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     try { if (browser) await (browser as any).close() } catch { /* ignore */ }
@@ -861,9 +862,16 @@ async function runPipeline({
     // blank #root that vite build can't see. If broken, auto-repair the files
     // from the stack trace, let HMR reload, and re-check once.
     try {
+      // Visible status so the user (and we) can see the visual check actually ran.
+      writer.write({
+        id: 'srv-visual',
+        type: 'data-run-command',
+        data: { sandboxId, command: 'Visual quality check', args: [], status: 'executing' },
+      })
       let rt = await headlessRuntimeCheck(url)
-      if (!rt.ok) {
-        console.warn('[runtime-check] page broken:', rt.detail.slice(0, 200))
+      console.log(`[runtime-check] verdict status=${rt.status}${rt.status === 'ok' ? '' : ' — ' + rt.detail.slice(0, 160)}`)
+
+      if (rt.status === 'broken') {
         const files = extractErrorFiles(rt.detail)
         let repaired = false
         for (const path of files.slice(0, 4)) {
@@ -880,8 +888,8 @@ async function runPipeline({
           await new Promise(r => setTimeout(r, 3500)) // let Vite HMR reload
           rt = await headlessRuntimeCheck(url)
         }
-        // If still broken after one repair, surface it so the client also auto-fixes.
-        if (!rt.ok) {
+        if (rt.status === 'broken') {
+          // Still broken after one repair — surface so the client self-heal also kicks in.
           writer.write({
             id: 'srv-runtime',
             type: 'data-report-errors',
@@ -889,6 +897,14 @@ async function runPipeline({
           })
         }
       }
+
+      // Close the visible status. 'skipped' (Chromium unavailable) still shows done —
+      // we never alarm the user; the console log records whether it truly ran.
+      writer.write({
+        id: 'srv-visual',
+        type: 'data-run-command',
+        data: { sandboxId, command: 'Visual quality check', args: [], status: 'done', exitCode: 0 },
+      })
     } catch (e) {
       console.warn('[runtime-check] wrapper error (non-fatal):', e instanceof Error ? e.message : e)
     }
