@@ -139,20 +139,6 @@ export const generateFiles = ({ writer, modelId }: Params) =>
         data: { paths: uploaded.map((file) => file.path), status: 'done' },
       })
 
-      // Server-side SVG enforcement — catch violations the AI missed.
-      // Scan TSX/TS/CSS files for raw <svg> tags. Return as a mandatory fix item
-      // in the tool result so the AI must address it before calling getSandboxURL.
-      const svgOffenders = uploaded
-        .filter(f =>
-          /\.(tsx|ts|jsx|js|css|html)$/.test(f.path) &&
-          /<svg[\s>]/.test(f.content)
-        )
-        .map(f => f.path)
-
-      const svgWarning = svgOffenders.length > 0
-        ? `\n\nSVG VIOLATION DETECTED — fix required before calling getSandboxURL:\nFiles with <svg> tags: ${svgOffenders.join(', ')}\nReplace every <svg> with a Lucide React icon or CSS-only shape (border-radius, clip-path). No SVG allowed anywhere.`
-        : ''
-
-      return `Successfully generated and uploaded ${uploaded.length} files:\n${uploaded.map((f) => f.path).join('\n')}${svgWarning}`
+      return `Successfully generated and uploaded ${uploaded.length} files:\n${uploaded.map((f) => f.path).join('\n')}`
     },
   })

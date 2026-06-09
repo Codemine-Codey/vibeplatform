@@ -7,7 +7,7 @@ import description from './run-command.md'
 import z from 'zod/v3'
 
 // Commands that would expose secrets or credentials are blocked entirely.
-const BLOCKED_COMMANDS = new Set(['env', 'printenv', 'set', 'export'])
+const BLOCKED_COMMANDS = new Set(['env', 'printenv', 'set', 'export', 'bun'])
 
 // Scrub lines that look like KEY=VALUE where the key suggests a secret.
 const SECRET_KEY_PATTERN = /(?:API_KEY|API_TOKEN|TOKEN|SECRET|PASSWORD|PASSWD|ACCOUNT_ID|ACCESS_KEY|PRIVATE_KEY|CF_|OPENROUTER|DEEPSEEK|ANTHROPIC|UNSPLASH|VITE_DB|OIDC)/i

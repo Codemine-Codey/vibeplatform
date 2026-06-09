@@ -4,6 +4,18 @@ import z from 'zod/v3'
 
 const VITE_CONFIG_NAMES = new Set(['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs'])
 
+function sanitizeCss(css: string): string {
+  return css.split('\n').filter(line => {
+    const t = line.trim()
+    if (!t) return true
+    if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@tailwind') || t.startsWith('@layer') || t.startsWith('@theme') || t.startsWith('@import') || t.startsWith(':root') || t.startsWith('.') || t.startsWith('#') || t.startsWith('&')) return true
+    if (t.startsWith('@apply')) return false
+    if (t.includes('{') || t.includes('}')) return true
+    if (t.endsWith(';') && !t.includes(':')) return false
+    return true
+  }).join('\n')
+}
+
 // Re-applies allowedHosts after any patchFile call on a vite config.
 // Prevents the AI from accidentally removing our host security bypass.
 function ensureViteAllowedHosts(content: string): string {
@@ -52,6 +64,9 @@ export const patchFile = () =>
         let updated = current.replace(oldString, newString)
         if (VITE_CONFIG_NAMES.has(basename)) {
           updated = ensureViteAllowedHosts(updated)
+        }
+        if (path.endsWith('.css')) {
+          updated = sanitizeCss(updated)
         }
         await sandbox.writeFiles([{ path, content: Buffer.from(updated, 'utf8') }])
         return { success: true, path, message: `Patched ${path}` }

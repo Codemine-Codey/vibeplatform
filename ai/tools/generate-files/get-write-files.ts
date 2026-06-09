@@ -17,6 +17,25 @@ const VITE_CONFIG_NAMES = new Set([
   'vite.config.mjs',
 ])
 
+// Strip CSS that would crash PostCSS and break the entire preview.
+// @apply with unknown classes and bare Tailwind class names (no colon) are the two
+// main offenders — both cause Vite to return 500 for ALL requests, making the
+// preview blank and the error bridge unreachable.
+function sanitizeCss(css: string): string {
+  return css
+    .split('\n')
+    .filter(line => {
+      const t = line.trim()
+      if (!t) return true
+      if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@tailwind') || t.startsWith('@layer') || t.startsWith('@theme') || t.startsWith('@import') || t.startsWith(':root') || t.startsWith('.') || t.startsWith('#') || t.startsWith('&')) return true
+      if (t.startsWith('@apply')) return false          // @apply with unknown colors crashes PostCSS
+      if (t.includes('{') || t.includes('}')) return true
+      if (t.endsWith(';') && !t.includes(':')) return false  // bare Tailwind class names e.g. tracking-wide;
+      return true
+    })
+    .join('\n')
+}
+
 // Injected into index.html of every generated app so runtime JS errors are
 // captured and forwarded to the parent window via postMessage (Plan D).
 const ERROR_BRIDGE_SCRIPT = `<script>
@@ -99,6 +118,9 @@ export function getWriteFiles({ sandbox, toolCallId, writer }: Params) {
       }
       if (basename === 'index.html') {
         return { ...file, content: injectErrorBridge(file.content) }
+      }
+      if (file.path.endsWith('.css')) {
+        return { ...file, content: sanitizeCss(file.content) }
       }
       return file
     })
