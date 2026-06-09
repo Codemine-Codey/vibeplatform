@@ -1,7 +1,6 @@
 import { cn } from '@/lib/utils'
 import { ZapIcon, LayoutDashboardIcon } from 'lucide-react'
 import Link from 'next/link'
-import { ThemeToggle } from '@/components/theme-toggle'
 
 interface Props {
   className?: string
@@ -36,8 +35,6 @@ export async function Header({ className, page = 'builder' }: Props) {
             New Project
           </Link>
         )}
-
-        <ThemeToggle />
 
         {/* User avatar placeholder */}
         <div className="w-7 h-7 rounded-full bg-foreground/10 border border-primary/20 flex items-center justify-center text-xs font-semibold text-foreground/70 select-none">

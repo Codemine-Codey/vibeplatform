@@ -18,12 +18,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="en" className="dark">
-      {/* Inline script runs before paint — reads localStorage and applies theme class
-          to avoid a flash of wrong theme on load. Default is dark. */}
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: `(function(){var t=localStorage.getItem('cm-theme');document.documentElement.classList.toggle('dark',t?t==='dark':true)})()` }} />
-      </head>
+    <html lang="en">
       <body className="antialiased">
         <Suspense fallback={null}>
           <NuqsAdapter>
