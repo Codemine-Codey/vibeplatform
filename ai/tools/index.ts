@@ -9,6 +9,7 @@ import { patchFile } from './patch-file'
 import { planProject } from './plan-project'
 import { readFile } from './read-file'
 import { runCommand } from './run-command'
+import { visualCheck } from './visual-check'
 
 interface Params {
   modelId: string
@@ -26,6 +27,7 @@ export function tools({ modelId, writer }: Params) {
     readFile: readFile(),
     patchFile: patchFile(),
     planProject: planProject(),
+    visualCheck: visualCheck(),
   }
 }
 
