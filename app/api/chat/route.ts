@@ -436,6 +436,57 @@ async function runPipeline({
     // Non-fatal — proceed even if tsc check fails to start
   }
 
+  // ── Step 4.6: Production build verification (blocking) ────────────────────
+  // vite build catches ALL compilation errors — TypeScript, PostCSS, missing
+  // imports — in one strict pass before the dev server starts. If it fails,
+  // the AI gets the exact error and must fix it before the preview is shown.
+  // This is how Lovable/Bolt prevent blank previews: build must pass first.
+  try {
+    const buildCmd = await sandbox.runCommand({
+      detached: true,
+      cmd: 'bash',
+      args: ['-c', '(bun run build 2>&1; echo "##EXIT:$?") | tee /tmp/cm-build.log'],
+    })
+    writer.write({
+      id: buildCmd.cmdId,
+      type: 'data-run-command',
+      data: { sandboxId, commandId: buildCmd.cmdId, command: 'vite', args: ['build'], status: 'executing' },
+    })
+    await Promise.race([
+      buildCmd.wait(),
+      new Promise<void>((_, reject) => setTimeout(() => reject(new Error('build timeout')), 90_000)),
+    ])
+  } catch { /* non-zero exit or timeout — read log below for details */ }
+
+  // Read build log and emit errors if build failed
+  try {
+    const logStream = await sandbox.readFile({ path: '/tmp/cm-build.log' })
+    if (logStream) {
+      const chunks: Buffer[] = []
+      for await (const c of logStream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as string))
+      const log = Buffer.concat(chunks).toString('utf8')
+      const exitMatch = log.match(/##EXIT:(\d+)/)
+      if (exitMatch && exitMatch[1] !== '0') {
+        const relevant = log.split('\n')
+          .filter(l => /error|Error|Cannot find|does not exist|postcss|Unexpected token/i.test(l))
+          .filter(l => !l.includes('##EXIT'))
+          .slice(0, 20).join('\n').trim()
+        const summary = relevant || log.replace(/##EXIT:\d+/, '').trim().slice(0, 1000)
+        writer.write({
+          id: 'srv-build',
+          type: 'data-report-errors',
+          data: {
+            summary: `Build failed — fix these errors before the preview can load:\n\n${summary}`,
+            paths: [],
+          },
+        })
+        console.warn('[build-check] Build failed:', summary.slice(0, 200))
+      }
+    }
+    // Cleanup
+    sandbox.runCommand({ detached: true, cmd: 'rm', args: ['-f', '/tmp/cm-build.log'] }).catch(() => {})
+  } catch { /* non-fatal — proceed to dev server */ }
+
   // ── Step 5: Server starts dev server (background — runs forever) ──────────
   writer.write({
     id: 'srv-dev',
