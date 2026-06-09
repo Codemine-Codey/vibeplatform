@@ -51,7 +51,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           console.error('AI communication error:', error)
           // Show error inside the chat (persistent, can't be missed like a toast)
           useSandboxStore.getState().setStreamError(
-            "Something went wrong on my end — please try again."
+            "Something went wrong — please try again."
           )
           toast.error('Connection issue — please try again.', { duration: 8000 })
         },
