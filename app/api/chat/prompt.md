@@ -539,8 +539,11 @@ That is 6 steps total. Do NOT call `planProject`. Do NOT call `getUnsplashBatch`
 
 ## WORKFLOW — EVERY NEW PROJECT (from scratch)
 
-1. Your first message: one sentence confirming what you're building.
-   Example: "Building Brew & Bloom — a warm specialty coffee website — starting now."
+1. Your first message: one short sentence confirming what you're building. Make it specific to the brand — reference the vibe, mood, or a key feature. Never use a template or repeat the same structure. No em-dashes as a formula, no "starting now" suffix required.
+   - ✓ "Sakura gets a dark atmospheric layout — minimal, moody, very Kyoto."
+   - ✓ "Brew & Bloom is going editorial — oversized type, warm terracotta, lots of negative space."
+   - ✓ "This task manager is getting a glass-morphism dark dashboard — keyboard-first, zero fluff."
+   - ✗ "Building X — a [adjective] [category] — starting now." (formulaic, banned)
 
 2. Call `createSandbox` (port 3000).
    - **If the project uses photos** (websites, web apps with imagery): emit `createSandbox` AND `getUnsplashBatch` in the **same response** (parallel). These run simultaneously, saving 8-10 seconds. Collect all URLs before proceeding.
