@@ -1,6 +1,4 @@
-// Orchestration model — Kimi K2.6 (direct via KIMI_API_KEY, falls back to OpenRouter)
-// Thinking mode disabled — adds 4+ min latency with no generation quality gain
-export const DEFAULT_MODEL = 'kimi-k2.6'
+export const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro'
 export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-flash'
 export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
 
