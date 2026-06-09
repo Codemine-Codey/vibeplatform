@@ -6,6 +6,25 @@ import { tool } from 'ai'
 import description from './run-command.md'
 import z from 'zod/v3'
 
+// Commands that would expose secrets or credentials are blocked entirely.
+const BLOCKED_COMMANDS = new Set(['env', 'printenv', 'set', 'export'])
+
+// Scrub lines that look like KEY=VALUE where the key suggests a secret.
+const SECRET_KEY_PATTERN = /(?:API_KEY|API_TOKEN|TOKEN|SECRET|PASSWORD|PASSWD|ACCOUNT_ID|ACCESS_KEY|PRIVATE_KEY|CF_|OPENROUTER|DEEPSEEK|ANTHROPIC|UNSPLASH|VITE_DB|OIDC)/i
+function redactSecrets(text: string): string {
+  return text
+    .split('\n')
+    .map(line => {
+      // Match KEY=VALUE lines (env output format)
+      if (/^[A-Z0-9_]+=.+$/i.test(line.trim())) {
+        const [key] = line.split('=')
+        if (SECRET_KEY_PATTERN.test(key)) return `${key}=[REDACTED]`
+      }
+      return line
+    })
+    .join('\n')
+}
+
 interface Params {
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
 }
@@ -42,6 +61,11 @@ export const runCommand = ({ writer }: Params) =>
       { sandboxId, command, sudo, wait, args = [] },
       { toolCallId }
     ) => {
+      // Block commands that would dump environment variables (secrets exposure risk)
+      if (BLOCKED_COMMANDS.has(command.toLowerCase().trim())) {
+        return `Command '${command}' is not permitted. Use the readFile or patchFile tools for file operations.`
+      }
+
       writer.write({
         id: toolCallId,
         type: 'data-run-command',
@@ -174,9 +198,9 @@ export const runCommand = ({ writer }: Params) =>
             ' '
           )}\` has finished with exit code ${done.exitCode}.` +
           `Stdout of the command was: \n` +
-          `\`\`\`\n${stdout}\n\`\`\`\n` +
+          `\`\`\`\n${redactSecrets(stdout)}\n\`\`\`\n` +
           `Stderr of the command was: \n` +
-          `\`\`\`\n${stderr}\n\`\`\``
+          `\`\`\`\n${redactSecrets(stderr)}\n\`\`\``
         )
       } catch (error) {
         const richError = getRichError({

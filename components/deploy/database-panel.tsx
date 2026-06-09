@@ -16,6 +16,8 @@ export function DatabasePanel({ className }: Props) {
   const deployProjectName = useSandboxStore((s) => s.deployProjectName)
   const setDatabaseState = useSandboxStore((s) => s.setDatabaseState)
   const setPendingChatMessage = useSandboxStore((s) => s.setPendingChatMessage)
+  const chatStatus = useSandboxStore((s) => s.chatStatus)
+  const aiWorking = chatStatus === 'streaming' || chatStatus === 'submitted'
 
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | undefined>()
@@ -113,7 +115,7 @@ export function DatabasePanel({ className }: Props) {
           <button
             type="button"
             onClick={handleAddDatabase}
-            disabled={!sandboxId}
+            disabled={!sandboxId || aiWorking}
             className="flex items-center gap-2 px-4 py-2 rounded-md bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
           >
             <SparklesIcon className="w-4 h-4" />

@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   MonitorIcon, FolderOpenIcon, TerminalIcon, LoaderIcon, RocketIcon,
   DatabaseIcon, KeyRoundIcon, MaximizeIcon, SmartphoneIcon, ScanIcon,
@@ -33,9 +33,18 @@ interface Props {
 export function RightPanel({ className }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('preview')
   const [viewMode, setViewMode] = useState<ViewMode>('fit')
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const chatStatus = useSandboxStore((s) => s.chatStatus)
   const isWorking = chatStatus === 'streaming' || chatStatus === 'submitted'
+
+  useEffect(() => {
+    function onFullscreenChange() {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+  }, [])
 
   function handleViewMode(mode: ViewMode) {
     if (mode === 'fullscreen') {
@@ -107,7 +116,7 @@ export function RightPanel({ className }: Props) {
             </button>
             <button
               type="button"
-              title="Fullscreen"
+              title="Fullscreen — press Esc to exit"
               onClick={() => handleViewMode('fullscreen')}
               className="flex items-center justify-center w-7 h-7 rounded-sm text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             >
@@ -119,6 +128,14 @@ export function RightPanel({ className }: Props) {
 
       {/* Content */}
       <div className="flex-1 min-h-0 relative" ref={previewContainerRef}>
+        {/* Fullscreen Esc hint — fades out after 3s */}
+        {isFullscreen && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-in fade-in duration-300">
+            <span className="text-xs text-white/60 bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-full">
+              Press Esc to exit fullscreen
+            </span>
+          </div>
+        )}
         <div className={cn('absolute inset-0', activeTab !== 'preview' && 'hidden')}>
           {viewMode === 'mobile' ? (
             <div className="flex items-center justify-center h-full bg-secondary/50 overflow-hidden">

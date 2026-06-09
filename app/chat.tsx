@@ -38,7 +38,7 @@ function BuildingIndicator() {
 
   const isThinking = elapsed < 60
   const label = isThinking ? 'Thinking...' : 'Building your project...'
-  const showHint = elapsed >= 15
+  const showHint = elapsed >= 90
 
   return (
     <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-secondary border border-primary/12 flex flex-col gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -59,7 +59,7 @@ function BuildingIndicator() {
       </div>
       {showHint && (
         <p className="text-[10px] text-foreground/35 leading-snug animate-in fade-in duration-500">
-          Complex projects can take a few minutes — hang tight.
+          Projects can take a few minutes depending on complexity — please wait.
         </p>
       )}
     </div>
