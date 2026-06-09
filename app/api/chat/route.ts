@@ -286,6 +286,133 @@ async function verifyAndRepair({
   }
 }
 
+// Vision verdict: the AI literally SEES the screenshot and judges whether the
+// page is visually broken — catching failures the DOM can't reveal (white-on-white
+// text, off-screen content, overlapping unreadable layouts, raw unstyled HTML).
+// Uses Claude Haiku (vision-capable). Conservative by design; graceful on failure.
+async function visualVerdict(screenshot: Buffer): Promise<{ broken: boolean; reason: string }> {
+  try {
+    const res = await generateText({
+      ...getModelOptions('claude-haiku-4-5-20251001'),
+      maxOutputTokens: 200,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text:
+                'You are a QA checker for a freshly generated web preview (could be a website, web app, or game). ' +
+                'Look at the screenshot and decide if it is BROKEN or FINE.\n\n' +
+                'BROKEN = a blank or solid-color page with no real content; raw unstyled HTML; an error or stack-trace screen; ' +
+                'text that is invisible because it matches the background; or content so overlapping/cut-off it is unusable.\n' +
+                'FINE = any legitimately rendered UI, including minimal/clean designs, hero sections, dashboards, forms, ' +
+                'game start screens, or game canvases.\n\n' +
+                'Be conservative — only answer BROKEN if it clearly is. ' +
+                'Answer with EXACTLY one line: "BROKEN: <short reason>" or "FINE".',
+            },
+            { type: 'image', image: screenshot },
+          ],
+        },
+      ],
+    })
+    const t = res.text.trim()
+    if (/^BROKEN/i.test(t)) return { broken: true, reason: t.replace(/^BROKEN:?\s*/i, '').slice(0, 300) }
+    return { broken: false, reason: '' }
+  } catch (e) {
+    console.warn('[visual-verdict] skipped:', e instanceof Error ? e.message : e)
+    return { broken: false, reason: '' } // graceful — never block on a vision failure
+  }
+}
+
+// ── Headless runtime check (the screenshot/DOM/vision layer) ──────────────────
+// Loads the live preview in a REAL headless browser server-side and inspects what
+// actually rendered — catching the silent failures `vite build` can't see:
+// runtime exceptions, empty #root, hydration crashes, AND (via the vision model)
+// pages that render but look visually broken. Fully graceful: if Chromium can't
+// launch, it returns ok (never worse than before). Returns the error detail (with
+// file paths from the stack where available) so the offending files can be repaired.
+async function headlessRuntimeCheck(
+  url: string
+): Promise<{ ok: boolean; detail: string }> {
+  let browser: unknown = null
+  try {
+    const chromiumMod = await import('@sparticuz/chromium')
+    const puppeteer = await import('puppeteer-core')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chromium = (chromiumMod as any).default ?? chromiumMod
+    const execPath = await chromium.executablePath()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    browser = await (puppeteer as any).launch({
+      args: chromium.args,
+      executablePath: execPath,
+      headless: true,
+    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const page = await (browser as any).newPage()
+    const errors: string[] = []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    page.on('pageerror', (e: any) => errors.push(String(e?.stack || e?.message || e)))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    page.on('console', (msg: any) => {
+      if (msg.type() === 'error') errors.push(String(msg.text()))
+    })
+
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 20_000 }).catch(() => {})
+    await new Promise(r => setTimeout(r, 2500)) // let React mount + effects run
+
+    const rootChildren: number = await page
+      .evaluate(() => {
+        const r = document.getElementById('root')
+        return r ? r.childElementCount : -1
+      })
+      .catch(() => -1)
+    const bodyTextLen: number = await page
+      .evaluate(() => (document.body?.innerText?.trim()?.length ?? 0))
+      .catch(() => 0)
+
+    // The fallback ErrorBoundary renders text, so a true blank = empty root + no text.
+    const blank = rootChildren <= 0 && bodyTextLen === 0
+    if (blank) {
+      return {
+        ok: false,
+        detail:
+          'Blank screen: #root is empty after the page loaded — a component threw during render or returned nothing.\n' +
+          errors.slice(0, 6).join('\n'),
+      }
+    }
+    if (errors.length > 0) {
+      return { ok: false, detail: 'Runtime errors detected on the live page:\n' + errors.slice(0, 8).join('\n') }
+    }
+
+    // DOM looks populated and no console errors — now the AI LOOKS at it.
+    // Catches visually-broken-but-not-erroring pages (white-on-white, off-screen).
+    try {
+      const shot: Buffer = await page.screenshot({ type: 'png', fullPage: false })
+      const verdict = await visualVerdict(shot)
+      if (verdict.broken) {
+        return {
+          ok: false,
+          detail:
+            'The page renders but looks visually broken (a vision check flagged it). Issue: ' +
+            verdict.reason +
+            '\nLikely causes: text color matching the background, a section with zero height, content positioned off-screen, or missing styles. Check src/index.css and src/App.tsx.',
+        }
+      }
+    } catch (e) {
+      console.warn('[runtime-check] screenshot/vision step skipped:', e instanceof Error ? e.message : e)
+    }
+
+    return { ok: true, detail: '' }
+  } catch (e) {
+    console.warn('[runtime-check] skipped (chromium unavailable):', e instanceof Error ? e.message : e)
+    return { ok: true, detail: '' } // graceful — never block the preview
+  } finally {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    try { if (browser) await (browser as any).close() } catch { /* ignore */ }
+  }
+}
+
 export async function POST(req: Request) {
   const [checkResult, { messages }] = await Promise.all([
     checkBotId(),
@@ -727,6 +854,44 @@ async function runPipeline({
         paths: ['src/index.css', 'src/App.tsx'],
       },
     })
+  } else {
+    // ── Step 6.5: Headless runtime check (screenshot/DOM layer) ──────────────
+    // The page serves 200 — but does it actually RENDER? Load it in a real
+    // headless browser and inspect the DOM. Catches runtime exceptions and
+    // blank #root that vite build can't see. If broken, auto-repair the files
+    // from the stack trace, let HMR reload, and re-check once.
+    try {
+      let rt = await headlessRuntimeCheck(url)
+      if (!rt.ok) {
+        console.warn('[runtime-check] page broken:', rt.detail.slice(0, 200))
+        const files = extractErrorFiles(rt.detail)
+        let repaired = false
+        for (const path of files.slice(0, 4)) {
+          const content = await readSandboxFile(sandbox, path)
+          if (!content) continue
+          const fixed = await repairFile(path, content, rt.detail)
+          if (fixed && fixed !== content) {
+            const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : fixed
+            await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
+            repaired = true
+          }
+        }
+        if (repaired) {
+          await new Promise(r => setTimeout(r, 3500)) // let Vite HMR reload
+          rt = await headlessRuntimeCheck(url)
+        }
+        // If still broken after one repair, surface it so the client also auto-fixes.
+        if (!rt.ok) {
+          writer.write({
+            id: 'srv-runtime',
+            type: 'data-report-errors',
+            data: { summary: rt.detail, paths: files.length ? files : ['src/App.tsx'] },
+          })
+        }
+      }
+    } catch (e) {
+      console.warn('[runtime-check] wrapper error (non-fatal):', e instanceof Error ? e.message : e)
+    }
   }
 
   writer.write({

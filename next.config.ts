@@ -3,6 +3,8 @@ import { withBotId } from 'botid/next/config'
 import { withWorkflow } from 'workflow/next'
 
 const nextConfig: NextConfig = {
+  // Chromium + puppeteer must stay external — never bundle the browser binary.
+  serverExternalPackages: ['@sparticuz/chromium', 'puppeteer-core'],
   webpack(config) {
     config.module.rules.push({
       test: /\.md/,
