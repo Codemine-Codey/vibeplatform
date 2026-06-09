@@ -88,6 +88,180 @@
 - `/contact` — Contact form
 - Shared: `<Layout>` with Nav + Footer wrapping all pages
 
+## LAYOUT PATTERNS — USE THESE, NOT GENERIC GRIDS
+
+### Masonry Grid
+Use for portfolios, galleries, press/blog grids — irregular card heights look editorial and intentional.
+```tsx
+// CSS-only masonry via columns (no JS library needed)
+<div className="columns-1 sm:columns-2 lg:columns-3 gap-4 space-y-4">
+  {items.map(item => (
+    <div key={item.id} className="break-inside-avoid rounded-xl overflow-hidden">
+      <img src={item.image} className="w-full object-cover" />
+      <div className="p-4 bg-card">
+        <h3 className="font-semibold">{item.title}</h3>
+        <p className="text-sm text-muted-foreground">{item.desc}</p>
+      </div>
+    </div>
+  ))}
+</div>
+```
+
+### Timeline Layout
+Use for history, process steps, roadmap, blog — gives a strong vertical narrative.
+```tsx
+<div className="relative pl-8 border-l-2 border-border space-y-10">
+  {events.map((event, i) => (
+    <motion.div key={i} className="relative" initial={{ opacity: 0, x: -16 }}
+      animate={inView ? { opacity: 1, x: 0 } : {}} transition={{ delay: i * 0.12 }}>
+      {/* Dot on the line */}
+      <div className="absolute -left-[2.35rem] top-1 w-4 h-4 rounded-full bg-primary border-2 border-background" />
+      <p className="text-xs text-muted-foreground uppercase tracking-widest mb-1">{event.date}</p>
+      <h3 className="text-lg font-semibold mb-2">{event.title}</h3>
+      <p className="text-foreground/70 leading-relaxed">{event.body}</p>
+    </motion.div>
+  ))}
+</div>
+```
+
+### Tabbed Content Sections
+Use for menus, service categories, portfolio filters — keeps pages shorter without losing depth.
+```tsx
+const [tab, setTab] = useState(tabs[0].id)
+<div className="flex flex-col gap-8">
+  {/* Tab bar */}
+  <div className="flex gap-1 p-1 bg-secondary rounded-xl w-fit">
+    {tabs.map(t => (
+      <button key={t.id} onClick={() => setTab(t.id)}
+        className={cn('px-5 py-2 rounded-lg text-sm font-medium transition-all duration-200',
+          tab === t.id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+        {t.label}
+      </button>
+    ))}
+  </div>
+  {/* Animated panel */}
+  <AnimatePresence mode="wait">
+    <motion.div key={tab} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
+      {tabs.find(t => t.id === tab)?.content}
+    </motion.div>
+  </AnimatePresence>
+</div>
+```
+
+### Accordion / FAQ Sections
+Use for FAQs, specs, policies — saves vertical space, feels polished with smooth animation.
+```tsx
+const [open, setOpen] = useState<number | null>(null)
+<div className="divide-y divide-border">
+  {faqs.map((faq, i) => (
+    <div key={i} className="py-5">
+      <button onClick={() => setOpen(open === i ? null : i)}
+        className="flex items-center justify-between w-full text-left gap-4">
+        <span className="font-medium">{faq.question}</span>
+        <motion.span animate={{ rotate: open === i ? 45 : 0 }} transition={{ duration: 0.2 }}
+          className="shrink-0 text-muted-foreground">
+          <PlusIcon className="w-4 h-4" />
+        </motion.span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open === i && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.28, ease: 'easeInOut' }}
+            className="overflow-hidden">
+            <p className="pt-3 text-foreground/70 leading-relaxed">{faq.answer}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  ))}
+</div>
+```
+
+### Pricing Table — Two Variants
+
+**Cards variant** (3 tiers side by side — best for marketing sites):
+```tsx
+<div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+  {plans.map((plan, i) => (
+    <div key={i} className={cn('rounded-2xl border p-8 flex flex-col gap-6',
+      plan.featured ? 'bg-foreground text-background border-foreground scale-105 shadow-2xl' : 'bg-card')}>
+      <div>
+        <p className="text-sm font-medium opacity-60 mb-1">{plan.name}</p>
+        <p className="text-4xl font-black">{plan.price}<span className="text-base font-normal opacity-60">/mo</span></p>
+        <p className="text-sm opacity-70 mt-2">{plan.desc}</p>
+      </div>
+      <ul className="space-y-3 flex-1">
+        {plan.features.map((f, j) => (
+          <li key={j} className="flex items-center gap-2 text-sm">
+            <CheckIcon className="w-4 h-4 shrink-0" />{f}
+          </li>
+        ))}
+      </ul>
+      <button className={cn('w-full py-3 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90',
+        plan.featured ? 'bg-background text-foreground' : 'bg-foreground text-background')}>
+        {plan.cta}
+      </button>
+    </div>
+  ))}
+</div>
+```
+
+**Comparison table variant** (many features vs. few tiers — best for SaaS with many features):
+```tsx
+<div className="overflow-x-auto rounded-2xl border">
+  <table className="w-full text-sm">
+    <thead>
+      <tr className="border-b">
+        <th className="p-5 text-left font-semibold w-1/3">Features</th>
+        {plans.map(p => (
+          <th key={p.name} className={cn('p-5 text-center font-semibold', p.featured && 'bg-primary/5')}>
+            <p className="text-base">{p.name}</p>
+            <p className="text-2xl font-black mt-1">{p.price}</p>
+          </th>
+        ))}
+      </tr>
+    </thead>
+    <tbody className="divide-y">
+      {features.map(feat => (
+        <tr key={feat} className="hover:bg-muted/30 transition-colors">
+          <td className="p-4 font-medium">{feat}</td>
+          {plans.map(p => (
+            <td key={p.name} className={cn('p-4 text-center', p.featured && 'bg-primary/5')}>
+              {p.includes(feat) ? <CheckIcon className="w-4 h-4 mx-auto text-primary" /> : <span className="text-muted-foreground/40">—</span>}
+            </td>
+          ))}
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+```
+
+### Full-Page Scroll Snapping
+Use for immersive storytelling, product showcases, portfolio with distinct chapters.
+```tsx
+// Container: snap mandatory, overflow scroll, full height
+<div className="h-screen overflow-y-scroll snap-y snap-mandatory">
+  {sections.map((section, i) => (
+    <section key={i}
+      className="h-screen snap-start snap-always flex items-center justify-center relative overflow-hidden">
+      {section.content}
+    </section>
+  ))}
+</div>
+// Each section fills exactly one viewport height and snaps into place on scroll.
+// Works with keyboard arrow keys and touch swipe natively — no JS needed.
+// Add a dot-nav for visual progress:
+<nav className="fixed right-6 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-2">
+  {sections.map((_, i) => (
+    <button key={i} onClick={() => scrollToSection(i)}
+      className={cn('w-2 h-2 rounded-full transition-all duration-300',
+        activeSection === i ? 'bg-foreground scale-150' : 'bg-foreground/30')} />
+  ))}
+</nav>
+```
+
 ## Anti-Patterns to Avoid
 - No full-page loading spinners for a static site
 - No Lorem Ipsum — write real placeholder copy matching the brand

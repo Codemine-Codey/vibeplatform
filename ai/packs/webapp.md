@@ -129,6 +129,102 @@ function useLocalStorage<T>(key: string, initial: T) {
 }
 ```
 
+## LAYOUT PATTERNS — USE THESE FOR RICHER UX
+
+### Sticky Sidebar with Scrollable Main
+For dashboards, docs, settings — sidebar stays anchored, content scrolls independently.
+```tsx
+<div className="flex h-screen overflow-hidden">
+  {/* Sticky sidebar */}
+  <aside className="w-60 shrink-0 h-full flex flex-col border-r overflow-y-auto">
+    <div className="p-4 border-b sticky top-0 bg-background z-10">
+      <span className="font-bold">{brand}</span>
+    </div>
+    <nav className="flex-1 p-3 space-y-1">{/* nav links */}</nav>
+    <div className="p-3 border-t">{/* bottom items */}</div>
+  </aside>
+  {/* Scrollable main — sidebar never moves */}
+  <main className="flex-1 overflow-y-auto">
+    <div className="max-w-4xl mx-auto p-6">{/* page content */}</div>
+  </main>
+</div>
+```
+
+### Tabbed Content
+For multi-view dashboards, settings pages, data categories.
+```tsx
+const [tab, setTab] = useState(tabs[0].id)
+<div className="flex flex-col gap-6">
+  <div className="flex gap-1 border-b">
+    {tabs.map(t => (
+      <button key={t.id} onClick={() => setTab(t.id)}
+        className={cn('px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',
+          tab === t.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+        {t.label}
+      </button>
+    ))}
+  </div>
+  <AnimatePresence mode="wait">
+    <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+      {tabs.find(t => t.id === tab)?.content}
+    </motion.div>
+  </AnimatePresence>
+</div>
+```
+
+### Accordion — Settings & Info Sections
+For settings groups, collapsible detail panels, step-by-step guides.
+```tsx
+const [open, setOpen] = useState<string | null>(null)
+{sections.map(s => (
+  <div key={s.id} className="border rounded-xl overflow-hidden">
+    <button onClick={() => setOpen(open === s.id ? null : s.id)}
+      className="flex items-center justify-between w-full p-4 text-left hover:bg-muted/40 transition-colors">
+      <div className="flex items-center gap-3">
+        <s.icon className="w-4 h-4 text-muted-foreground" />
+        <span className="font-medium text-sm">{s.title}</span>
+      </div>
+      <motion.div animate={{ rotate: open === s.id ? 180 : 0 }} transition={{ duration: 0.2 }}>
+        <ChevronDownIcon className="w-4 h-4 text-muted-foreground" />
+      </motion.div>
+    </button>
+    <AnimatePresence initial={false}>
+      {open === s.id && (
+        <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }}
+          exit={{ height: 0 }} transition={{ duration: 0.25, ease: 'easeInOut' }}
+          className="overflow-hidden border-t">
+          <div className="p-4">{s.content}</div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </div>
+))}
+```
+
+### Pricing Cards (for SaaS apps with upgrade flows)
+```tsx
+<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+  {plans.map(plan => (
+    <div key={plan.id} className={cn('rounded-2xl border p-6 flex flex-col gap-4',
+      plan.featured && 'border-primary bg-primary/5 ring-1 ring-primary/20')}>
+      {plan.featured && <span className="text-xs font-semibold text-primary uppercase tracking-widest">Most Popular</span>}
+      <div>
+        <p className="font-semibold">{plan.name}</p>
+        <p className="text-3xl font-black mt-1">{plan.price}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+      </div>
+      <ul className="space-y-2 flex-1 text-sm">
+        {plan.features.map(f => <li key={f} className="flex gap-2"><CheckIcon className="w-4 h-4 text-primary shrink-0 mt-0.5" />{f}</li>)}
+      </ul>
+      <button className={cn('w-full py-2.5 rounded-lg text-sm font-medium transition-opacity hover:opacity-90',
+        plan.featured ? 'bg-primary text-primary-foreground' : 'border border-input hover:bg-accent')}>
+        {plan.cta}
+      </button>
+    </div>
+  ))}
+</div>
+```
+
 ## Anti-Patterns to Avoid
 - No prop drilling past 2 levels — use context
 - No `any` type — define interfaces for all data shapes
