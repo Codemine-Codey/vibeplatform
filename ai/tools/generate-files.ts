@@ -80,11 +80,29 @@ export const generateFiles = ({ writer, modelId }: Params) =>
       const writeFiles = getWriteFiles({ sandbox, toolCallId, writer })
       const uploaded: File[] = []
 
+      // Heartbeat: Flash JSON Output mode generates the entire response before returning.
+      // The stream is silent for 1-4 minutes while Flash works, which causes Vercel's edge
+      // proxy to drop the HTTP/2 connection (ERR_HTTP2_PING_FAILED) even though the function
+      // itself is still alive. Writing a small event every 8s keeps the connection open.
+      let heartbeatId: ReturnType<typeof setInterval> | null = setInterval(() => {
+        try {
+          writer.write({
+            id: toolCallId,
+            type: 'data-generating-files',
+            data: { paths: [], status: 'generating' },
+          })
+        } catch { /* writer may have closed — non-fatal */ }
+      }, 8000)
+      const stopHeartbeat = () => {
+        if (heartbeatId !== null) { clearInterval(heartbeatId); heartbeatId = null }
+      }
+
       // Single getContents call — Flash JSON Output mode supports 384k output tokens,
       // so all files for any project fit in one response. Batching is no longer needed.
       const iterator = getContents({ messages, modelId, paths })
       try {
         for await (const chunk of iterator) {
+          stopHeartbeat() // first data arrived — no longer needed
           if (chunk.files.length > 0) {
             const error = await writeFiles({
               ...chunk,
@@ -100,6 +118,8 @@ export const generateFiles = ({ writer, modelId }: Params) =>
           error,
         })
         console.error('[generateFiles] getContents error:', richError.message)
+      } finally {
+        stopHeartbeat()
       }
 
       // Retry any files that were missed (JSON parse failure, empty content, etc.)

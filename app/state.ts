@@ -27,8 +27,10 @@ interface SandboxStore {
   paths: string[]
   projectName?: string
   sandboxId?: string
+  streamError: string | null
   setAuthState: (s: Partial<Pick<SandboxStore, 'authEnabled' | 'authWorkerUrl'>>) => void
   setChatStatus: (status: ChatStatus) => void
+  setStreamError: (msg: string | null) => void
   setDatabaseState: (s: Partial<Pick<SandboxStore, 'databaseId' | 'databaseName'>>) => void
   setDeployState: (s: Partial<Pick<SandboxStore, 'deployedUrl' | 'deployStatus' | 'deployError' | 'deployProjectName'>>) => void
   setLastFilesUploadedAt: (t: number) => void
@@ -139,11 +141,13 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
   generatedFiles: new Set<string>(),
   lastFilesUploadedAt: undefined,
   paths: [],
+  streamError: null,
   setAuthState: (s) => set(() => ({ ...s })),
   setChatStatus: (status) =>
     set((state) =>
       state.chatStatus === status ? state : { chatStatus: status }
     ),
+  setStreamError: (msg) => set(() => ({ streamError: msg })),
   setDatabaseState: (s) => set(() => ({ ...s })),
   setDeployState: (s) => set(() => ({ ...s })),
   setLastFilesUploadedAt: (t) => set(() => ({ lastFilesUploadedAt: t })),

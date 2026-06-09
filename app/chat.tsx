@@ -102,6 +102,8 @@ export function Chat({ className }: Props) {
 
   const setChatStatus = useSandboxStore((s) => s.setChatStatus)
   const setProjectName = useSandboxStore((s) => s.setProjectName)
+  const setStreamError = useSandboxStore((s) => s.setStreamError)
+  const streamError = useSandboxStore((s) => s.streamError)
   const sandboxId = useSandboxStore((s) => s.sandboxId)
 
   // Extract project name from AI's first message: "Building [Name] —..."
@@ -127,11 +129,12 @@ export function Chat({ className }: Props) {
   const validateAndSubmitMessage = useCallback(
     (text: string) => {
       if (text.trim()) {
+        setStreamError(null) // clear any previous error
         sendMessage({ text })
         setInput('')
       }
     },
-    [sendMessage, setInput]
+    [sendMessage, setInput, setStreamError]
   )
 
   useEffect(() => {
@@ -177,6 +180,14 @@ export function Chat({ className }: Props) {
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
+      )}
+
+      {/* Stream error — shows when connection dropped, cleared on next send */}
+      {streamError && !isWorking && (
+        <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-destructive/8 border border-destructive/20 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <span className="inline-block w-2 h-2 rounded-full bg-destructive/70 shrink-0" />
+          <span className="text-xs font-mono text-foreground/70 leading-snug flex-1">{streamError}</span>
+        </div>
       )}
 
       {/* Building indicator — shows above the input while AI is working */}

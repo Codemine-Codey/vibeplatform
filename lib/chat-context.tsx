@@ -7,7 +7,7 @@ import { DataPart } from '@/ai/messages/data-parts'
 import { DataUIPart } from 'ai'
 import { createContext, useContext, useMemo, useRef } from 'react'
 import { unstable_batchedUpdates } from 'react-dom'
-import { useDataStateMapper } from '@/app/state'
+import { useDataStateMapper, useSandboxStore } from '@/app/state'
 import { mutate } from 'swr'
 import { toast } from 'sonner'
 
@@ -43,14 +43,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         },
         onError: (error) => {
           const msg = error?.message ?? ''
-          // 'terminated' is expected when stream ends due to sandbox timeout or
-          // network drop — not a user-visible error
+          // 'terminated' is expected when the AI stream ends cleanly — not user-visible
           if (msg === 'terminated' || msg.includes('terminated')) {
             console.warn('Stream terminated:', error)
             return
           }
-          toast.error('Something went wrong. Please try again.')
           console.error('AI communication error:', error)
+          // Show error inside the chat (persistent, can't be missed like a toast)
+          useSandboxStore.getState().setStreamError(
+            "Something went wrong on my end — please try again."
+          )
+          toast.error('Connection issue — please try again.', { duration: 8000 })
         },
       }),
     []
