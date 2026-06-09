@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { DatabaseIcon, PlayIcon, TableIcon } from 'lucide-react'
+import { DatabaseIcon, PlayIcon, SparklesIcon, TableIcon } from 'lucide-react'
 import { useSandboxStore } from '@/app/state'
 import { cn } from '@/lib/utils'
 
@@ -15,6 +15,7 @@ export function DatabasePanel({ className }: Props) {
   const databaseName = useSandboxStore((s) => s.databaseName)
   const deployProjectName = useSandboxStore((s) => s.deployProjectName)
   const setDatabaseState = useSandboxStore((s) => s.setDatabaseState)
+  const setPendingChatMessage = useSandboxStore((s) => s.setPendingChatMessage)
 
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | undefined>()
@@ -46,11 +47,15 @@ export function DatabasePanel({ className }: Props) {
     }
   }
 
-  async function handleCreate() {
-    if (!sandboxId) return
+  function handleAddDatabase() {
+    setPendingChatMessage(
+      "I'd like to add a database to my project. Can you help me set it up?"
+    )
+  }
+
+  async function handleCreate(name: string) {
     setCreating(true)
     setCreateError(undefined)
-    const name = `cm-db-${sandboxId.slice(0, 8)}`
     try {
       const res = await fetch('/api/database', {
         method: 'POST',
@@ -94,32 +99,25 @@ export function DatabasePanel({ className }: Props) {
     <div className={cn('flex flex-col h-full bg-background border border-primary/18 rounded-sm overflow-hidden', className)}>
       {/* No database yet */}
       {!databaseId && (
-        <div className="flex flex-col items-center justify-center flex-1 gap-3 p-6 text-center">
-          <DatabaseIcon className="w-8 h-8 text-muted-foreground" />
-          <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium">No database</p>
-            <p className="text-xs text-muted-foreground">Add a database to persist data for your project</p>
+        <div className="flex flex-col items-center justify-center flex-1 gap-4 p-6 text-center">
+          <div className="flex flex-col items-center gap-2">
+            <DatabaseIcon className="w-8 h-8 text-muted-foreground" />
+            <p className="text-sm font-medium">No database yet</p>
+            <p className="text-xs text-muted-foreground leading-relaxed max-w-[220px]">
+              Click below and the AI will ask what you need, then set it up automatically.
+            </p>
           </div>
           {createError && (
             <p className="text-xs text-destructive">{createError}</p>
           )}
           <button
             type="button"
-            onClick={handleCreate}
-            disabled={creating || !sandboxId}
+            onClick={handleAddDatabase}
+            disabled={!sandboxId}
             className="flex items-center gap-2 px-4 py-2 rounded-md bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            {creating ? (
-              <>
-                <div className="w-4 h-4 border-2 border-background/30 border-t-background rounded-full animate-spin" />
-                Creating...
-              </>
-            ) : (
-              <>
-                <DatabaseIcon className="w-4 h-4" />
-                Add Database
-              </>
-            )}
+            <SparklesIcon className="w-4 h-4" />
+            Add Database
           </button>
           {!sandboxId && (
             <p className="text-xs text-muted-foreground">Generate a project first</p>

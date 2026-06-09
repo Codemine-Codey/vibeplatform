@@ -70,21 +70,39 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Workspace not found or has expired' }, { status: 404 })
   }
 
-  // Step 1: Build — use bun if available (matches the pipeline installer), fallback to pnpm
+  // Step 1: Build — capture output to file so we can return the actual error
   try {
     const buildCmd = await sandbox.runCommand({
       detached: true,
       cmd: 'bash',
-      args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run build || pnpm build'],
+      args: [
+        '-c',
+        '(command -v bun >/dev/null 2>&1 && bun run build || pnpm build) > /tmp/deploy-build.log 2>&1; echo "##EXIT:$?" >> /tmp/deploy-build.log',
+      ],
     })
     await Promise.race([
       buildCmd.wait(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Build timed out after 90s')), 90_000)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Build timed out after 120s')), 120_000)),
     ])
+
+    // Read log to check exit code
+    try {
+      const logBuf = await readSandboxFile(sandbox, '/tmp/deploy-build.log')
+      const log = logBuf.toString('utf8')
+      const exitMatch = log.match(/##EXIT:(\d+)/)
+      const exitCode = exitMatch ? parseInt(exitMatch[1], 10) : null
+      if (exitCode !== 0) {
+        const errorLines = log.replace(/##EXIT:\d+/, '').trim().split('\n').slice(-30).join('\n')
+        console.error('[deploy] build failed:\n', errorLines)
+        return NextResponse.json({ error: `Build failed:\n${errorLines}` }, { status: 500 })
+      }
+    } catch {
+      // Can't read log — proceed and hope build succeeded
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown'
-    console.error('[deploy] build failed:', msg)
-    return NextResponse.json({ error: `Build failed: ${msg}` }, { status: 500 })
+    console.error('[deploy] build error:', msg)
+    return NextResponse.json({ error: `Build error: ${msg}` }, { status: 500 })
   }
 
   // Step 2: List dist/ files

@@ -105,6 +105,8 @@ export function Chat({ className }: Props) {
   const setStreamError = useSandboxStore((s) => s.setStreamError)
   const streamError = useSandboxStore((s) => s.streamError)
   const sandboxId = useSandboxStore((s) => s.sandboxId)
+  const pendingChatMessage = useSandboxStore((s) => s.pendingChatMessage)
+  const setPendingChatMessage = useSandboxStore((s) => s.setPendingChatMessage)
 
   // Extract project name from AI's first message: "Building [Name] —..."
   useEffect(() => {
@@ -140,6 +142,14 @@ export function Chat({ className }: Props) {
   useEffect(() => {
     setChatStatus(status)
   }, [status, setChatStatus])
+
+  // Auto-submit messages injected by other UI panels (e.g. "Add Database" button)
+  useEffect(() => {
+    if (!pendingChatMessage || isWorking) return
+    const msg = pendingChatMessage
+    setPendingChatMessage(null)
+    validateAndSubmitMessage(msg)
+  }, [pendingChatMessage, isWorking, setPendingChatMessage, validateAndSubmitMessage])
 
   return (
     <Panel className={className}>

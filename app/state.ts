@@ -7,6 +7,8 @@ import { create } from 'zustand'
 import { saveProject } from '@/lib/projects'
 
 interface SandboxStore {
+  pendingChatMessage: string | null
+  setPendingChatMessage: (msg: string | null) => void
   addBrowserError: (msg: string) => void
   addGeneratedFiles: (files: string[]) => void
   addLog: (data: { sandboxId: string; cmdId: string; log: CommandLog }) => void
@@ -129,6 +131,8 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
   },
   addPaths: (paths) =>
     set((state) => ({ paths: [...new Set([...state.paths, ...paths])] })),
+  pendingChatMessage: null,
+  setPendingChatMessage: (msg) => set(() => ({ pendingChatMessage: msg })),
   chatStatus: 'ready',
   clearGeneratedFiles: () => set(() => ({ generatedFiles: new Set<string>() })),
   commands: [],
