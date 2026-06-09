@@ -15,6 +15,7 @@ import { checkBotId } from 'botid/server'
 import { tools } from '@/ai/tools'
 import { generateFiles } from '@/ai/tools/generate-files'
 import { getUnsplashBatch } from '@/ai/tools/get-unsplash-batch'
+import { planProject } from '@/ai/tools/plan-project'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
 import { formatBrief } from '@/ai/types/project-brief'
@@ -25,7 +26,7 @@ import { SCAFFOLD_FILES, getScaffoldFiles } from '@/ai/tools/scaffold'
 import { getWarmEntry } from '@/ai/warm-pool'
 import prompt from './prompt.md'
 
-export const maxDuration = 300
+export const maxDuration = 800
 
 type Writer = UIMessageStreamWriter<UIMessage<never, DataPart>>
 
@@ -294,8 +295,8 @@ async function runPipeline({
     `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
     `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
     `WORKFLOW: ${skill === 'website'
-      ? `(1) call getUnsplashBatch for all images, (2) call generateFiles with sandboxId="${sandboxId}" and ALL file paths — list every file you need in the paths array`
-      : `(1) call generateFiles with sandboxId="${sandboxId}" and ALL file paths — list every file you need in the paths array`}\n` +
+      ? `(1) call getUnsplashBatch for all images in parallel with your first message, (2) call planProject with the complete file list (every file path you will generate), (3) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`
+      : `(1) call planProject with the complete file list (every path you will generate), (2) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`}\n` +
     (skill !== 'website' ? `getUnsplashBatch is NOT available for this skill type — do not call it.\n` : '') +
     `If you need packages not in the scaffold, include package.json in your generateFiles paths.\n`
 
@@ -307,14 +308,16 @@ async function runPipeline({
     ? {
         generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
         getUnsplashBatch: getUnsplashBatch(),
+        planProject: planProject(),
       }
     : {
         generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
+        planProject: planProject(),
       }
 
-  // website: text + getUnsplashBatch + generateFiles (max 4 steps)
-  // app/game: text + generateFiles only — 2 steps, no room for a second generateFiles call
-  const maxSteps = skill === 'website' ? 4 : 2
+  // website: text + getUnsplashBatch + planProject + generateFiles (max 4 steps)
+  // app/game: text + planProject + generateFiles (3 steps)
+  const maxSteps = skill === 'website' ? 4 : 3
 
   const aiResult = streamText({
     ...getModelOptions(DEFAULT_MODEL),

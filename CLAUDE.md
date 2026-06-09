@@ -8,50 +8,47 @@
 
 ## Current Build Status (as of 2026-06-09)
 
-**Phase 0 is complete.** Full pipeline working: DeepSeek v4 Pro → Vercel Sandbox → files generated → dev server runs → preview URL live in browser. All compatibility bugs resolved. Auto-refresh on file upload working.
+**Phase 0 is complete.** Full pipeline working: DeepSeek → Vercel Sandbox → files generated → dev server runs → preview URL live in browser. All compatibility bugs resolved. Auto-refresh on file upload working.
 
 **Phase 1 is complete.** Prompt expansion pipeline (classifier + expander), Unsplash tool, readFile/patchFile tools, full skill system prompts wired.
 
 **Phase 1.5 is complete.** UI redesign, skill packs, CubeLoader overlay, streaming file-by-file generation, Vite allowedHosts patch, preview error bridge.
 
-**Phase 1.6 is complete — Speed Optimizations (9 items, ~35-50s total savings):**
-1. DeepSeek KV prompt caching: stable content before dynamic brief — cache hits on steps 2-20
-2. ~~Sandbox pre-warming~~ — REMOVED (caused 4-min infinite hangs when OIDC token expired)
-3. Intent classifier overhaul: explicit Build / Vague / Not-a-build taxonomy — no more "hey" starting a project
-4. getUnsplashBatch: all images in one `Promise.all` call — was sequential
-5. Base scaffold: 8 files pre-written to sandbox (package.json, vite.config.ts, tailwind, tsconfigs, .npmrc)
-6. Parallel tool calls: prompt instructs AI to emit createSandbox + getUnsplashBatch simultaneously
-7. Background pnpm install: starts in sandbox immediately after scaffold write — AI's `pnpm install` finishes in ~5-15s instead of ~60s
-8. planProject tool: AI commits to complete file list before writing code — fewer missing-import bugs
-9. Prompt cache ordering: systemPrompt = base → skill pack → brief (dynamic last)
+**Phase 1.6 is complete — Speed Optimizations (9 items, ~35-50s total savings).**
 
-**Phase 1.7 is complete — UX + Edit Speed improvements (2026-06-07):**
-- Removed "What's this?" button from header (cleaner UI)
-- Context-aware thinking statements: AI text now shows as SparklesIcon + prose (not code block); RunCommand shows "Installing dependencies..." / "Starting preview server..." / etc.; GenerateFiles shows "Writing code..." → "Built N files"
-- File generation animation fixed: UI now shows growing file list (file1 ✓ → file1 ✓, file2 ✓ → ...) instead of resetting to 1 file each time
-- patchFile-first edit rules: prompt now explicitly bans generateFiles for edits under ~30 lines; patchFile is the hard default with concrete examples; no pnpm dev restart after patches (hot-reload handles it)
-- gateway.ts: `include_reasoning: false` fetch wrapper injected for all OpenRouter calls — disables extended thinking on thinking models (Kimi K2.6 etc.) to avoid 300s serverless timeout
-- Tested Kimi K2.6 — too slow (7min total, 5min fixes), reverted to DeepSeek V4 Pro via OpenRouter
-
-**Architecture: DeepSeek V4 Pro (orchestration) + V4 Flash (file generation) via OpenRouter + CF AI Gateway**
-- Pro model: `deepseek/deepseek-v4-pro` via OpenRouter (OPENROUTER_API_KEY)
-- Flash model: `deepseek-v4-flash` via CF AI Gateway (AI_GATEWAY_BASE_URL)
-- `include_reasoning: false` injected in all OpenRouter calls (safe no-op for non-thinking models)
-- `DEFAULT_MODEL='deepseek-v4-pro'`, `FILE_GENERATION_MODEL='deepseek-v4-flash'`
+**Phase 1.7 is complete — UX + Edit Speed improvements (2026-06-07).**
 
 **Phase 1.8 — Template System (COMPLETE as of 2026-06-07):**
-- Scaffold + Personality split: AI writes only 1-2 personality files; full game/site code pre-loaded
-- Games: Snake, Tetris, Flappy Bird, Pong — complete Canvas/React games with start screen, physics, audio, high score
-- Websites: SaaS landing (glassmorphism, dark premium), Restaurant (editorial dark, warm amber)
-- `ai/templates/detect.ts` — pure regex template routing, ~0ms, no LLM call
-- Classifier returns `templateId` alongside `skill`; route.ts threads it → tools → createSandbox
-- `createSandbox` writes all scaffold files + starts pnpm install; returns template instruction to AI
-- AI told which personality files to write (src/theme.ts for games, src/brand.ts + src/content.ts for websites)
-- AI never says "template" or "scaffold" to users (enforced in prompt.md)
-- Preview address bar white-labeled: shows `live.codemineapp.com` instead of `*.sandbox.vercel.app`
-- Target achieved: games ~30-40s (was 3-5min), websites ~45-60s
+- Games: Snake, Tetris, Flappy Bird, Pong — complete Canvas/React games pre-loaded
+- Websites: SaaS landing, Restaurant — full scaffold + AI writes personality files only
+- Target: games ~30-40s, websites ~45-60s
 
 **Phase 1.9 is complete — Design System Upgrade (2026-06-09):**
+- framer-motion@^11.18.2 pre-installed in scaffold
+- ProjectBrief with visualNarrative, layoutStyle, motionIntensity
+- Font pairing lookup table (9 brand archetypes → Google Fonts pairs)
+- Motion patterns in skill packs (Framer Motion primitives)
+
+**Phase 2.0 is complete — Reliability + Performance overhaul (2026-06-09):**
+- **All models → DeepSeek V4 Flash via OpenRouter** — DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL all `deepseek/deepseek-v4-flash`. Only ERROR_MODEL stays Haiku.
+- **JSON Output mode** — `get-contents.ts` now uses `response_format: {type: 'json_object'}` via local fetch-wrapper provider. Flash outputs structured JSON `{files:[{path,content}]}`. Pre-write validation: skips empty files, applies CSS sanity fix in-memory before disk write.
+- **maxOutputTokens → 384000** — Flash supports 384k output (was artificially capped at 64k, the real truncation cause). File batching removed — all files generated in one call.
+- **planProject re-enabled in pipeline** — AI commits to full file manifest before generateFiles. Added to pipelineTools. maxSteps: app/game 2→3, website stays 4.
+- **maxDuration → 800s** — Vercel Pro plan limit (was 300s). 13 min budget for entire pipeline.
+- **Conversational AI persona** — RESPONSE STYLE rewritten: warm, direct, engaged tone with personality. Banned corporate filler phrases.
+- **Dashboard** — `/dashboard` route, project grid (max 10), stats cards, delete, localStorage persistence.
+- **Project name extraction** — AI's first message parsed for "Building X —" pattern, stored in Zustand.
+- **Server-side CSS sanity check** — route.ts auto-fixes wrong `@import tailwindcss/...` and appends missing `:root` variables before returning preview URL.
+- **visualCheck tool** — Claude Haiku reviews source files after dev server starts; catches blank pages, broken imports, wrong CSS.
+- **Sandbox timeout → 20 min** (1,200,000ms).
+
+**Architecture: All Flash (orchestration + generation + edits) + Haiku (errors only)**
+- All generation: `deepseek/deepseek-v4-flash` via OpenRouter (OPENROUTER_API_KEY)
+- File generation: JSON Output mode, 384k tokens, no batching
+- Error/visual check: `claude-haiku-4-5-20251001` via Anthropic SDK direct
+- `DEFAULT_MODEL='deepseek/deepseek-v4-flash'`, `FILE_GENERATION_MODEL='deepseek/deepseek-v4-flash'`, `EDIT_MODEL='deepseek/deepseek-v4-flash'`
+
+**Phase 1.9 was complete — Design System Upgrade (2026-06-09):**
 - Model routing: DEFAULT_MODEL + FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-pro' via OpenRouter (thinking disabled). EDIT_MODEL + ERROR_MODEL = 'claude-haiku-4-5-20251001' via Anthropic SDK direct.
 - framer-motion@^11.18.2 added to scaffold package.json (pre-installed in every project)
 - src/index.css added to scaffold with complete shadcn/ui CSS variable defaults — AI must always override with brand-specific colors (safety net if AI skips it)
@@ -103,8 +100,8 @@ This pattern:
 | Layer | Technology | Notes |
 |---|---|---|
 | Platform host | Vercel (Next.js 16, App Router, Turbopack) | |
-| AI — orchestration | DeepSeek V4 Pro via OpenRouter | New projects; `include_reasoning: false` injected |
-| AI — file generation | DeepSeek V4 Flash via CF AI Gateway | `get-contents.ts` nested call |
+| AI — orchestration | DeepSeek V4 Flash via OpenRouter | All new projects + edits; `include_reasoning: false` injected |
+| AI — file generation | DeepSeek V4 Flash via OpenRouter | JSON Output mode, 384k tokens, `get-contents.ts` |
 | AI — iterations/edits | DeepSeek V4 Flash via CF AI Gateway | Fast, cached |
 | AI — error analysis | DeepSeek V4 Flash via CF AI Gateway | `errors/route.ts` |
 | AI SDK | Vercel AI SDK v6 (`ai@6.0.105`) | `@ai-sdk/openai@3.0.37` |
@@ -168,7 +165,7 @@ User message
 ```
 /
 ├── ai/
-│   ├── constants.ts          DEFAULT_MODEL='deepseek-v4-pro', FILE_GENERATION_MODEL='deepseek-v4-flash'
+│   ├── constants.ts          DEFAULT_MODEL=FILE_GENERATION_MODEL=EDIT_MODEL='deepseek/deepseek-v4-flash'
 │   ├── gateway.ts            createOpenAI → provider.chat() forces Chat Completions
 │   ├── tools/
 │   │   ├── create-sandbox.ts  OSS (unchanged)

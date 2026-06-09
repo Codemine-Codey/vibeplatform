@@ -1,21 +1,16 @@
-// Primary model — DeepSeek V4 Pro via OpenRouter (thinking disabled)
-// Used for: orchestration, planning, classifier, expander, pipeline AI
-export const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro'
-
-// File generation model — DeepSeek V4 Flash via OpenRouter — fast code writer
-// Nested call inside generateFiles tool; Pro plans architecture, Flash writes the code
+// All generation models — DeepSeek V4 Flash via OpenRouter (384k output, 1M context)
+// Flash handles everything: orchestration, planning, file generation, edits.
+export const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash'
 export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-flash'
+export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
 
-// Edit model — Claude Haiku 4.5 for user edit turns (fast, surgical, cheap)
-export const EDIT_MODEL = 'claude-haiku-4-5-20251001'
-
-// Error analysis model — Claude Haiku 4.5 (precise at reading stack traces + fixing code)
+// Error analysis model — Claude Haiku 4.5 (precise at stack traces, visual check, error fixes)
 export const ERROR_MODEL = 'claude-haiku-4-5-20251001'
 
 export const SUPPORTED_MODELS: string[] = [DEFAULT_MODEL]
 
 export const MODEL_NAMES: Record<string, string> = {
-  'deepseek/deepseek-v4-pro': 'Builder',
+  'deepseek/deepseek-v4-flash': 'Builder',
   'claude-haiku-4-5-20251001': 'Builder',
 }
 
