@@ -6,7 +6,7 @@ const anthropicProvider = createAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY ?? '',
 })
 
-// OpenRouter — DeepSeek V4 Pro + any other OpenRouter-hosted models
+// OpenRouter — DeepSeek V4 Pro, Kimi K2.6, and any other OpenRouter-hosted models
 // include_reasoning: false injected via fetch wrapper to disable extended thinking
 const openrouterProvider = createOpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
@@ -25,6 +25,13 @@ const openrouterProvider = createOpenAI({
   },
 })
 
+// Direct Kimi API (api.moonshot.ai) — used when KIMI_API_KEY is set.
+// Falls back to OpenRouter (moonshotai/kimi-k2.6) when key is absent.
+const kimiProvider = createOpenAI({
+  baseURL: 'https://api.moonshot.ai/v1',
+  apiKey: process.env.KIMI_API_KEY ?? '',
+})
+
 // Direct DeepSeek API via CF AI Gateway (Flash model for error analysis fallback)
 const deepseekProvider = createOpenAI({
   baseURL: process.env.AI_GATEWAY_BASE_URL ?? 'https://api.deepseek.com/v1',
@@ -38,7 +45,15 @@ export interface ModelOptions {
 }
 
 export function getModelOptions(modelId: string): ModelOptions {
-  // OpenRouter-hosted models (deepseek/, meta-llama/, etc.)
+  // Kimi models — direct API when KIMI_API_KEY is set, OpenRouter otherwise
+  if (modelId.startsWith('kimi-')) {
+    if (process.env.KIMI_API_KEY) {
+      return { model: kimiProvider.chat(modelId) }
+    }
+    // Fallback: route through OpenRouter using the moonshotai/ namespace
+    return { model: openrouterProvider.chat(`moonshotai/${modelId}`) }
+  }
+  // OpenRouter-hosted models (deepseek/, moonshotai/, meta-llama/, etc.)
   if (modelId.includes('/')) {
     return { model: openrouterProvider.chat(modelId) }
   }
