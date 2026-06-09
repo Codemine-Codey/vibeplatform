@@ -36,6 +36,21 @@ function sanitizeCss(css: string): string {
     .join('\n')
 }
 
+// Strip <svg> blocks from JSX/TSX/HTML files and replace with a clean
+// neutral placeholder. LLMs write SVGs despite prompt bans — post-processing
+// is the only reliable enforcement. A neutral placeholder looks intentional;
+// raw SVG markup looks broken and unprofessional.
+function stripSvgs(content: string, path: string): string {
+  if (!/\.(tsx|jsx|ts|js|html)$/.test(path)) return content
+  const isHtml = path.endsWith('.html')
+  // Replace entire <svg>...</svg> blocks (including multiline, nested content)
+  return content.replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, () =>
+    isHtml
+      ? '<span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gray-100"></span>'
+      : '<span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-foreground/10" />'
+  )
+}
+
 // Injected into index.html of every generated app so runtime JS errors are
 // captured and forwarded to the parent window via postMessage (Plan D).
 const ERROR_BRIDGE_SCRIPT = `<script>
@@ -122,7 +137,7 @@ export function getWriteFiles({ sandbox, toolCallId, writer }: Params) {
       if (file.path.endsWith('.css')) {
         return { ...file, content: sanitizeCss(file.content) }
       }
-      return file
+      return { ...file, content: stripSvgs(file.content, file.path) }
     })
 
     try {

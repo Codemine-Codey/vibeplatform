@@ -16,6 +16,16 @@ function sanitizeCss(css: string): string {
   }).join('\n')
 }
 
+function stripSvgs(content: string, path: string): string {
+  if (!/\.(tsx|jsx|ts|js|html)$/.test(path)) return content
+  const isHtml = path.endsWith('.html')
+  return content.replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, () =>
+    isHtml
+      ? '<span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gray-100"></span>'
+      : '<span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-foreground/10" />'
+  )
+}
+
 // Re-applies allowedHosts after any patchFile call on a vite config.
 // Prevents the AI from accidentally removing our host security bypass.
 function ensureViteAllowedHosts(content: string): string {
@@ -67,6 +77,8 @@ export const patchFile = () =>
         }
         if (path.endsWith('.css')) {
           updated = sanitizeCss(updated)
+        } else {
+          updated = stripSvgs(updated, path)
         }
         await sandbox.writeFiles([{ path, content: Buffer.from(updated, 'utf8') }])
         return { success: true, path, message: `Patched ${path}` }

@@ -417,81 +417,64 @@ async function runPipeline({
     // Non-fatal — dev server may still work if background install finished.
   }
 
-  // ── Step 4.5: TypeScript compilation check (background) ──────────────────
-  // Run tsc --noEmit after packages are installed. Stdout redirected to stderr
-  // so ErrorMonitor picks up compiler errors and auto-triggers AI fix.
-  // Runs in parallel with dev server start — no extra latency on happy path.
+  // ── Step 4.5: CSS sanity check — fix BEFORE dev server reads the file ───────
+  // Runs synchronously here so Vite sees the corrected CSS from the first read.
+  // (Previously this ran after dev server start — race condition where Vite
+  // could pick up the broken CSS before the fix landed.)
   try {
-    const tscCmd = await sandbox.runCommand({
-      detached: true,
-      cmd: 'bash',
-      args: ['-c', './node_modules/.bin/tsc --noEmit 1>&2 || true'],
-    })
-    writer.write({
-      id: tscCmd.cmdId,
-      type: 'data-run-command',
-      data: {
-        sandboxId,
-        commandId: tscCmd.cmdId,
-        command: 'tsc',
-        args: ['--noEmit'],
-        status: 'running',
-      },
-    })
-  } catch {
-    // Non-fatal — proceed even if tsc check fails to start
-  }
-
-  // ── Step 4.6: Production build verification (blocking) ────────────────────
-  // vite build catches ALL compilation errors — TypeScript, PostCSS, missing
-  // imports — in one strict pass before the dev server starts. If it fails,
-  // the AI gets the exact error and must fix it before the preview is shown.
-  // This is how Lovable/Bolt prevent blank previews: build must pass first.
-  try {
-    const buildCmd = await sandbox.runCommand({
-      detached: true,
-      cmd: 'bash',
-      args: ['-c', '(bun run build 2>&1; echo "##EXIT:$?") | tee /tmp/cm-build.log'],
-    })
-    writer.write({
-      id: buildCmd.cmdId,
-      type: 'data-run-command',
-      data: { sandboxId, commandId: buildCmd.cmdId, command: 'vite', args: ['build'], status: 'executing' },
-    })
-    await Promise.race([
-      buildCmd.wait(),
-      new Promise<void>((_, reject) => setTimeout(() => reject(new Error('build timeout')), 90_000)),
-    ])
-  } catch { /* non-zero exit or timeout — read log below for details */ }
-
-  // Read build log and emit errors if build failed
-  try {
-    const logStream = await sandbox.readFile({ path: '/tmp/cm-build.log' })
-    if (logStream) {
+    const cssStream = await sandbox.readFile({ path: 'src/index.css' })
+    if (cssStream) {
       const chunks: Buffer[] = []
-      for await (const c of logStream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as string))
-      const log = Buffer.concat(chunks).toString('utf8')
-      const exitMatch = log.match(/##EXIT:(\d+)/)
-      if (exitMatch && exitMatch[1] !== '0') {
-        const relevant = log.split('\n')
-          .filter(l => /error|Error|Cannot find|does not exist|postcss|Unexpected token/i.test(l))
-          .filter(l => !l.includes('##EXIT'))
-          .slice(0, 20).join('\n').trim()
-        const summary = relevant || log.replace(/##EXIT:\d+/, '').trim().slice(0, 1000)
-        writer.write({
-          id: 'srv-build',
-          type: 'data-report-errors',
-          data: {
-            summary: `Build failed — fix these errors before the preview can load:\n\n${summary}`,
-            paths: [],
-          },
-        })
-        console.warn('[build-check] Build failed:', summary.slice(0, 200))
+      for await (const c of cssStream) {
+        chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as string))
+      }
+      let css = Buffer.concat(chunks).toString('utf8')
+      let changed = false
+
+      if (css.includes("@import 'tailwindcss/base'") || css.includes('@import "tailwindcss/base"')) {
+        css = css
+          .replace(/@import ['"]tailwindcss\/base['"]\s*;?/g, '@tailwind base;')
+          .replace(/@import ['"]tailwindcss\/components['"]\s*;?/g, '@tailwind components;')
+          .replace(/@import ['"]tailwindcss\/utilities['"]\s*;?/g, '@tailwind utilities;')
+        changed = true
+        console.warn('[css-check] Fixed wrong @import tailwindcss syntax')
+      }
+
+      if (!css.includes(':root')) {
+        css += `\n:root {\n  --background: 0 0% 100%;\n  --foreground: 222.2 84% 4.9%;\n  --primary: 221.2 83.2% 53.3%;\n  --primary-foreground: 210 40% 98%;\n  --secondary: 210 40% 96.1%;\n  --secondary-foreground: 222.2 47.4% 11.2%;\n  --muted: 210 40% 96.1%;\n  --muted-foreground: 215.4 16.3% 46.9%;\n  --accent: 210 40% 96.1%;\n  --accent-foreground: 222.2 47.4% 11.2%;\n  --destructive: 0 84.2% 60.2%;\n  --destructive-foreground: 210 40% 98%;\n  --border: 214.3 31.8% 91.4%;\n  --input: 214.3 31.8% 91.4%;\n  --ring: 221.2 83.2% 53.3%;\n  --radius: 0.5rem;\n}\n* { border-color: hsl(var(--border)); }\nbody { background-color: hsl(var(--background)); color: hsl(var(--foreground)); }\n`
+        changed = true
+        console.warn('[css-check] Appended missing :root CSS variables')
+      }
+
+      if (css.includes('@apply')) {
+        const before = css
+        css = css.split('\n').filter(line => !line.trimStart().startsWith('@apply')).join('\n')
+        if (css !== before) { changed = true; console.warn('[css-check] Stripped @apply') }
+      }
+
+      {
+        const before = css
+        css = css.split('\n').filter(line => {
+          const t = line.trim()
+          if (!t) return true
+          if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@')) return true
+          if (t.includes('{') || t.includes('}')) return true
+          if (t.endsWith(';') && !t.includes(':')) {
+            console.warn('[css-check] Stripped invalid CSS line (no colon):', t)
+            return false
+          }
+          return true
+        }).join('\n')
+        if (css !== before) changed = true
+      }
+
+      if (changed) {
+        await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(css, 'utf8') }])
       }
     }
-    // Cleanup
-    sandbox.runCommand({ detached: true, cmd: 'rm', args: ['-f', '/tmp/cm-build.log'] }).catch(() => {})
-  } catch { /* non-fatal — proceed to dev server */ }
+  } catch {
+    // Non-fatal
+  }
 
   // ── Step 5: Server starts dev server (background — runs forever) ──────────
   writer.write({
@@ -529,70 +512,6 @@ async function runPipeline({
         status: 'error',
       },
     })
-  }
-
-  // ── Step 5.5: Server-side CSS sanity check — auto-fix before preview ────────
-  // Catches the two most common fatal issues without an extra AI round-trip.
-  try {
-    const cssStream = await sandbox.readFile({ path: 'src/index.css' })
-    if (cssStream) {
-      const chunks: Buffer[] = []
-      for await (const c of cssStream) {
-        chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as string))
-      }
-      let css = Buffer.concat(chunks).toString('utf8')
-      let changed = false
-
-      // Fix 1: wrong tailwind import syntax → correct directives
-      if (css.includes("@import 'tailwindcss/base'") || css.includes('@import "tailwindcss/base"')) {
-        css = css
-          .replace(/@import ['"]tailwindcss\/base['"]\s*;?/g, '@tailwind base;')
-          .replace(/@import ['"]tailwindcss\/components['"]\s*;?/g, '@tailwind components;')
-          .replace(/@import ['"]tailwindcss\/utilities['"]\s*;?/g, '@tailwind utilities;')
-        changed = true
-        console.warn('[css-check] Fixed wrong @import tailwindcss syntax')
-      }
-
-      // Fix 2: no :root block → append minimal CSS variable defaults so page isn't blank
-      if (!css.includes(':root')) {
-        css += `\n:root {\n  --background: 0 0% 100%;\n  --foreground: 222.2 84% 4.9%;\n  --primary: 221.2 83.2% 53.3%;\n  --primary-foreground: 210 40% 98%;\n  --secondary: 210 40% 96.1%;\n  --secondary-foreground: 222.2 47.4% 11.2%;\n  --muted: 210 40% 96.1%;\n  --muted-foreground: 215.4 16.3% 46.9%;\n  --accent: 210 40% 96.1%;\n  --accent-foreground: 222.2 47.4% 11.2%;\n  --destructive: 0 84.2% 60.2%;\n  --destructive-foreground: 210 40% 98%;\n  --border: 214.3 31.8% 91.4%;\n  --input: 214.3 31.8% 91.4%;\n  --ring: 221.2 83.2% 53.3%;\n  --radius: 0.5rem;\n}\n* { border-color: hsl(var(--border)); }\nbody { background-color: hsl(var(--background)); color: hsl(var(--foreground)); }\n`
-        changed = true
-        console.warn('[css-check] Appended missing :root CSS variables')
-      }
-
-      // Fix 3: strip @apply directives — crash PostCSS when color isn't in tailwind.config.js
-      if (css.includes('@apply')) {
-        const before = css
-        css = css.split('\n').filter(line => !line.trimStart().startsWith('@apply')).join('\n')
-        if (css !== before) { changed = true; console.warn('[css-check] Stripped @apply') }
-      }
-
-      // Fix 4: strip bare Tailwind class names used as CSS properties.
-      // AI sometimes writes `tracking-wide;` or `font-bold;` directly inside CSS rules.
-      // These have no colon so are not valid CSS declarations — PostCSS crashes on them.
-      // Rule: any line ending in `;` that contains no `:` and isn't a comment/at-rule is invalid.
-      {
-        const before = css
-        css = css.split('\n').filter(line => {
-          const t = line.trim()
-          if (!t) return true
-          if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@')) return true
-          if (t.includes('{') || t.includes('}')) return true
-          if (t.endsWith(';') && !t.includes(':')) {
-            console.warn('[css-check] Stripped invalid CSS line (no colon):', t)
-            return false
-          }
-          return true
-        }).join('\n')
-        if (css !== before) changed = true
-      }
-
-      if (changed) {
-        await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(css, 'utf8') }])
-      }
-    }
-  } catch {
-    // Non-fatal — proceed even if CSS check fails
   }
 
   // ── Step 6: Wait for Vite to be ready, then return URL ────────────────────
