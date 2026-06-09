@@ -81,7 +81,7 @@ export async function* getContents(
 
   const result = streamText({
     model: provider.chat(modelId),
-    maxOutputTokens: 16000,
+    maxOutputTokens: 384000,
     system:
       'You are a code file generator. Write each file completely using the writeFile tool.\n' +
       'One writeFile call per file. Write COMPLETE production-quality code — never truncate or abbreviate.\n' +

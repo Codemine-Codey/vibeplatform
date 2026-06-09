@@ -22,15 +22,18 @@ const VITE_CONFIG_NAMES = new Set([
 // main offenders — both cause Vite to return 500 for ALL requests, making the
 // preview blank and the error bridge unreachable.
 function sanitizeCss(css: string): string {
-  return css
+  // Regex pass: strip @apply anywhere it appears (start of line, mid-line, any case)
+  // Handles: `@apply flex;`, `.hero { @apply flex; }`, `@APPLY text-white`
+  let out = css.replace(/@apply\s+[^;{}\n]*;?/gi, '')
+  // Line-filter pass: remove bare Tailwind class names used as CSS properties
+  return out
     .split('\n')
     .filter(line => {
       const t = line.trim()
       if (!t) return true
-      if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@tailwind') || t.startsWith('@layer') || t.startsWith('@theme') || t.startsWith('@import') || t.startsWith(':root') || t.startsWith('.') || t.startsWith('#') || t.startsWith('&')) return true
-      if (t.startsWith('@apply')) return false          // @apply with unknown colors crashes PostCSS
+      if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@')) return true
       if (t.includes('{') || t.includes('}')) return true
-      if (t.endsWith(';') && !t.includes(':')) return false  // bare Tailwind class names e.g. tracking-wide;
+      if (t.endsWith(';') && !t.includes(':')) return false  // bare class name e.g. `tracking-wide;`
       return true
     })
     .join('\n')

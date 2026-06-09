@@ -50,10 +50,70 @@ function makePackageJson(skill?: Skill): string {
   )
 }
 
+// Error bridge injected into every index.html — forwards JS runtime errors to the parent window
+// so ErrorMonitor can auto-fix them. Pre-injecting here means the AI never needs to include
+// index.html in generateFiles, eliminating a major source of blank previews.
+const ERROR_BRIDGE_SCRIPT = `<script>
+(function(){
+  var _w=window,_p=_w.parent;
+  function _send(m,s){try{_p.postMessage({type:'cm-error',message:m,source:s},'*');}catch(e){}}
+  _w.onerror=function(m,s,l,c){_send(m+'\\n'+s+':'+l+':'+c,'onerror');return false;};
+  _w.addEventListener('unhandledrejection',function(e){_send(String(e.reason),'unhandledrejection');});
+  var _ce=_w.console.error.bind(_w.console);
+  _w.console.error=function(){var m=Array.from(arguments).map(String).join(' ');_send(m,'console.error');_ce.apply(_w.console,arguments);};
+})();
+</script>`
+
+const INDEX_HTML = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>App</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+${ERROR_BRIDGE_SCRIPT}
+</html>`
+
+const MAIN_TSX_WITH_ROUTER = `import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { BrowserRouter } from 'react-router-dom'
+import './index.css'
+import App from './App'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </StrictMode>,
+)
+`
+
+const MAIN_TSX_NO_ROUTER = `import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
+`
+
 // Base scaffold written to every sandbox on creation.
 // Includes: Vite+React+TypeScript+Tailwind config, shadcn/ui packages + 8 core components,
-// path alias (@→src), and lib/utils. The AI skips all of these in generateFiles.
+// path alias (@→src), lib/utils, index.html (with error bridge), and src/main.tsx.
+// The AI skips ALL of these in generateFiles — they are pre-written and correct.
 export const SCAFFOLD_FILES: Array<{ path: string; content: string }> = [
+  {
+    path: 'index.html',
+    content: INDEX_HTML,
+  },
   {
     path: '.npmrc',
     content: 'prefer-offline=true\nshamefully-hoist=true\n',
@@ -640,11 +700,21 @@ export { Dialog, DialogPortal, DialogOverlay, DialogClose, DialogTrigger, Dialog
   },
 ]
 
-// Returns skill-appropriate scaffold. Games get a leaner package.json (no router, fewer Radix deps).
+// Returns skill-appropriate scaffold. Games get a leaner package.json (no router, fewer Radix deps)
+// and a main.tsx without BrowserRouter. Websites/apps get main.tsx with BrowserRouter pre-wired.
 // Warm pool always uses full SCAFFOLD_FILES since skill is unknown at pre-warm time.
 export function getScaffoldFiles(skill: Skill): Array<{ path: string; content: string }> {
-  if (skill !== 'game') return SCAFFOLD_FILES
-  return SCAFFOLD_FILES.map(f =>
-    f.path === 'package.json' ? { ...f, content: makePackageJson('game') } : f
-  )
+  const mainTsx = {
+    path: 'src/main.tsx',
+    content: skill === 'game' ? MAIN_TSX_NO_ROUTER : MAIN_TSX_WITH_ROUTER,
+  }
+  if (skill === 'game') {
+    return [
+      ...SCAFFOLD_FILES.map(f =>
+        f.path === 'package.json' ? { ...f, content: makePackageJson('game') } : f
+      ),
+      mainTsx,
+    ]
+  }
+  return [...SCAFFOLD_FILES, mainTsx]
 }

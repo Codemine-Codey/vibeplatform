@@ -5,11 +5,11 @@ import z from 'zod/v3'
 const VITE_CONFIG_NAMES = new Set(['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs'])
 
 function sanitizeCss(css: string): string {
-  return css.split('\n').filter(line => {
+  let out = css.replace(/@apply\s+[^;{}\n]*;?/gi, '')
+  return out.split('\n').filter(line => {
     const t = line.trim()
     if (!t) return true
-    if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@tailwind') || t.startsWith('@layer') || t.startsWith('@theme') || t.startsWith('@import') || t.startsWith(':root') || t.startsWith('.') || t.startsWith('#') || t.startsWith('&')) return true
-    if (t.startsWith('@apply')) return false
+    if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@')) return true
     if (t.includes('{') || t.includes('}')) return true
     if (t.endsWith(';') && !t.includes(':')) return false
     return true

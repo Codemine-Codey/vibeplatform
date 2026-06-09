@@ -446,9 +446,9 @@ async function runPipeline({
         console.warn('[css-check] Appended missing :root CSS variables')
       }
 
-      if (css.includes('@apply')) {
+      if (css.includes('@apply') || /@apply/i.test(css)) {
         const before = css
-        css = css.split('\n').filter(line => !line.trimStart().startsWith('@apply')).join('\n')
+        css = css.replace(/@apply\s+[^;{}\n]*;?/gi, '')
         if (css !== before) { changed = true; console.warn('[css-check] Stripped @apply') }
       }
 
