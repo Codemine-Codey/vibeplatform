@@ -101,6 +101,26 @@ export function Chat({ className }: Props) {
   )
 
   const setChatStatus = useSandboxStore((s) => s.setChatStatus)
+  const setProjectName = useSandboxStore((s) => s.setProjectName)
+  const sandboxId = useSandboxStore((s) => s.sandboxId)
+
+  // Extract project name from AI's first message: "Building [Name] —..."
+  useEffect(() => {
+    if (!sandboxId) return
+    const firstAI = messages.find(m => m.role === 'assistant')
+    if (!firstAI) return
+    const textPart = firstAI.parts?.find((p: { type: string }) => p.type === 'text') as { type: 'text'; text: string } | undefined
+    if (!textPart?.text) return
+    const match = textPart.text.match(/Building\s+(.+?)(?:\s+—|\s+-|\s*\.|$)/i)
+    if (match?.[1]) {
+      setProjectName(match[1].trim().slice(0, 60))
+    } else {
+      // Fallback: first 60 chars of user's last message
+      const lastUser = [...messages].reverse().find(m => m.role === 'user')
+      const userText = lastUser?.parts?.find((p: { type: string }) => p.type === 'text') as { type: 'text'; text: string } | undefined
+      if (userText?.text) setProjectName(userText.text.slice(0, 60))
+    }
+  }, [messages, sandboxId, setProjectName])
 
   const isWorking = status === 'streaming' || status === 'submitted'
 

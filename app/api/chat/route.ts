@@ -248,7 +248,7 @@ async function runPipeline({
     hadWarmSandbox = true
   } else {
     try {
-      sandbox = await Sandbox.create({ timeout: 600_000, ports: [3000] })
+      sandbox = await Sandbox.create({ timeout: 1_200_000, ports: [3000] })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       writer.write({
@@ -438,6 +438,43 @@ async function runPipeline({
         status: 'error',
       },
     })
+  }
+
+  // ── Step 5.5: Server-side CSS sanity check — auto-fix before preview ────────
+  // Catches the two most common fatal issues without an extra AI round-trip.
+  try {
+    const cssStream = await sandbox.readFile({ path: 'src/index.css' })
+    if (cssStream) {
+      const chunks: Buffer[] = []
+      for await (const c of cssStream) {
+        chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as string))
+      }
+      let css = Buffer.concat(chunks).toString('utf8')
+      let changed = false
+
+      // Fix 1: wrong tailwind import syntax → correct directives
+      if (css.includes("@import 'tailwindcss/base'") || css.includes('@import "tailwindcss/base"')) {
+        css = css
+          .replace(/@import ['"]tailwindcss\/base['"]\s*;?/g, '@tailwind base;')
+          .replace(/@import ['"]tailwindcss\/components['"]\s*;?/g, '@tailwind components;')
+          .replace(/@import ['"]tailwindcss\/utilities['"]\s*;?/g, '@tailwind utilities;')
+        changed = true
+        console.warn('[css-check] Fixed wrong @import tailwindcss syntax')
+      }
+
+      // Fix 2: no :root block → append minimal CSS variable defaults so page isn't blank
+      if (!css.includes(':root')) {
+        css += `\n:root {\n  --background: 0 0% 100%;\n  --foreground: 222.2 84% 4.9%;\n  --primary: 221.2 83.2% 53.3%;\n  --primary-foreground: 210 40% 98%;\n  --secondary: 210 40% 96.1%;\n  --secondary-foreground: 222.2 47.4% 11.2%;\n  --muted: 210 40% 96.1%;\n  --muted-foreground: 215.4 16.3% 46.9%;\n  --accent: 210 40% 96.1%;\n  --accent-foreground: 222.2 47.4% 11.2%;\n  --destructive: 0 84.2% 60.2%;\n  --destructive-foreground: 210 40% 98%;\n  --border: 214.3 31.8% 91.4%;\n  --input: 214.3 31.8% 91.4%;\n  --ring: 221.2 83.2% 53.3%;\n  --radius: 0.5rem;\n}\n* { border-color: hsl(var(--border)); }\nbody { background-color: hsl(var(--background)); color: hsl(var(--foreground)); }\n`
+        changed = true
+        console.warn('[css-check] Appended missing :root CSS variables')
+      }
+
+      if (changed) {
+        await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(css, 'utf8') }])
+      }
+    }
+  } catch {
+    // Non-fatal — proceed even if CSS check fails
   }
 
   // ── Step 6: Wait for Vite to be ready, then return URL ────────────────────

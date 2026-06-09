@@ -80,37 +80,45 @@ export const generateFiles = ({ writer, modelId }: Params) =>
       const writeFiles = getWriteFiles({ sandbox, toolCallId, writer })
       const uploaded: File[] = []
 
-      const iterator = getContents({ messages, modelId, paths })
-      try {
-        for await (const chunk of iterator) {
-          if (chunk.files.length > 0) {
-            const error = await writeFiles({
-              ...chunk,
-              written: uploaded.map((f) => f.path),
-            })
-            if (!error) uploaded.push(...chunk.files)
-          } else {
-            writer.write({
-              id: toolCallId,
-              type: 'data-generating-files',
-              data: { status: 'generating', paths: chunk.paths },
-            })
-          }
-        }
-      } catch (error) {
-        const richError = getRichError({
-          action: 'generate file contents',
-          args: { modelId, paths },
-          error,
-        })
-        writer.write({
-          id: toolCallId,
-          type: 'data-generating-files',
-          data: { error: richError.error, status: 'error', paths },
-        })
+      // Auto-chunk: split into batches of 10 to avoid Flash model token limit.
+      // A 15-file project at ~3KB/file = ~45KB output which can exceed 64k token budget.
+      // Each batch of 10 stays well within limit. Batches run sequentially.
+      const BATCH_SIZE = 10
+      const batches: string[][] = []
+      for (let i = 0; i < paths.length; i += BATCH_SIZE) {
+        batches.push(paths.slice(i, i + BATCH_SIZE))
       }
 
-      // Retry any files the sub-model skipped on first pass
+      for (const batch of batches) {
+        const iterator = getContents({ messages, modelId, paths: batch })
+        try {
+          for await (const chunk of iterator) {
+            if (chunk.files.length > 0) {
+              const error = await writeFiles({
+                ...chunk,
+                written: uploaded.map((f) => f.path),
+              })
+              if (!error) uploaded.push(...chunk.files)
+            } else {
+              writer.write({
+                id: toolCallId,
+                type: 'data-generating-files',
+                data: { status: 'generating', paths: chunk.paths },
+              })
+            }
+          }
+        } catch (error) {
+          const richError = getRichError({
+            action: 'generate file contents',
+            args: { modelId, paths: batch },
+            error,
+          })
+          console.error('[generateFiles] batch error:', richError.message)
+          // Non-fatal per-batch — retry catches any missed files below
+        }
+      }
+
+      // Retry any files all batches missed
       const writtenPaths = new Set(uploaded.map(f => f.path))
       const missing = paths.filter(p => !writtenPaths.has(p))
       if (missing.length > 0) {

@@ -4,6 +4,7 @@ import type { ChatStatus, DataUIPart } from 'ai'
 import { useMonitorState } from '@/components/error-monitor/state'
 import { useCallback, useMemo } from 'react'
 import { create } from 'zustand'
+import { saveProject } from '@/lib/projects'
 
 interface SandboxStore {
   addBrowserError: (msg: string) => void
@@ -24,12 +25,14 @@ interface SandboxStore {
   generatedFiles: Set<string>
   lastFilesUploadedAt?: number
   paths: string[]
+  projectName?: string
   sandboxId?: string
   setAuthState: (s: Partial<Pick<SandboxStore, 'authEnabled' | 'authWorkerUrl'>>) => void
   setChatStatus: (status: ChatStatus) => void
   setDatabaseState: (s: Partial<Pick<SandboxStore, 'databaseId' | 'databaseName'>>) => void
   setDeployState: (s: Partial<Pick<SandboxStore, 'deployedUrl' | 'deployStatus' | 'deployError' | 'deployProjectName'>>) => void
   setLastFilesUploadedAt: (t: number) => void
+  setProjectName: (name: string) => void
   setSandboxId: (id: string) => void
   setStatus: (status: 'running' | 'stopped') => void
   setUrl: (url: string, uuid: string) => void
@@ -144,6 +147,7 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
   setDatabaseState: (s) => set(() => ({ ...s })),
   setDeployState: (s) => set(() => ({ ...s })),
   setLastFilesUploadedAt: (t) => set(() => ({ lastFilesUploadedAt: t })),
+  setProjectName: (name) => set(() => ({ projectName: name })),
   setSandboxId: (sandboxId) =>
     set(() => ({
       sandboxId,
@@ -240,7 +244,20 @@ export function useDataStateMapper() {
           }
           break
         case 'data-get-sandbox-url':
-          if (data.data.url) setUrl(data.data.url, crypto.randomUUID())
+          if (data.data.url) {
+            setUrl(data.data.url, crypto.randomUUID())
+            // Auto-save project to localStorage
+            const { sandboxId, projectName } = useSandboxStore.getState()
+            if (sandboxId) {
+              saveProject({
+                id: sandboxId,
+                name: projectName ?? 'Untitled Project',
+                skill: 'unknown',
+                url: data.data.url,
+                createdAt: Date.now(),
+              })
+            }
+          }
           break
         default:
           break
