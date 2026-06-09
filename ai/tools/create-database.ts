@@ -75,9 +75,9 @@ export const createDatabase = ({ writer }: Params) =>
       return (
         `Database created and connected.\n` +
         `Name: ${databaseName}\nID: ${databaseId}\n\n` +
-        `VITE_DB_ID is now available in the sandbox. ` +
-        `Now write the schema (CREATE TABLE SQL) and the code to read/write data using the CF D1 REST API. ` +
-        `Account ID for API calls: ${CF_ACCOUNT_ID}`
+        `VITE_DB_ID is injected into the sandbox at import.meta.env.VITE_DB_ID. ` +
+        `Now write the schema and the full data access layer. ` +
+        `Use the Cloudflare D1 REST API: POST https://api.cloudflare.com/client/v4/accounts/[ACCOUNT]/d1/database/${databaseId}/raw — the account value is available server-side only, do not hardcode it in client code. Instead write a thin fetch wrapper that calls a /api/db route you create in the project.`
       )
     },
   })

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 
 export const maxDuration = 60
 
-const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID ?? '77da4568eb934dee94fa9fc54faec977'
+const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID ?? ''
 const CF_API_TOKEN = process.env.CF_API_TOKEN ?? ''
 const CF_BASE = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}`
 
@@ -116,12 +116,15 @@ export async function POST(req: Request) {
   if (!sandboxId || !databaseId) {
     return NextResponse.json({ error: 'sandboxId and databaseId required' }, { status: 400 })
   }
+  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) {
+    return NextResponse.json({ error: 'Auth service not configured' }, { status: 500 })
+  }
 
   const workerName = `cm-auth-${sandboxId.slice(0, 8)}`
   const jwtSecret = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '')
 
   // 1. Create users table in D1
-  const tableRes = await fetch(`${CF_BASE}/d1/database/${databaseId}/query`, {
+  const tableRes = await fetch(`${CF_BASE}/d1/database/${databaseId}/raw`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${CF_API_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -133,6 +136,7 @@ export async function POST(req: Request) {
         salt TEXT NOT NULL,
         created_at INTEGER NOT NULL
       )`,
+      params: [],
     }),
   })
   if (!tableRes.ok) {
