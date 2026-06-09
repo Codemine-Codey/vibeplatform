@@ -287,9 +287,14 @@ async function runPipeline({
   // ── Step 2: Build pipeline addendum ─────────────────────────────────────
   const scaffoldFiles = getScaffoldFiles(skill)
   const scaffoldPaths = scaffoldFiles.map(f => f.path).join(', ')
+  // Unique seed per generation — ensures the model makes distinct creative choices
+  // even when two users submit the same prompt. Injected into context so it
+  // influences color palette, layout structure, and typographic decisions.
+  const creativeSeed = Math.random().toString(36).slice(2, 10).toUpperCase()
   const pipelineAddendum =
     `\n\n## SERVER PIPELINE — WORKSPACE READY\n` +
     `sandboxId: ${sandboxId}\n` +
+    `Creative session ID: ${creativeSeed} — use this to make UNIQUE design choices. Two projects with similar briefs must look completely different in layout, palette, and typography.\n` +
     `Scaffold pre-written (including shadcn/ui components). Dependencies installing in background.\n` +
     `DO NOT call createSandbox — it is already done.\n` +
     `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
@@ -325,6 +330,7 @@ async function runPipeline({
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(maxSteps),
     maxOutputTokens: 16000,
+    temperature: 1.1,
     tools: pipelineTools,
     onError: error => console.error('Pipeline AI error:', error),
   })

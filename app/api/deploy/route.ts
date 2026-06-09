@@ -70,9 +70,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Workspace not found or has expired' }, { status: 404 })
   }
 
-  // Step 1: Build
+  // Step 1: Build — use bun if available (matches the pipeline installer), fallback to pnpm
   try {
-    const buildCmd = await sandbox.runCommand({ detached: true, cmd: 'pnpm', args: ['build'] })
+    const buildCmd = await sandbox.runCommand({
+      detached: true,
+      cmd: 'bash',
+      args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run build || pnpm build'],
+    })
     await Promise.race([
       buildCmd.wait(),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Build timed out after 90s')), 90_000)),
