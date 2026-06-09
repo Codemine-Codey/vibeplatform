@@ -38,26 +38,30 @@ function BuildingIndicator() {
 
   const isThinking = elapsed < 60
   const label = isThinking ? 'Thinking...' : 'Building your project...'
+  const showHint = elapsed >= 15
 
   return (
-    <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-secondary border border-primary/12 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className="flex gap-1.5 shrink-0">
-        {isThinking ? (
-          <span className="inline-block w-2 h-2 rounded-full bg-foreground/50 animate-pulse" />
-        ) : (
-          <>
-            <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '0ms' }} />
-            <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '200ms' }} />
-            <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '400ms' }} />
-          </>
-        )}
+    <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-secondary border border-primary/12 flex flex-col gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="flex items-center gap-3">
+        <div className="flex gap-1.5 shrink-0">
+          {isThinking ? (
+            <span className="inline-block w-2 h-2 rounded-full bg-foreground/50 animate-pulse" />
+          ) : (
+            <>
+              <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '0ms' }} />
+              <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '200ms' }} />
+              <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '400ms' }} />
+            </>
+          )}
+        </div>
+        <span className="text-xs font-mono text-foreground/70 leading-none">{label}</span>
+        <span className="ml-auto text-xs font-mono text-foreground/35 leading-none tabular-nums">{fmt(elapsed)}</span>
       </div>
-      <span className="text-xs font-mono text-foreground/70 leading-none">
-        {label}
-      </span>
-      <span className="ml-auto text-xs font-mono text-foreground/35 leading-none tabular-nums">
-        {fmt(elapsed)}
-      </span>
+      {showHint && (
+        <p className="text-[10px] text-foreground/35 leading-snug animate-in fade-in duration-500">
+          Complex projects can take a few minutes — hang tight.
+        </p>
+      )}
     </div>
   )
 }
@@ -196,11 +200,22 @@ export function Chat({ className }: Props) {
         </Conversation>
       )}
 
-      {/* Stream error — shows when connection dropped, cleared on next send */}
+      {/* Connection error — shows when stream drops mid-generation */}
       {streamError && !isWorking && (
-        <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-destructive/8 border border-destructive/20 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <span className="inline-block w-2 h-2 rounded-full bg-destructive/70 shrink-0" />
-          <span className="text-xs font-mono text-foreground/70 leading-snug flex-1">{streamError}</span>
+        <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-destructive/8 border border-destructive/20 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="flex items-start gap-2">
+            <span className="inline-block w-2 h-2 rounded-full bg-destructive/70 shrink-0 mt-1" />
+            <span className="text-xs font-mono text-foreground/70 leading-snug flex-1">
+              Connection interrupted — your generation may be incomplete.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => validateAndSubmitMessage('Please continue from where you left off.')}
+            className="self-start ml-4 text-xs font-medium text-foreground/80 underline underline-offset-2 hover:text-foreground transition-colors"
+          >
+            Continue generation →
+          </button>
         </div>
       )}
 
