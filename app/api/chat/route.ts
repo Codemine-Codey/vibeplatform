@@ -305,7 +305,13 @@ async function runPipeline({
     (skill !== 'website' ? `getUnsplashBatch is NOT available for this skill type — do not call it.\n` : '') +
     `If you need packages not in the scaffold, include package.json in your generateFiles paths.\n`
 
-  const fullSystem = systemPrompt + pipelineAddendum
+  const fileCountGuidance = skill === 'website'
+    ? `TARGET FILE COUNT: 7-9 files maximum. Combine related sections into their page file instead of splitting into small components. Only extract a component if it is reused across 2+ pages (e.g. Navbar, Footer). A Home.tsx can and should contain hero + features + testimonials + CTA all inline — do NOT split each section into its own file. Fewer files = faster build for the user.`
+    : skill === 'game'
+    ? `TARGET FILE COUNT: 4-6 files maximum. Keep all game logic in one or two files.`
+    : `TARGET FILE COUNT: 6-8 files maximum. Combine views and utilities where possible.`
+
+  const fullSystem = systemPrompt + pipelineAddendum + `\n\n${fileCountGuidance}`
 
   // ── Step 3: AI generates directly — no planning round-trip ───────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -554,17 +560,31 @@ async function runPipeline({
         console.warn('[css-check] Appended missing :root CSS variables')
       }
 
-      // Fix 3: strip @apply directives — custom color names in @apply (e.g. @apply bg-cafe-coral/30)
-      // crash PostCSS fatally when the color isn't in tailwind.config.js. Vite then returns 500
-      // for ALL requests including index.html, so the error bridge never loads and ErrorMonitor
-      // can't catch it. Strip every @apply line — JSX should use Tailwind classes directly.
+      // Fix 3: strip @apply directives — crash PostCSS when color isn't in tailwind.config.js
       if (css.includes('@apply')) {
         const before = css
         css = css.split('\n').filter(line => !line.trimStart().startsWith('@apply')).join('\n')
-        if (css !== before) {
-          changed = true
-          console.warn('[css-check] Stripped @apply directives from index.css')
-        }
+        if (css !== before) { changed = true; console.warn('[css-check] Stripped @apply') }
+      }
+
+      // Fix 4: strip bare Tailwind class names used as CSS properties.
+      // AI sometimes writes `tracking-wide;` or `font-bold;` directly inside CSS rules.
+      // These have no colon so are not valid CSS declarations — PostCSS crashes on them.
+      // Rule: any line ending in `;` that contains no `:` and isn't a comment/at-rule is invalid.
+      {
+        const before = css
+        css = css.split('\n').filter(line => {
+          const t = line.trim()
+          if (!t) return true
+          if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@')) return true
+          if (t.includes('{') || t.includes('}')) return true
+          if (t.endsWith(';') && !t.includes(':')) {
+            console.warn('[css-check] Stripped invalid CSS line (no colon):', t)
+            return false
+          }
+          return true
+        }).join('\n')
+        if (css !== before) changed = true
       }
 
       if (changed) {
