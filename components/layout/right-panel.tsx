@@ -34,30 +34,37 @@ export function RightPanel({ className }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('preview')
   const [viewMode, setViewMode] = useState<ViewMode>('fit')
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const previewContainerRef = useRef<HTMLDivElement>(null)
+  const previewContainerRef = useRef<HTMLDivElement>(null) // kept for future use
   const chatStatus = useSandboxStore((s) => s.chatStatus)
   const isWorking = chatStatus === 'streaming' || chatStatus === 'submitted'
 
+  // CSS fullscreen — fixed overlay covering the whole viewport, no browser API needed.
+  // Avoids the browser's "site is now fullscreen" OS-level notification entirely.
   useEffect(() => {
-    function onFullscreenChange() {
-      setIsFullscreen(!!document.fullscreenElement)
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && isFullscreen) setIsFullscreen(false)
     }
-    document.addEventListener('fullscreenchange', onFullscreenChange)
-    return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
-  }, [])
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [isFullscreen])
 
   function handleViewMode(mode: ViewMode) {
     if (mode === 'fullscreen') {
-      if (previewContainerRef.current) {
-        previewContainerRef.current.requestFullscreen?.().catch(() => {})
-      }
+      setIsFullscreen((prev) => !prev)
       return
     }
+    setIsFullscreen(false)
     setViewMode(mode)
   }
 
   return (
-    <div className={cn('flex flex-col h-full min-h-0', className)}>
+    <div className={cn(
+      'flex flex-col min-h-0',
+      isFullscreen
+        ? 'fixed inset-0 z-50 bg-background'
+        : 'h-full',
+      className
+    )}>
       {/* Tab strip */}
       <div className="flex items-center bg-secondary border border-primary/18 rounded-t-sm shrink-0 h-9 px-1 gap-0.5">
         {TABS.map(({ id, label, icon: Icon }) => (
@@ -128,7 +135,7 @@ export function RightPanel({ className }: Props) {
 
       {/* Content */}
       <div className="flex-1 min-h-0 relative" ref={previewContainerRef}>
-        {/* Fullscreen Esc hint — fades out after 3s */}
+        {/* Esc to exit hint */}
         {isFullscreen && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-in fade-in duration-300">
             <span className="text-xs text-white/60 bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-full">
