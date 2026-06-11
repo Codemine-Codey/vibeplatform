@@ -1,0 +1,66 @@
+import postcss from 'postcss'
+
+// ── CSS guard: invalid CSS can NEVER reach the sandbox ───────────────────────
+// A single CSS syntax error (unclosed gradient paren, @apply with unknown class,
+// bare Tailwind class as a declaration) crashes PostCSS in the sandbox → Vite
+// returns 500 for EVERY request → blank preview. Regex sanitizers kept missing
+// edge cases, so we validate with the real parser: the exact same PostCSS engine
+// that would crash in the sandbox. If it parses here, it parses there.
+//
+// Repair strategy: strip the known-bad patterns first, then parse; while the
+// parser reports a syntax error, drop the offending line and re-parse (≤25
+// rounds). A missing declaration is invisible; a syntax error blanks the page.
+const MINIMAL_FALLBACK =
+  '@tailwind base;\n@tailwind components;\n@tailwind utilities;\n'
+
+export function ensureValidCss(css: string): string {
+  // Pass 1: strip @apply anywhere (unknown classes crash Tailwind even when parseable)
+  let out = css.replace(/@apply\s+[^;{}\n]*;?/gi, '')
+
+  // Pass 2: drop bare Tailwind class names used as declarations (`tracking-wide;`)
+  out = out
+    .split('\n')
+    .filter(line => {
+      const t = line.trim()
+      if (!t) return true
+      if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@')) return true
+      if (t.includes('{') || t.includes('}')) return true
+      if (t.endsWith(';') && !t.includes(':')) return false
+      return true
+    })
+    .join('\n')
+
+  // Pass 3: the real parser. Drop the reported line on each failure and retry.
+  for (let i = 0; i < 25; i++) {
+    try {
+      postcss.parse(out)
+      return out
+    } catch (err) {
+      const line = (err as { line?: number }).line
+      if (typeof line !== 'number' || line < 1) break
+      const lines = out.split('\n')
+      if (line > lines.length) break
+      lines.splice(line - 1, 1)
+      out = lines.join('\n')
+    }
+  }
+
+  // Pass 4: still unparseable — try once more after also dropping any line with
+  // unbalanced parens (the most common unlocatable breakage).
+  out = out
+    .split('\n')
+    .filter(line => {
+      const o = (line.match(/\(/g) || []).length
+      const c = (line.match(/\)/g) || []).length
+      return o === c
+    })
+    .join('\n')
+  try {
+    postcss.parse(out)
+    return out
+  } catch {
+    // Unsalvageable — a plain working stylesheet always beats a blank preview.
+    // (The server CSS sanity check re-appends :root variables if missing.)
+    return MINIMAL_FALLBACK
+  }
+}

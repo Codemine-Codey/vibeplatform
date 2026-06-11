@@ -4,6 +4,7 @@ import type { Sandbox } from '@vercel/sandbox'
 import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import { getRichError } from '../get-rich-error'
 import { mergePackageJson } from '../scaffold'
+import { ensureValidCss } from '@/lib/css-guard'
 
 interface Params {
   sandbox: Sandbox
@@ -17,28 +18,6 @@ const VITE_CONFIG_NAMES = new Set([
   'vite.config.mts',
   'vite.config.mjs',
 ])
-
-// Strip CSS that would crash PostCSS and break the entire preview.
-// @apply with unknown classes and bare Tailwind class names (no colon) are the two
-// main offenders — both cause Vite to return 500 for ALL requests, making the
-// preview blank and the error bridge unreachable.
-function sanitizeCss(css: string): string {
-  // Regex pass: strip @apply anywhere it appears (start of line, mid-line, any case)
-  // Handles: `@apply flex;`, `.hero { @apply flex; }`, `@APPLY text-white`
-  let out = css.replace(/@apply\s+[^;{}\n]*;?/gi, '')
-  // Line-filter pass: remove bare Tailwind class names used as CSS properties
-  return out
-    .split('\n')
-    .filter(line => {
-      const t = line.trim()
-      if (!t) return true
-      if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@')) return true
-      if (t.includes('{') || t.includes('}')) return true
-      if (t.endsWith(';') && !t.includes(':')) return false  // bare class name e.g. `tracking-wide;`
-      return true
-    })
-    .join('\n')
-}
 
 // Strip <svg> blocks from JSX/TSX/HTML files and replace with a clean
 // neutral placeholder. LLMs write SVGs despite prompt bans — post-processing
@@ -144,7 +123,9 @@ export function getWriteFiles({ sandbox, toolCallId, writer }: Params) {
         return { ...file, content: mergePackageJson(file.content) }
       }
       if (file.path.endsWith('.css')) {
-        return { ...file, content: sanitizeCss(file.content) }
+        // Validated with the REAL PostCSS parser — invalid CSS cannot reach the
+        // sandbox (a single syntax error blanks the entire preview).
+        return { ...file, content: ensureValidCss(file.content) }
       }
       return { ...file, content: stripSvgs(file.content, file.path) }
     })

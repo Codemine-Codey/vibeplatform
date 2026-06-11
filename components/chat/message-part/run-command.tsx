@@ -18,10 +18,15 @@ function getCommandLabel(cmd: string, args: string[]): string {
   if (/(pnpm|npm|yarn|bun)\s+(run\s+)?install/.test(full) || /yarn install/.test(full)) return 'Installing dependencies'
   if (/(pnpm|npm|yarn|bun)\s+(run\s+)?dev/.test(full)) return 'Starting preview server'
   if (/(pnpm|npm|yarn|bun)\s+(run\s+)?build/.test(full)) return 'Building project'
+  if (/(pnpm|npm|yarn|bun)\s+add\b/.test(full)) return 'Installing dependencies'
   if (cmd === 'node') return 'Applying configuration'
   if (cmd === 'rm' || cmd === 'cp' || cmd === 'mv') return 'Configuring workspace'
   if (cmd === 'git') return 'Saving project'
-  return `Running ${cmd}`
+  if (['cat', 'head', 'tail', 'wc', 'ls', 'grep', 'find'].includes(cmd)) return 'Reviewing project files'
+  if (cmd === 'sleep') return 'Waiting for the preview'
+  if (['pkill', 'fuser', 'kill'].includes(cmd)) return 'Restarting preview server'
+  if (cmd === 'bash' || cmd === 'sh') return 'Running a setup task'
+  return 'Working on your project'
 }
 
 function getStatusLabel(message: DataPart['run-command']): string {

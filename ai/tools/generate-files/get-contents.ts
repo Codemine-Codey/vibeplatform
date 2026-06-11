@@ -55,6 +55,32 @@ function fixCss(path: string, content: string): string {
     .replace(/@import\s+['"]tailwindcss\/utilities['"]\s*;?/g, '@tailwind utilities;')
 }
 
+// The model sometimes concatenates TWO requested files into ONE writeFile call,
+// separated by a comment header like `// src/pages/Contact.tsx`. The second file
+// then never exists → broken import → broken preview. Detect those boundary
+// markers and split the content back into the intended files deterministically.
+function splitConcatenated(path: string, content: string, requested: string[]): File[] {
+  const markers: Array<{ idx: number; path: string }> = []
+  for (const other of requested) {
+    if (other === path) continue
+    const escaped = other.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    // Match a comment line naming the other file: `// src/x.tsx` or `/* src/x.tsx */`
+    const re = new RegExp(`^\\s*(?:\\/\\/|\\/\\*)\\s*${escaped}\\b`, 'm')
+    const m = re.exec(content)
+    // idx > 50 — ignore a header at the very top (that's just a label, not a boundary)
+    if (m && m.index > 50) markers.push({ idx: m.index, path: other })
+  }
+  if (markers.length === 0) return [{ path, content }]
+  markers.sort((a, b) => a.idx - b.idx)
+  console.warn(`[getContents] split concatenated file ${path} → ${markers.map(m => m.path).join(', ')}`)
+  const out: File[] = [{ path, content: content.slice(0, markers[0].idx).trimEnd() + '\n' }]
+  for (let i = 0; i < markers.length; i++) {
+    const end = i + 1 < markers.length ? markers[i + 1].idx : content.length
+    out.push({ path: markers[i].path, content: content.slice(markers[i].idx, end).trimEnd() + '\n' })
+  }
+  return out
+}
+
 // Generates files using streaming tool calls — each file is yielded individually
 // as soon as Flash finishes writing it. The UI shows files appearing one by one
 // instead of waiting for a full JSON blob to complete.
@@ -84,7 +110,7 @@ export async function* getContents(
     maxOutputTokens: 384000,
     system:
       'You are a code file generator. Write each file completely using the writeFile tool.\n' +
-      'One writeFile call per file. Write COMPLETE production-quality code — never truncate or abbreviate.\n' +
+      'One writeFile call per file — NEVER combine two files into one call. Write COMPLETE production-quality code — never truncate or abbreviate.\n' +
       'File order: write shared utilities and types first, then components, then pages.\n' +
       'CSS rule: in src/index.css always use @tailwind base/components/utilities — NEVER @import.\n' +
       'No <svg> tags. No placeholder content. Real code only.',
@@ -107,7 +133,10 @@ export async function* getContents(
         execute: async ({ path, content }) => {
           if (!paths.includes(path)) return 'skipped: not in requested list'
           if (content.trim().length < 5) return 'skipped: empty content'
-          enqueue({ path, content: fixCss(path, content) })
+          // One writeFile may contain several concatenated files — split them.
+          for (const file of splitConcatenated(path, content, paths)) {
+            enqueue({ path: file.path, content: fixCss(file.path, file.content) })
+          }
           return 'ok'
         },
       }),

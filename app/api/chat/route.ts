@@ -24,7 +24,10 @@ import { getSkillPack } from '@/ai/packs'
 import type { Skill } from '@/ai/types/project-brief'
 import { Sandbox } from '@vercel/sandbox'
 import { SCAFFOLD_FILES, getScaffoldFiles } from '@/ai/tools/scaffold'
+import { saveCheckpoint } from '@/ai/tools/checkpoint'
 import { getWarmEntry } from '@/ai/warm-pool'
+import { logRepair } from '@/lib/telemetry'
+import { ensureValidCss } from '@/lib/css-guard'
 import prompt from './prompt.md'
 
 export const maxDuration = 800
@@ -109,21 +112,9 @@ function transformMessages(messages: ChatUIMessage[]): ChatUIMessage[] {
 }
 
 // ── Build verification + auto-repair (the guarantee against blank previews) ───
-// Strips @apply anywhere and bare Tailwind class names — both crash PostCSS.
-function sanitizeCss(css: string): string {
-  let out = css.replace(/@apply\s+[^;{}\n]*;?/gi, '')
-  return out
-    .split('\n')
-    .filter(line => {
-      const t = line.trim()
-      if (!t) return true
-      if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@')) return true
-      if (t.includes('{') || t.includes('}')) return true
-      if (t.endsWith(';') && !t.includes(':')) return false
-      return true
-    })
-    .join('\n')
-}
+// CSS is validated with the real PostCSS parser (lib/css-guard) — the same
+// engine that would crash in the sandbox. Alias kept for the call sites below.
+const sanitizeCss = ensureValidCss
 
 // Pull the meaningful error lines out of a vite build log.
 function extractBuildError(log: string): string {
@@ -199,6 +190,7 @@ async function installMissingModules(sandbox: Sandbox, log: string): Promise<boo
   const mods = extractMissingModules(log)
   if (mods.length === 0) return false
   console.warn('[auto-install] installing missing modules:', mods.join(', '))
+  logRepair({ layer: 'auto-install', action: 'installing', detail: mods.join(', ') })
   try {
     const list = mods.map(m => `'${m.replace(/'/g, '')}'`).join(' ')
     const cmd = await sandbox.runCommand({
@@ -339,6 +331,7 @@ async function verifyAndRepair({
 
       const files = extractErrorFiles(log)
       console.warn(`[verify] attempt ${attempt} failed. files=${files.join(',')} err=${errorBlock.slice(0, 160)}`)
+      logRepair({ layer: 'build-verify', action: `attempt-${attempt}-failed`, detail: errorBlock.slice(0, 200), sandboxId })
 
       if (files.length === 0) {
         // Can't localize — last-ditch: re-sanitize the CSS, the most common
@@ -605,7 +598,9 @@ async function runAgenticLoop({
     system: resolvedSystemPrompt,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(30),
-    maxOutputTokens: 16000,
+    // MAX output — patchFile/generateFiles tool arguments stream through this
+    // budget; a 16k cap truncated large patches mid-file (a blank-preview cause).
+    maxOutputTokens: 384000,
     tools: tools({ modelId: FILE_GENERATION_MODEL, writer }),
     onError: error => {
       console.error('Error communicating with AI')
@@ -733,7 +728,8 @@ async function runPipeline({
     system: fullSystem,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(maxSteps),
-    maxOutputTokens: 16000,
+    // MAX output — planProject manifests and tool args must never truncate.
+    maxOutputTokens: 384000,
     temperature: 1.1,
     tools: pipelineTools,
     onError: error => console.error('Pipeline AI error:', error),
@@ -851,19 +847,15 @@ async function runPipeline({
       }
 
       {
+        // Full validation with the real PostCSS parser — catches unclosed
+        // parens, missing colons, stray braces; auto-drops broken lines.
         const before = css
-        css = css.split('\n').filter(line => {
-          const t = line.trim()
-          if (!t) return true
-          if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@')) return true
-          if (t.includes('{') || t.includes('}')) return true
-          if (t.endsWith(';') && !t.includes(':')) {
-            console.warn('[css-check] Stripped invalid CSS line (no colon):', t)
-            return false
-          }
-          return true
-        }).join('\n')
-        if (css !== before) changed = true
+        css = ensureValidCss(css)
+        if (css !== before) {
+          changed = true
+          console.warn('[css-check] css-guard repaired invalid CSS before dev server start')
+          logRepair({ layer: 'css-sanity', action: 'repaired', sandboxId })
+        }
       }
 
       if (changed) {
@@ -940,6 +932,7 @@ async function runPipeline({
   // before the user or the AI ever sees an error.
   if (devError && (await installMissingModules(sandbox, devError))) {
     console.warn('[dev-check] installed missing modules — restarting dev server')
+    logRepair({ layer: 'dev-500', action: 'auto-installed-and-restarted', detail: devError.slice(0, 200), sandboxId })
     await restartDevServer(sandbox)
     devError = await waitForDevServer(url)
   }
@@ -948,6 +941,7 @@ async function runPipeline({
   // emit a data-report-errors so the AI sees the problem in its next turn and fixes it.
   // The URL is still emitted so the user sees the error state transparently.
   if (devError) {
+    logRepair({ layer: 'dev-500', action: 'reported-to-ai', detail: devError.slice(0, 200), sandboxId })
     writer.write({
       id: 'srv-check',
       type: 'data-report-errors',
@@ -971,6 +965,9 @@ async function runPipeline({
       })
       let rt = await headlessRuntimeCheck(url)
       console.log(`[runtime-check] verdict status=${rt.status}${rt.status === 'ok' ? '' : ' — ' + rt.detail.slice(0, 160)}`)
+      if (rt.status === 'broken') {
+        logRepair({ layer: 'runtime-check', action: 'broken', detail: rt.detail.slice(0, 200), sandboxId })
+      }
 
       // A runtime break caused by a missing package is fixed deterministically:
       // install + restart + re-check, no LLM involved.
@@ -1024,6 +1021,13 @@ async function runPipeline({
     type: 'data-get-sandbox-url',
     data: { url, status: 'done' },
   })
+
+  // Save a last-known-good checkpoint when the pipeline ends healthy. If a later
+  // edit breaks the project beyond repair, the AI's restoreCheckpoint tool brings
+  // this version back — a working preview always beats a broken one.
+  if (!devError) {
+    saveCheckpoint(sandbox).catch(() => {})
+  }
 }
 
 // Poll the sandbox URL until the dev server responds (non-502 = port is listening).

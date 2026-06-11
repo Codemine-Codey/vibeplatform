@@ -2,20 +2,9 @@ import { Sandbox } from '@vercel/sandbox'
 import { tool } from 'ai'
 import z from 'zod/v3'
 import { mergePackageJson } from './scaffold'
+import { ensureValidCss } from '@/lib/css-guard'
 
 const VITE_CONFIG_NAMES = new Set(['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs'])
-
-function sanitizeCss(css: string): string {
-  let out = css.replace(/@apply\s+[^;{}\n]*;?/gi, '')
-  return out.split('\n').filter(line => {
-    const t = line.trim()
-    if (!t) return true
-    if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('@')) return true
-    if (t.includes('{') || t.includes('}')) return true
-    if (t.endsWith(';') && !t.includes(':')) return false
-    return true
-  }).join('\n')
-}
 
 function stripSvgs(content: string, path: string): string {
   if (!/\.(tsx|jsx|ts|js|html)$/.test(path)) return content
@@ -81,22 +70,19 @@ export const patchFile = () =>
           updated = mergePackageJson(updated)
         }
         if (path.endsWith('.css')) {
-          updated = sanitizeCss(updated)
-          // Reject a patch that would leave the stylesheet with unbalanced
-          // parentheses or braces — that crashes PostCSS and blanks the preview.
-          // Catching it here means the AI fixes it in the SAME turn instead of
-          // a slow crash -> detect -> new-turn cycle. Valid CSS is always balanced.
-          const parenO = (updated.match(/\(/g) || []).length
-          const parenC = (updated.match(/\)/g) || []).length
-          const braceO = (updated.match(/\{/g) || []).length
-          const braceC = (updated.match(/\}/g) || []).length
-          if (parenO !== parenC || braceO !== braceC) {
-            const what = parenO !== parenC ? `parentheses (${parenO} "(" vs ${parenC} ")")` : `braces (${braceO} "{" vs ${braceC} "}")`
+          // Validate with the REAL PostCSS parser and auto-repair (drop broken
+          // lines) — a syntax error here would 500 every request and blank the
+          // preview. Deterministic repair beats bouncing the patch back to the AI.
+          const before = updated
+          updated = ensureValidCss(updated)
+          if (updated !== before) {
+            await sandbox.writeFiles([{ path, content: Buffer.from(updated, 'utf8') }])
             return {
-              success: false,
-              error:
-                `This edit was NOT applied because it would leave ${path} with unbalanced ${what}, which crashes the stylesheet and blanks the preview. ` +
-                `Re-read the file with readFile and provide a corrected patch with fully balanced, valid CSS (every "(" closed, every gradient complete, each declaration ending in ";").`,
+              success: true,
+              path,
+              message:
+                `Patched ${path}. NOTE: some lines in your CSS were syntactically invalid (unclosed parenthesis, missing colon, or @apply) and were removed automatically to keep the stylesheet valid. ` +
+                `If a style you intended is missing, re-apply it with valid plain CSS.`,
             }
           }
         } else {
