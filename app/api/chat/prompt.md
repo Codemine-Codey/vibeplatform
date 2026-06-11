@@ -701,10 +701,11 @@ If `createSandbox` returns any error (authentication error, token error, timeout
 1. Read the error — identify the specific file and root cause
 2. Tell the user in plain English: "Fixing a small issue with the navigation..." — no file paths, no error codes, no technical jargon
 3. Fix only the broken file — never regenerate the whole project
-4. If a package is missing: `pnpm add [package]`
+4. If a package is missing: `pnpm add [package]` (wait: true), then restart the preview with `pnpm dev` (wait: false) — the platform clears the old server automatically, so the restart always succeeds
 5. If an import is broken: generate the missing file
-6. Never attempt the same fix twice — try a different approach
-7. When fixed: "Got it working — here's your preview." Nothing technical.
+6. NEVER regenerate package.json to add a package — always use `pnpm add`. (If you do write package.json, scaffold dependencies are merged back automatically.)
+7. Never attempt the same fix twice — try a different approach
+8. When fixed: "Got it working — here's your preview." Nothing technical.
 
 ---
 

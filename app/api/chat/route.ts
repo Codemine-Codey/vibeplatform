@@ -140,7 +140,7 @@ function extractBuildError(log: string): string {
   return lines || log.replace(/##EXIT:\d+/g, '').trim().slice(-1500)
 }
 
-// Extract referenced source file paths from a build log (src/... or index.html).
+// Extract referenced source file paths from a build log (src/... or root configs).
 function extractErrorFiles(log: string): string[] {
   const files = new Set<string>()
   const re = /((?:src\/|\.\/src\/|\/[\w./-]*?src\/)?[\w./-]+\.(?:tsx|jsx|ts|js|css))/g
@@ -151,8 +151,91 @@ function extractErrorFiles(log: string): string[] {
     if (srcIdx >= 0) p = p.slice(srcIdx)
     else p = p.replace(/^\.\//, '')
     if (p.startsWith('src/')) files.add(p)
+    else {
+      // Root-level configs crash PostCSS/Tailwind/Vite and are repairable too
+      // (e.g. "/vercel/sandbox/tailwind.config.js" in a require stack).
+      const base = p.split('/').pop() ?? ''
+      if (/^(tailwind|postcss)\.config\.(js|cjs|mjs|ts)$/.test(base)) files.add(base)
+    }
   }
   return [...files]
+}
+
+// ── Missing-module auto-install (generic, any package) ───────────────────────
+// "Cannot find module 'x'" / "Failed to resolve import \"x\"" means a package is
+// referenced (by generated code OR a config) but not installed. The fix is always
+// the same and fully deterministic: install it. This handles the entire class —
+// any package, any project type — without involving the AI at all.
+const NODE_BUILTINS = new Set([
+  'fs', 'path', 'os', 'url', 'http', 'https', 'crypto', 'stream', 'util', 'events',
+  'child_process', 'buffer', 'querystring', 'zlib', 'assert', 'net', 'tls', 'dns',
+])
+function extractMissingModules(log: string): string[] {
+  const mods = new Set<string>()
+  const patterns = [
+    /Cannot find module ['"]([^'"]+)['"]/g,
+    /Could not resolve ['"]([^'"]+)['"]/g,
+    /Failed to resolve import ['"]([^'"]+)['"]/g,
+    /Cannot find package ['"]([^'"]+)['"]/g,
+  ]
+  for (const re of patterns) {
+    let m: RegExpExecArray | null
+    while ((m = re.exec(log)) !== null) {
+      const name = m[1]
+      // Bare npm package names only — relative/absolute paths are file problems,
+      // node builtins aren't installable.
+      if (name.startsWith('.') || name.startsWith('/') || name.startsWith('node:')) continue
+      if (NODE_BUILTINS.has(name)) continue
+      // Normalize deep imports ("pkg/sub/path" → "pkg", "@scope/pkg/sub" → "@scope/pkg")
+      const parts = name.split('/')
+      const pkg = name.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
+      if (/^(@[\w.-]+\/)?[\w.-]+$/.test(pkg)) mods.add(pkg)
+    }
+  }
+  return [...mods].slice(0, 8)
+}
+
+async function installMissingModules(sandbox: Sandbox, log: string): Promise<boolean> {
+  const mods = extractMissingModules(log)
+  if (mods.length === 0) return false
+  console.warn('[auto-install] installing missing modules:', mods.join(', '))
+  try {
+    const list = mods.map(m => `'${m.replace(/'/g, '')}'`).join(' ')
+    const cmd = await sandbox.runCommand({
+      detached: true,
+      cmd: 'bash',
+      args: ['-c', `command -v bun >/dev/null 2>&1 && bun add ${list} || pnpm add ${list}`],
+    })
+    await Promise.race([
+      cmd.wait(),
+      new Promise<void>((_, rej) => setTimeout(() => rej(new Error('install timeout')), 60_000)),
+    ])
+    return true
+  } catch (e) {
+    console.warn('[auto-install] failed (non-fatal):', e instanceof Error ? e.message : e)
+    return false
+  }
+}
+
+// Restart the dev server after a fix that the running process can't pick up via
+// HMR (e.g. a newly installed package referenced by tailwind.config.js — jiti
+// caches the failed require). Kill anything holding port 3000, then start fresh.
+async function restartDevServer(sandbox: Sandbox): Promise<void> {
+  try {
+    const kill = await sandbox.runCommand({
+      detached: true,
+      cmd: 'bash',
+      args: ['-c', 'fuser -k 3000/tcp 2>/dev/null; pkill -f vite 2>/dev/null; sleep 1; exit 0'],
+    })
+    await kill.wait()
+  } catch { /* best-effort */ }
+  try {
+    await sandbox.runCommand({
+      detached: true,
+      cmd: 'bash',
+      args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'],
+    })
+  } catch { /* best-effort */ }
 }
 
 async function readSandboxFile(sandbox: Sandbox, path: string): Promise<string | null> {
@@ -249,6 +332,11 @@ async function verifyAndRepair({
       if (ok) return // compiles cleanly — preview WILL render
 
       const errorBlock = extractBuildError(log)
+
+      // Missing package? Install it — deterministic, fixes the whole error class
+      // (AI-referenced packages, config-required packages) without any LLM call.
+      if (await installMissingModules(sandbox, log)) continue
+
       const files = extractErrorFiles(log)
       console.warn(`[verify] attempt ${attempt} failed. files=${files.join(',')} err=${errorBlock.slice(0, 160)}`)
 
@@ -844,7 +932,17 @@ async function runPipeline({
     data: { status: 'loading' },
   })
   const url = sandbox.domain(3000)
-  const devError = await waitForDevServer(url)
+  let devError = await waitForDevServer(url)
+
+  // Self-heal a 500 caused by a missing package (e.g. tailwind.config.js requiring
+  // a dep the AI's package.json dropped): install it, restart the dev server (the
+  // running process caches the failed require), and re-check — all server-side,
+  // before the user or the AI ever sees an error.
+  if (devError && (await installMissingModules(sandbox, devError))) {
+    console.warn('[dev-check] installed missing modules — restarting dev server')
+    await restartDevServer(sandbox)
+    devError = await waitForDevServer(url)
+  }
 
   // If the dev server is up but the page is broken (500 from Vite/PostCSS crash),
   // emit a data-report-errors so the AI sees the problem in its next turn and fixes it.
@@ -873,6 +971,14 @@ async function runPipeline({
       })
       let rt = await headlessRuntimeCheck(url)
       console.log(`[runtime-check] verdict status=${rt.status}${rt.status === 'ok' ? '' : ' — ' + rt.detail.slice(0, 160)}`)
+
+      // A runtime break caused by a missing package is fixed deterministically:
+      // install + restart + re-check, no LLM involved.
+      if (rt.status === 'broken' && (await installMissingModules(sandbox, rt.detail))) {
+        await restartDevServer(sandbox)
+        await new Promise(r => setTimeout(r, 4000))
+        rt = await headlessRuntimeCheck(url)
+      }
 
       if (rt.status === 'broken') {
         const files = extractErrorFiles(rt.detail)

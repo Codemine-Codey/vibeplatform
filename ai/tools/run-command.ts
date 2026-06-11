@@ -98,6 +98,23 @@ export const runCommand = ({ writer }: Params) =>
         return richError.message
       }
 
+      // Starting a dev server while the previous one still holds port 3000 always
+      // fails ("Port 3000 is already in use"). Clear the port first so an AI
+      // restart after a fix is reliable — the user never sees "failed" for this.
+      const isDevStart =
+        (/^(pnpm|npm|yarn)$/.test(command) && args.some(a => a === 'dev')) ||
+        command === 'vite'
+      if (isDevStart) {
+        try {
+          const kill = await sandbox.runCommand({
+            detached: true,
+            cmd: 'bash',
+            args: ['-c', 'fuser -k 3000/tcp 2>/dev/null; pkill -f vite 2>/dev/null; sleep 1; exit 0'],
+          })
+          await kill.wait()
+        } catch { /* best-effort */ }
+      }
+
       let cmd: Command | null = null
 
       try {

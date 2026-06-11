@@ -3,6 +3,7 @@ import type { File } from './get-contents'
 import type { Sandbox } from '@vercel/sandbox'
 import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import { getRichError } from '../get-rich-error'
+import { mergePackageJson } from '../scaffold'
 
 interface Params {
   sandbox: Sandbox
@@ -136,6 +137,11 @@ export function getWriteFiles({ sandbox, toolCallId, writer }: Params) {
       }
       if (basename === 'index.html') {
         return { ...file, content: injectErrorBridge(file.content) }
+      }
+      if (basename === 'package.json') {
+        // Never let an AI package.json drop scaffold deps (tailwindcss-animate,
+        // clsx, etc.) — that crashes PostCSS/imports and blanks the preview.
+        return { ...file, content: mergePackageJson(file.content) }
       }
       if (file.path.endsWith('.css')) {
         return { ...file, content: sanitizeCss(file.content) }

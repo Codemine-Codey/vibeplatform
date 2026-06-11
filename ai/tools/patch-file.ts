@@ -1,6 +1,7 @@
 import { Sandbox } from '@vercel/sandbox'
 import { tool } from 'ai'
 import z from 'zod/v3'
+import { mergePackageJson } from './scaffold'
 
 const VITE_CONFIG_NAMES = new Set(['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs'])
 
@@ -74,6 +75,10 @@ export const patchFile = () =>
         let updated = current.replace(oldString, newString)
         if (VITE_CONFIG_NAMES.has(basename)) {
           updated = ensureViteAllowedHosts(updated)
+        }
+        if (basename === 'package.json') {
+          // A patch must never remove scaffold deps — missing modules crash the preview.
+          updated = mergePackageJson(updated)
         }
         if (path.endsWith('.css')) {
           updated = sanitizeCss(updated)

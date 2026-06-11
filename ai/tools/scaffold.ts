@@ -53,6 +53,36 @@ function makePackageJson(skill?: Skill): string {
   )
 }
 
+// Merge an AI-generated package.json with the scaffold's so scaffold dependencies
+// can NEVER be dropped. The scaffold's tailwind.config.js requires tailwindcss-animate,
+// src/lib/utils.ts requires clsx + tailwind-merge, etc. — if the AI regenerates
+// package.json and omits any of these, install succeeds but the dev server crashes
+// (PostCSS "Cannot find module") and the preview blanks. Scaffold versions win
+// (they match what is pre-installed); the AI's NEW packages are preserved.
+export function mergePackageJson(aiContent: string, skill?: Skill): string {
+  const scaffoldRaw = makePackageJson(skill)
+  try {
+    const scaffold = JSON.parse(scaffoldRaw)
+    const ai = JSON.parse(aiContent)
+    return JSON.stringify(
+      {
+        ...scaffold,
+        ...ai,
+        // scripts/deps: AI extras kept, scaffold entries always present and authoritative
+        scripts: { ...(ai.scripts ?? {}), ...scaffold.scripts },
+        dependencies: { ...(ai.dependencies ?? {}), ...scaffold.dependencies },
+        devDependencies: { ...(ai.devDependencies ?? {}), ...scaffold.devDependencies },
+      },
+      null,
+      2
+    )
+  } catch {
+    // AI emitted malformed JSON — a broken package.json bricks install entirely,
+    // so fall back to the known-good scaffold file.
+    return scaffoldRaw
+  }
+}
+
 // Error bridge — placed in <head> so it runs BEFORE the React module script and
 // installs window.onerror first. Forwards runtime errors AND silent blank screens
 // to the parent window so ErrorMonitor can auto-fix them. Pre-injecting here means
