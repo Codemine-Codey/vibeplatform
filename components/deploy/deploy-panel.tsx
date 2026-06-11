@@ -204,9 +204,11 @@ export function DeployPanel({ className }: Props) {
       {canDeploy && (
         <div className="flex flex-col items-center justify-center flex-1 gap-4 p-6 text-center">
           {deployStatus === 'error' && deployError && (
-            <div className="flex items-start gap-2 text-destructive text-xs max-w-xs text-left bg-destructive/8 rounded-md px-3 py-2">
+            <div className="flex items-start gap-2 text-muted-foreground text-xs max-w-xs text-left bg-secondary rounded-md px-3 py-2">
               <AlertCircleIcon className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-              <span>{deployError}</span>
+              {/* Never show the raw build/deploy error to the user — the full detail
+                  is sent to the AI to fix. Show a calm, professional message only. */}
+              <span>Publishing hit a snag — we&apos;re sorting it out. Try again in a moment.</span>
             </div>
           )}
           {!sandboxId && (

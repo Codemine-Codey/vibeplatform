@@ -145,13 +145,16 @@ export function RightPanel({ className }: Props) {
         )}
         <div className={cn('absolute inset-0', activeTab !== 'preview' && 'hidden')}>
           {viewMode === 'mobile' ? (
-            <div className="flex items-center justify-center h-full bg-secondary/50 overflow-hidden">
-              {/* Phone bezel */}
-              <div className="relative flex flex-col rounded-[2.5rem] border-[8px] border-foreground/20 shadow-2xl bg-black overflow-hidden"
-                style={{ width: 390, height: 'min(844px, calc(100% - 32px))' }}>
-                {/* Notch */}
-                <div className="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-5 bg-foreground/15 rounded-full z-10" />
-                <Preview className="w-full h-full rounded-none" />
+            <div className="flex items-center justify-center h-full bg-secondary/50 overflow-hidden p-3">
+              {/* Phone bezel — status bar holds the notch so it never covers content */}
+              <div className="relative flex flex-col rounded-[2.5rem] border-[10px] border-zinc-800 shadow-2xl bg-zinc-900 overflow-hidden"
+                style={{ width: 390, height: 'min(844px, 100%)', aspectRatio: '390 / 844' }}>
+                {/* Status bar with centered notch */}
+                <div className="relative h-6 shrink-0 bg-zinc-900 flex items-center justify-center">
+                  <div className="w-20 h-4 bg-black rounded-full" />
+                </div>
+                {/* Iframe fills the remaining space below the notch */}
+                <Preview className="flex-1 w-full rounded-none" />
               </div>
             </div>
           ) : (

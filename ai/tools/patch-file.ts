@@ -77,6 +77,23 @@ export const patchFile = () =>
         }
         if (path.endsWith('.css')) {
           updated = sanitizeCss(updated)
+          // Reject a patch that would leave the stylesheet with unbalanced
+          // parentheses or braces — that crashes PostCSS and blanks the preview.
+          // Catching it here means the AI fixes it in the SAME turn instead of
+          // a slow crash -> detect -> new-turn cycle. Valid CSS is always balanced.
+          const parenO = (updated.match(/\(/g) || []).length
+          const parenC = (updated.match(/\)/g) || []).length
+          const braceO = (updated.match(/\{/g) || []).length
+          const braceC = (updated.match(/\}/g) || []).length
+          if (parenO !== parenC || braceO !== braceC) {
+            const what = parenO !== parenC ? `parentheses (${parenO} "(" vs ${parenC} ")")` : `braces (${braceO} "{" vs ${braceC} "}")`
+            return {
+              success: false,
+              error:
+                `This edit was NOT applied because it would leave ${path} with unbalanced ${what}, which crashes the stylesheet and blanks the preview. ` +
+                `Re-read the file with readFile and provide a corrected patch with fully balanced, valid CSS (every "(" closed, every gradient complete, each declaration ending in ";").`,
+            }
+          }
         } else {
           updated = stripSvgs(updated, path)
         }

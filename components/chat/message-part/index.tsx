@@ -31,7 +31,7 @@ export const MessagePart = memo(function MessagePart({
   } else if (part.type === 'reasoning') {
     return <Reasoning part={part} partIndex={partIndex} />
   } else if (part.type === 'data-report-errors') {
-    return <ReportErrors message={part.data} />
+    return <ReportErrors />
   } else if (part.type === 'text') {
     if (!part.text.trim()) return null
     return <Text part={part} />

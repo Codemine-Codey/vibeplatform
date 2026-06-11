@@ -111,17 +111,21 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
       lastBrowserFix.current = now
       setTimeout(() => {
         try {
-          // Send as a normal chat message (not the special "Auto-detected errors"
-          // widget) so it reads conversationally. The AI still receives the exact
-          // error detail and fixes it — same functionality, cleaner presentation.
+          // data-report-errors renders as a clean "Polishing your preview" message
+          // (report-errors.tsx) — the raw error is HIDDEN from the user but the full
+          // detail + fix instructions are still sent to the AI via transformMessages.
           sendMessage({
             role: 'user',
             parts: [
               {
-                type: 'text',
-                text:
-                  "The preview isn't displaying right — can you fix it? Read the relevant files and patch the bug (don't regenerate the whole project).\n\nError detail:\n" +
-                  latest.data,
+                type: 'data-report-errors',
+                data: {
+                  summary:
+                    "The preview isn't displaying right. Read the relevant files and patch the bug (don't regenerate the whole project). " +
+                    'Common causes: a component returning nothing, an undefined variable during render, a bad import, a hook misuse, or malformed CSS (unbalanced parentheses / missing semicolon in a gradient).\n\nError detail:\n' +
+                    latest.data,
+                  paths: ['src/App.tsx', 'src/index.css'],
+                },
               },
             ],
           })

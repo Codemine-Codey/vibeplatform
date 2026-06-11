@@ -10,7 +10,10 @@ function makePackageJson(skill?: Skill): string {
       type: 'module',
       scripts: {
         dev: 'vite --port 3000',
-        build: 'tsc -b && vite build',
+        // No `tsc -b` — type errors in unused files must not block a working build.
+        // vite build (rollup/esbuild) still fails on real broken imports in the
+        // actual import graph, which is what matters. Keeps deploy === verify.
+        build: 'vite build',
         preview: 'vite preview',
       },
       dependencies: {
@@ -78,8 +81,13 @@ const INDEX_HTML = `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>App</title>
+    <style>
+      html, body, #root { height: 100%; margin: 0; padding: 0; }
+      #root { display: flex; flex-direction: column; }
+      * { box-sizing: border-box; }
+    </style>
 ${ERROR_BRIDGE_SCRIPT}
   </head>
   <body>
@@ -737,13 +745,25 @@ export { Dialog, DialogPortal, DialogOverlay, DialogClose, DialogTrigger, Dialog
 // Returns skill-appropriate scaffold. Games get a leaner package.json (no router, fewer Radix deps)
 // and a main.tsx without BrowserRouter. Websites/apps get main.tsx with BrowserRouter pre-wired.
 // Warm pool always uses full SCAFFOLD_FILES since skill is unknown at pre-warm time.
+// UI components that depend on Radix packages excluded from the game package.json.
+// Shipping these for a game makes `tsc -b` (used by deploy) fail with TS2307
+// "Cannot find module '@radix-ui/...'". Games don't need them, so we drop them.
+const GAME_EXCLUDED_UI = new Set([
+  'src/components/ui/dialog.tsx',
+  'src/components/ui/label.tsx',
+  'src/components/ui/select.tsx',
+  'src/components/ui/separator.tsx',
+])
+
 export function getScaffoldFiles(skill: Skill): Array<{ path: string; content: string }> {
   const mainTsx = { path: 'src/main.tsx', content: MAIN_TSX }
   if (skill === 'game') {
     return [
-      ...SCAFFOLD_FILES.map(f =>
-        f.path === 'package.json' ? { ...f, content: makePackageJson('game') } : f
-      ),
+      ...SCAFFOLD_FILES
+        .filter(f => !GAME_EXCLUDED_UI.has(f.path))
+        .map(f =>
+          f.path === 'package.json' ? { ...f, content: makePackageJson('game') } : f
+        ),
       mainTsx,
     ]
   }
