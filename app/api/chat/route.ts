@@ -173,7 +173,10 @@ async function repairFile(path: string, content: string, error: string): Promise
   try {
     const res = await generateText({
       ...getModelOptions(FILE_GENERATION_MODEL),
-      maxOutputTokens: 64000,
+      // Max output (Flash supports 384k). A repaired file must NEVER be truncated —
+      // a half-written file is itself a blank-preview cause. Cost only accrues on
+      // tokens actually produced, so the high ceiling is free headroom.
+      maxOutputTokens: 384000,
       system:
         'You are a build-error repair tool. You receive ONE file and the exact build error it causes. ' +
         'Return ONLY the complete corrected file content — no markdown fences, no explanation, no commentary. ' +
