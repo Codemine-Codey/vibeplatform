@@ -1,6 +1,14 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import type { LanguageModelV3 } from '@ai-sdk/provider'
+import { wrapLanguageModel } from 'ai'
+import { metricsMiddleware } from '../lib/model-metrics'
+
+// Wrap every model in the metrics middleware so each call logs a [cm-metrics]
+// line centrally — no call site needs to know about instrumentation.
+function instrument(model: LanguageModelV3, modelId: string): LanguageModelV3 {
+  return wrapLanguageModel({ model, middleware: metricsMiddleware(modelId) }) as LanguageModelV3
+}
 
 const anthropicProvider = createAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY ?? '',
@@ -106,27 +114,27 @@ export function getModelOptions(
   // Kimi models — direct API when KIMI_API_KEY is set, OpenRouter otherwise
   // Both paths have thinking disabled to avoid 5+ min silent reasoning phases
   if (modelId.startsWith('kimi-')) {
-    if (process.env.KIMI_API_KEY) {
-      return { model: kimiProvider.chat(modelId) }
-    }
-    return { model: openrouterKimiProvider.chat(`moonshotai/${modelId}`) }
+    const base = process.env.KIMI_API_KEY
+      ? kimiProvider.chat(modelId)
+      : openrouterKimiProvider.chat(`moonshotai/${modelId}`)
+    return { model: instrument(base as LanguageModelV3, modelId) }
   }
   // OpenRouter-hosted models (deepseek/, moonshotai/, meta-llama/, etc.)
   if (modelId.includes('/')) {
     // Reasoning-enabled path — only the design/planning step opts in
-    if (opts?.reasoning) {
-      return { model: openrouterReasoningProvider.chat(modelId) }
-    }
-    return { model: openrouterProvider.chat(modelId) }
+    const base = opts?.reasoning
+      ? openrouterReasoningProvider.chat(modelId)
+      : openrouterProvider.chat(modelId)
+    return { model: instrument(base as LanguageModelV3, modelId) }
   }
   if (modelId.startsWith('claude')) {
     return {
-      model: anthropicProvider(modelId) as LanguageModelV3,
+      model: instrument(anthropicProvider(modelId) as LanguageModelV3, modelId),
       providerOptions: {
         anthropic: { cacheControl: { type: 'ephemeral' } },
       },
     }
   }
   // Direct DeepSeek (Flash) via CF AI Gateway
-  return { model: deepseekProvider.chat(modelId) }
+  return { model: instrument(deepseekProvider.chat(modelId) as LanguageModelV3, modelId) }
 }

@@ -6,13 +6,17 @@ export const FILE_GENERATION_MODEL = 'claude-sonnet-4-6'
 export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek/deepseek-v4-flash'
 
-// Max output tokens per model family — passing a value above a model's ceiling
-// returns a 400. Sonnet 4.6 / Haiku cap at 64K; Opus/Fable at 128K; DeepSeek
-// Flash supports up to 384K. Always derive the cap from the model in use.
+// Max output tokens per model family. Two separate constraints:
+//  - Anthropic 400s if the value exceeds the model ceiling (Sonnet/Haiku 64K,
+//    Opus/Fable 128K).
+//  - OpenRouter RESERVES credits up-front for the full max_tokens, so an
+//    oversized cap (e.g. 384K) fails with "requires more credits" even though
+//    the call would never produce that many tokens. 64K comfortably covers any
+//    single file or edit while keeping the credit reservation small.
 export function getMaxOutputTokens(modelId: string): number {
   if (modelId.startsWith('claude-opus') || modelId.startsWith('claude-fable')) return 128000
-  if (modelId.startsWith('claude')) return 64000 // sonnet 4.6, haiku 4.5
-  return 384000 // deepseek flash + other OpenRouter models
+  // claude sonnet/haiku, deepseek flash, and other OpenRouter models
+  return 64000
 }
 
 export const SUPPORTED_MODELS: string[] = [DEFAULT_MODEL]

@@ -38,3 +38,70 @@ export function logRepair(event: {
     /* telemetry must never break the pipeline */
   }
 }
+
+// ── Phase 1: per-model-call metrics ──────────────────────────────────────────
+// One [cm-metrics] line per LLM call (logged centrally by the gateway middleware,
+// so every call is covered without touching call sites). Reveals the real split
+// between time-to-first-token, output-streaming time, and cache effectiveness:
+//
+//   vercel logs <deployment> | grep cm-metrics
+//
+// tokPerSec exposes the output-token wall (initial-gen cost); cacheHit verifies
+// prompt caching is actually landing (and that Phase 4 history-trimming doesn't
+// silently bust it).
+export function logModelCall(event: {
+  modelId: string
+  kind: 'generate' | 'stream'
+  ttftMs: number | null
+  totalMs: number
+  usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number }
+}): void {
+  try {
+    const inTok = event.usage?.inputTokens ?? 0
+    const outTok = event.usage?.outputTokens ?? 0
+    const cachedTok = event.usage?.cachedInputTokens ?? 0
+    const tokPerSec = outTok > 0 && event.totalMs > 0 ? Math.round(outTok / (event.totalMs / 1000)) : 0
+    const cacheHit = inTok + cachedTok > 0 ? Number((cachedTok / (inTok + cachedTok)).toFixed(2)) : 0
+    console.log(
+      '[cm-metrics]',
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        model: event.modelId,
+        kind: event.kind,
+        ttftMs: event.ttftMs,
+        totalMs: event.totalMs,
+        inTok,
+        outTok,
+        cachedTok,
+        tokPerSec,
+        cacheHit,
+      })
+    )
+  } catch {
+    /* never break a generation for a log line */
+  }
+}
+
+// ── Phase 1: read round-trip tracking ────────────────────────────────────────
+// One [cm-read] line per readFile / readFiles call. Aggregating these per turn
+// (and computing p50/p90 of the count) tells us how often edits pay the serial-
+// read tax — the data that sets the Phase 2 hard-cap threshold.
+export function logRead(event: {
+  kind: 'readFile' | 'readFiles'
+  count: number            // files fetched in this call (1 for readFile, N for readFiles)
+  sandboxId?: string
+}): void {
+  try {
+    console.log(
+      '[cm-read]',
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        kind: event.kind,
+        count: event.count,
+        sandboxId: event.sandboxId ?? null,
+      })
+    )
+  } catch {
+    /* non-fatal */
+  }
+}

@@ -644,7 +644,11 @@ async function runPipeline({
     hadWarmSandbox = true
   } else {
     try {
-      sandbox = await Sandbox.create({ timeout: 1_200_000, ports: [3000] })
+      // 10-min lifetime (was 20). Sandboxes bill for provisioned memory the whole
+      // time they're alive, so a shorter cap directly halves idle cost when a user
+      // leaves after generating. Editing resumes the sandbox via Sandbox.get; a
+      // session longer than this is rare and re-creates cleanly on the next action.
+      sandbox = await Sandbox.create({ timeout: 600_000, ports: [3000] })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       writer.write({
