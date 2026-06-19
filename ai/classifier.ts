@@ -16,6 +16,8 @@ export async function classifyPrompt(userPrompt: string): Promise<ClassifierResu
   try {
     await generateText({
       ...getModelOptions(FILE_GENERATION_MODEL),
+      // Anthropic requires max_tokens; classification is a single small tool call.
+      maxOutputTokens: 2000,
       stopWhen: stepCountIs(2),
       system: `You are the intent classifier for a web app builder. Determine what the user wants and use the classify tool.
 

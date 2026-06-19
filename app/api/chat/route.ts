@@ -9,7 +9,7 @@ import {
 } from 'ai'
 import type { UIMessage, UIMessageStreamWriter } from 'ai'
 import type { DataPart } from '@/ai/messages/data-parts'
-import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL } from '@/ai/constants'
+import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL, getMaxOutputTokens } from '@/ai/constants'
 import { NextResponse } from 'next/server'
 import { getModelOptions } from '@/ai/gateway'
 import { checkBotId } from 'botid/server'
@@ -248,10 +248,11 @@ async function repairFile(path: string, content: string, error: string): Promise
   try {
     const res = await generateText({
       ...getModelOptions(FILE_GENERATION_MODEL),
-      // Max output (Flash supports 384k). A repaired file must NEVER be truncated —
-      // a half-written file is itself a blank-preview cause. Cost only accrues on
-      // tokens actually produced, so the high ceiling is free headroom.
-      maxOutputTokens: 384000,
+      // Model's max output — a repaired file must NEVER be truncated (a half-written
+      // file is itself a blank-preview cause). Cost only accrues on tokens actually
+      // produced, so the ceiling is free headroom; the value is capped to the
+      // active model's real limit so the provider never 400s.
+      maxOutputTokens: getMaxOutputTokens(FILE_GENERATION_MODEL),
       system:
         'You are a build-error repair tool. You receive ONE file and the exact build error it causes. ' +
         'Return ONLY the complete corrected file content — no markdown fences, no explanation, no commentary. ' +
@@ -598,9 +599,10 @@ async function runAgenticLoop({
     system: resolvedSystemPrompt,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(30),
-    // MAX output — patchFile/generateFiles tool arguments stream through this
-    // budget; a 16k cap truncated large patches mid-file (a blank-preview cause).
-    maxOutputTokens: 384000,
+    // Model's max output — patchFile/generateFiles tool arguments stream through
+    // this budget; a small cap truncated large patches mid-file (a blank-preview
+    // cause). Capped to the active model's real ceiling so the provider never 400s.
+    maxOutputTokens: getMaxOutputTokens(isEdit ? EDIT_MODEL : DEFAULT_MODEL),
     tools: tools({ modelId: FILE_GENERATION_MODEL, writer }),
     onError: error => {
       console.error('Error communicating with AI')
@@ -728,9 +730,8 @@ async function runPipeline({
     system: fullSystem,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(maxSteps),
-    // MAX output — planProject manifests and tool args must never truncate.
-    maxOutputTokens: 384000,
-    temperature: 1.1,
+    // Model's max output — planProject manifests and tool args must never truncate.
+    maxOutputTokens: getMaxOutputTokens(DEFAULT_MODEL),
     tools: pipelineTools,
     onError: error => console.error('Pipeline AI error:', error),
   })

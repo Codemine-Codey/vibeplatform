@@ -30,7 +30,11 @@ export function ensureValidCss(css: string): string {
     })
     .join('\n')
 
-  // Pass 3: the real parser. Drop the reported line on each failure and retry.
+  // Pass 3: the real parser. On each failure, first try to REPAIR the reported
+  // line (the most common break is a missing ")" in a gradient/hsl value — a
+  // dropped declaration leaves an empty rule and a visually broken layout, so
+  // closing the paren preserves the design). Only drop the line if repair fails.
+  let lastFailedLine = -1
   for (let i = 0; i < 25; i++) {
     try {
       postcss.parse(out)
@@ -40,7 +44,20 @@ export function ensureValidCss(css: string): string {
       if (typeof line !== 'number' || line < 1) break
       const lines = out.split('\n')
       if (line > lines.length) break
-      lines.splice(line - 1, 1)
+      const bad = lines[line - 1]
+      const open = (bad.match(/\(/g) || []).length
+      const close = (bad.match(/\)/g) || []).length
+      if (open > close && line !== lastFailedLine) {
+        // Append the missing close-parens before the trailing semicolon (or at end)
+        const missing = ')'.repeat(open - close)
+        lines[line - 1] = /;\s*$/.test(bad)
+          ? bad.replace(/;\s*$/, `${missing};`)
+          : bad + missing + (bad.includes(':') ? ';' : '')
+        lastFailedLine = line // if the same line fails again, drop it next round
+      } else {
+        lines.splice(line - 1, 1)
+        lastFailedLine = -1
+      }
       out = lines.join('\n')
     }
   }

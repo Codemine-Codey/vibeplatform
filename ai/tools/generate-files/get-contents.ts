@@ -1,7 +1,8 @@
 import { streamText, tool, stepCountIs } from 'ai'
-import { createOpenAI } from '@ai-sdk/openai'
 import z from 'zod/v3'
 import type { ModelMessage } from 'ai'
+import { getModelOptions } from '../../gateway'
+import { getMaxOutputTokens } from '../../constants'
 
 export type File = {
   path: string
@@ -18,33 +19,6 @@ interface FileContentChunk {
   files: File[]
   paths: string[]
   written: string[]
-}
-
-// Provider with thinking disabled — prevents silent 5-min reasoning before first token.
-// Both flags needed: include_reasoning hides tokens, thinking:{type:'disabled'} stops it.
-function makeProvider(modelId: string) {
-  const isOpenRouter = modelId.includes('/')
-  return createOpenAI({
-    baseURL: isOpenRouter
-      ? 'https://openrouter.ai/api/v1'
-      : (process.env.AI_GATEWAY_BASE_URL ?? 'https://api.deepseek.com/v1'),
-    apiKey: isOpenRouter
-      ? (process.env.OPENROUTER_API_KEY ?? '')
-      : (process.env.DEEPSEEK_API_KEY ?? ''),
-    fetch: async (url, init) => {
-      if (init?.body) {
-        try {
-          const body = JSON.parse(init.body as string)
-          if (isOpenRouter) {
-            body.include_reasoning = false
-            body.thinking = { type: 'disabled' }
-          }
-          init = { ...init, body: JSON.stringify(body) }
-        } catch { /* non-fatal */ }
-      }
-      return fetch(url, init)
-    },
-  })
 }
 
 function fixCss(path: string, content: string): string {
@@ -88,7 +62,6 @@ export async function* getContents(
   params: Params
 ): AsyncGenerator<FileContentChunk> {
   const { messages, modelId, paths } = params
-  const provider = makeProvider(modelId)
 
   // Queue-based channel between tool execute() and the async generator.
   // execute() pushes files and resolves the current signal promise.
@@ -106,8 +79,8 @@ export async function* getContents(
   }
 
   const result = streamText({
-    model: provider.chat(modelId),
-    maxOutputTokens: 384000,
+    ...getModelOptions(modelId),
+    maxOutputTokens: getMaxOutputTokens(modelId),
     system:
       'You are a code file generator. Write each file completely using the writeFile tool.\n' +
       'One writeFile call per file — NEVER combine two files into one call. Write COMPLETE production-quality code — never truncate or abbreviate.\n' +
