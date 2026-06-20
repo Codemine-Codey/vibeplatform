@@ -781,7 +781,10 @@ async function runPipeline({
     hadWarmSandbox = true
   } else {
     try {
-      sandbox = await Sandbox.create({ timeout: 1_200_000, ports: [3000] })
+      // 30-min ceiling. Abandoned sessions are killed early by the client
+      // "kill-on-leave" beacon (POST /api/sandbox/stop on tab close), so the long
+      // ceiling only benefits users actively working — it doesn't inflate idle cost.
+      sandbox = await Sandbox.create({ timeout: 1_800_000, ports: [3000] })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       writer.write({
