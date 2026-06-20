@@ -51,10 +51,20 @@ Rules:
   4. Motion language: how do elements enter? How fast? What easing? What does interaction feel like?
   5. Overall emotional impression: what does the user feel after 30 seconds? One sentence that captures the soul of the product.
   Be specific and visual — "The hero is full-viewport near-black (#0D0A06) with 7xl Cormorant Garamond in warm amber, set left-of-center..." NOT "This is a dark elegant website."
-- layoutStyle: e.g. "editorial dark with large typography", "clean white minimal with generous whitespace", "bold geometric with strong color blocks", "immersive parallax with layered sections"
+- colorTokens: the LOCKED semantic palette as 6 hex values — this is the single source of truth the whole project is built from. Choose domain-driven, non-generic colours with a deliberate contrast strategy (never default blue/grey). Roles:
+  * background: the page background
+  * surface: cards / raised sections (subtly distinct from background)
+  * foreground: primary text (must have strong contrast on background)
+  * mutedForeground: secondary text (readable but quieter)
+  * primary: the brand colour for CTAs and key accents
+  * accent: a secondary highlight that complements primary
+  If the user named colours, build these around them exactly. Make it feel intentional, like a real brand system.
+- signatureMoves: 2-3 SPECIFIC, memorable design moves that make this look art-directed rather than templated — e.g. "a full-bleed hero with the headline overlapping the image", "a scroll-linked horizontal marquee of work", "a grain/noise texture over a deep gradient", "an asymmetric broken-grid gallery", "a custom oversized cursor on interactive areas". Be concrete and unusual — NOT "clean layout" or "nice animations". Each move MUST be achievable with HTML + Tailwind + framer-motion + CSS only — NO SVG, no <canvas> (for websites/apps). Describe dividers/shapes as CSS borders, gradients, or animated divs, never SVG.
+- layoutStyle: a committed archetype — "editorial / magazine", "bento grid", "asymmetric split", "broken-grid", "immersive parallax", "brutalist mono", etc. — not a generic stacked template.
 - motionIntensity: "subtle" for luxury/wellness/minimal brands, "moderate" for SaaS/apps/restaurants, "dramatic" for games/agencies/bold brands
 - sections: be specific — this is exactly what will be built
 - features: list concrete, specific features (not vague like "user-friendly UI")
+- ${'gameDesign (ONLY for games)'}: a tight contract — core gameplay loop, exact controls (keys + touch), win/lose conditions, difficulty curve, and the "juice" (screen shake, particles, sound cues, score popups) that makes it feel designed. Skip for non-games.
 - techStack: React + Vite is default; add localStorage/router only if needed
 - CRITICAL: if the user gives explicit visual direction ("off-white", "minimalist", "dark", "colorful", "earthy"), that overrides everything else — honor it exactly
 
@@ -67,6 +77,15 @@ Use the create_brief tool.`,
             brandName: z.string().describe('Specific brand/product/game name'),
             tagline: z.string().describe('Compelling one-line description'),
             colorPalette: z.string().describe('3-4 specific colors with context, e.g. "deep espresso #1A0F0A, warm amber #D4850A, cream #FDF6E3"'),
+            colorTokens: z.object({
+              background: z.string().describe('Page background, hex e.g. "#0D0A06"'),
+              surface: z.string().describe('Cards/raised sections, hex'),
+              foreground: z.string().describe('Primary text, hex — strong contrast on background'),
+              mutedForeground: z.string().describe('Secondary text, hex — quieter but readable'),
+              primary: z.string().describe('Brand/CTA colour, hex'),
+              accent: z.string().describe('Secondary highlight, hex'),
+            }).describe('The LOCKED semantic palette — 6 hex roles that become the project\'s only colours'),
+            signatureMoves: z.array(z.string()).min(2).max(3).describe('2-3 specific, memorable, unusual design moves that make it look art-directed'),
             fontPairing: z.string().describe('Exact Google Fonts pairing from the approved list, e.g. "Playfair Display + Source Sans 3"'),
             tone: z.string().describe('Brand personality adjectives, e.g. "warm, artisanal, premium"'),
             brandPersonality: z.string().describe('Visual and emotional feel in 2-3 words'),
@@ -75,6 +94,7 @@ Use the create_brief tool.`,
             motionIntensity: z.enum(['subtle', 'moderate', 'dramatic']).describe('Animation intensity — subtle for luxury/wellness, moderate for SaaS/restaurant, dramatic for games/bold brands'),
             sections: z.array(z.string()).describe('Ordered list of sections/screens/views to build'),
             features: z.array(z.string()).describe('Specific features or mechanics to implement'),
+            gameDesign: z.string().optional().describe('GAMES ONLY: core loop, exact controls (keys+touch), win/lose, difficulty curve, and juice (shake/particles/sound/score popups). Omit for non-games.'),
             techStack: z.string().describe('Tech choices, e.g. "React + Vite, localStorage, React Router v6"'),
           }),
           execute: async (args) => {
@@ -113,6 +133,18 @@ Use the create_brief tool.`,
     tagline: 'Built with Codemine',
     skill,
     colorPalette: 'modern neutrals with a bold accent',
+    colorTokens: {
+      background: '#FAFAF7',
+      surface: '#FFFFFF',
+      foreground: '#0F0F0F',
+      mutedForeground: '#5A5A5A',
+      primary: '#2B6CB0',
+      accent: '#E07A3F',
+    },
+    signatureMoves: [
+      'A full-bleed hero with an oversized headline overlapping the imagery',
+      'Sections that fade and rise on scroll with a subtle stagger',
+    ],
     fontPairing: 'Plus Jakarta Sans + Inter',
     tone: 'modern, clean, professional',
     brandPersonality: 'modern, focused',
