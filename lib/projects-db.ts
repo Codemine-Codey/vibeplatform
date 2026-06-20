@@ -85,6 +85,37 @@ export async function getProject(projectId: string): Promise<ProjectRow | null> 
   return data as ProjectRow
 }
 
+// Background lookup by sandbox (used after an edit turn to re-snapshot the right
+// project). Admin client — runs post-response, no request cookies. Returns the
+// most-recently-updated matching row.
+export async function getProjectBySandboxId(sandboxId: string): Promise<ProjectRow | null> {
+  try {
+    const sb = getAdminSupabase()
+    const { data } = await sb
+      .from('projects')
+      .select('*')
+      .eq('sandbox_id', sandboxId)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+    return (data?.[0] as ProjectRow) ?? null
+  } catch {
+    return null
+  }
+}
+
+// Add to the cumulative token count (read-modify-write; fine at this scale).
+export async function incrementProjectTokens(projectId: string, delta: number): Promise<void> {
+  if (!delta || delta <= 0) return
+  try {
+    const sb = getAdminSupabase()
+    const { data } = await sb.from('projects').select('tokens_used').eq('id', projectId).single()
+    const current = (data?.tokens_used as number) ?? 0
+    await sb.from('projects').update({ tokens_used: current + delta }).eq('id', projectId)
+  } catch {
+    /* non-fatal */
+  }
+}
+
 export async function deleteProjectDb(projectId: string): Promise<void> {
   const sb = await getServerSupabase()
   const project = await getProject(projectId)

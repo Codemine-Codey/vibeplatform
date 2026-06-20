@@ -10,6 +10,7 @@ import { DatabasePanel } from '@/components/deploy/database-panel'
 import { AuthPanel } from '@/components/deploy/auth-panel'
 import { TabContent, TabItem } from '@/components/tabs'
 import { Welcome } from '@/components/modals/welcome'
+import { SandboxLifecycle } from '@/components/sandbox-lifecycle'
 import { cookies } from 'next/headers'
 import { getHorizontal } from '@/components/layout/sizing'
 import { hideBanner } from '@/app/actions'
@@ -20,6 +21,7 @@ export default async function Page() {
   const horizontalSizes = getHorizontal(store)
   return (
     <>
+      <SandboxLifecycle />
       <Welcome defaultOpen={banner} onDismissAction={hideBanner} />
       <div className="flex flex-col h-screen max-h-screen overflow-hidden p-2 space-x-2">
         <Header className="flex items-center w-full" />

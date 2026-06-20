@@ -773,6 +773,10 @@ If you are about to call `generateFiles` on a file that already exists: stop. Us
 | "the background is wrong" | The bg class on the root div |
 | "fix the spacing" | The padding/margin class |
 | "change the player speed" | The constant at the top of the file |
+| "add a new page/route" | `generateFiles` for the NEW page file ONLY (composing the existing locked tokens + existing components), then ONE `patchFile` on App.tsx to add its `<Route>` and a nav link. NEVER regenerate App.tsx, the nav, or any existing page. |
+
+### Adding a page — the fast, surgical path
+A new page is NEW file(s) + a tiny routing patch — nothing else. The locked design tokens and existing components already exist, so author only the genuinely new page surface. Do NOT re-emit unchanged files: registering the route is a `patchFile` (one `<Route>` line + one nav link), not a rewrite of App.tsx. This keeps the new page on-brand AND fast.
 
 ### Multi-file edits
 Call `patchFile` once per file sequentially. Read each file before patching it. Never batch unrelated file changes.

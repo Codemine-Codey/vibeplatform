@@ -28,7 +28,7 @@ import { saveCheckpoint } from '@/ai/tools/checkpoint'
 import { getWarmEntry } from '@/ai/warm-pool'
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
-import { createProjectRow, snapshotProject, updateProjectRow } from '@/lib/projects-db'
+import { createProjectRow, snapshotProject, updateProjectRow, getProjectBySandboxId, incrementProjectTokens } from '@/lib/projects-db'
 import { tokenStore } from '@/lib/token-context'
 import { ensureValidCss } from '@/lib/css-guard'
 import { trimStaleReadResults } from '@/lib/trim-history'
@@ -769,8 +769,39 @@ async function runAgenticLoop({
       console.error(JSON.stringify(error, null, 2))
     },
   })
-  result.consumeStream()
-  writer.merge(result.toUIMessageStream({ sendReasoning: false, sendStart: false }))
+  // Token accounting: keep the ALS context alive through every model call this
+  // turn makes (await result.text) so the metrics middleware sums into tokenBox.
+  const tokenBox = { total: 0 }
+  await tokenStore.run(tokenBox, async () => {
+    result.consumeStream()
+    writer.merge(result.toUIMessageStream({ sendReasoning: false, sendStart: false }))
+    try {
+      await result.text
+    } catch {
+      /* stream error already logged in onError */
+    }
+  })
+
+  // After an edit turn: re-snapshot the project (so the saved copy reflects the
+  // latest edits — resume is lossless) and add this turn's tokens. Background;
+  // the user already has the streamed response.
+  if (isEdit) {
+    const { sandboxId } = getProjectContext(messages)
+    if (sandboxId) {
+      void (async () => {
+        try {
+          const project = await getProjectBySandboxId(sandboxId)
+          if (!project) return
+          if (tokenBox.total > 0) await incrementProjectTokens(project.id, tokenBox.total)
+          const sandbox = await Sandbox.get({ sandboxId })
+          const path = await snapshotProject(sandbox, project.user_id, project.id)
+          if (path) await updateProjectRow(project.id, { snapshot_path: path })
+        } catch {
+          /* non-fatal */
+        }
+      })()
+    }
+  }
 }
 
 // ── Server-side generation pipeline ──────────────────────────────────────────
