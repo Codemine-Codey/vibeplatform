@@ -2,6 +2,7 @@ import { Sandbox } from '@vercel/sandbox'
 import { tool } from 'ai'
 import z from 'zod/v3'
 import { logRead } from '@/lib/telemetry'
+import { recordRead, READ_CAP } from '../read-budget'
 
 // Batch read: fetches MANY files in ONE tool call instead of one round-trip per
 // file. Each serial readFile is a full model step (call -> cat -> resume); doing
@@ -21,6 +22,17 @@ export const readFiles = () =>
     }),
     execute: async ({ sandboxId, paths }) => {
       logRead({ kind: 'readFiles', count: paths.length, sandboxId })
+      // One batched call counts as ONE round-trip regardless of file count — the
+      // pattern we want. Only blocks once the model has thrashed past the cap.
+      const budget = recordRead(sandboxId)
+      if (!budget.allowed) {
+        return {
+          error:
+            `Read limit reached (${READ_CAP} reads this edit). You already have enough context — ` +
+            `make your change now with patchFile. If you cannot find the right code, use grepCode to ` +
+            `locate the exact symbol instead of reading more files.`,
+        }
+      }
       try {
         const sandbox = await Sandbox.get({ sandboxId })
         const files = await Promise.all(

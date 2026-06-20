@@ -3,6 +3,8 @@ import { tool } from 'ai'
 import z from 'zod/v3'
 import { mergePackageJson } from './scaffold'
 import { ensureValidCss } from '@/lib/css-guard'
+import { resetReadBudget } from '../read-budget'
+import { logPatch } from '@/lib/telemetry'
 
 const VITE_CONFIG_NAMES = new Set(['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs'])
 
@@ -44,6 +46,9 @@ export const patchFile = () =>
     execute: async ({ sandboxId, path, oldString, newString }) => {
       try {
         const sandbox = await Sandbox.get({ sandboxId })
+        // A write begins a fresh edit cycle — reset the read budget so the next
+        // change gets a clean allowance of reads.
+        resetReadBudget(sandboxId)
 
         // Read current content
         const readCmd = await sandbox.runCommand({ cmd: 'cat', args: [path], detached: true })
@@ -59,6 +64,14 @@ export const patchFile = () =>
             error: `Exact string not found in ${path}. Use readFile to get the current content, then match exactly.`,
           }
         }
+
+        // Phase 3 diff-ratio guard: how much of the file is this single patch
+        // replacing? Near-total means the model fell back to a rewrite disguised
+        // as a patch. We still apply it (don't break a legitimate large edit) but
+        // log it and nudge toward smaller patches.
+        const patchRatio = current.length > 0 ? Math.min(1, oldString.length / current.length) : 0
+        const rewrite = patchRatio > 0.6
+        logPatch({ path, patchRatio, rewrite })
 
         const basename = path.split('/').pop() ?? ''
         let updated = current.replace(oldString, newString)
@@ -89,7 +102,15 @@ export const patchFile = () =>
           updated = stripSvgs(updated, path)
         }
         await sandbox.writeFiles([{ path, content: Buffer.from(updated, 'utf8') }])
-        return { success: true, path, message: `Patched ${path}` }
+        return {
+          success: true,
+          path,
+          message:
+            `Patched ${path}.` +
+            (rewrite
+              ? ' NOTE: this patch replaced most of the file. Prefer small, targeted patches — if you genuinely need to rewrite the whole file, that is fine, but a tiny diff is faster and safer.'
+              : ''),
+        }
       } catch (err) {
         return { success: false, error: `Patch failed: ${err instanceof Error ? err.message : String(err)}` }
       }

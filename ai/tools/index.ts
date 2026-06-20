@@ -4,6 +4,7 @@ import { createDatabase } from './create-database'
 import { createSandbox } from './create-sandbox'
 import { generateFiles } from './generate-files'
 import { getSandboxURL } from './get-sandbox-url'
+import { grepCode } from './grep-code'
 import { getUnsplash } from './get-unsplash'
 import { getUnsplashBatch } from './get-unsplash-batch'
 import { patchFile } from './patch-file'
@@ -30,6 +31,7 @@ export function tools({ modelId, writer }: Params) {
     getUnsplashBatch: getUnsplashBatch(),
     readFile: readFile(),
     readFiles: readFiles(),
+    grepCode: grepCode(),
     patchFile: patchFile(),
     planProject: planProject(),
     restoreCheckpoint: restoreCheckpoint({ writer }),

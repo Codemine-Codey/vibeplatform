@@ -82,6 +82,27 @@ export function logModelCall(event: {
   }
 }
 
+// ── Phase 3: patch-ratio tracking ────────────────────────────────────────────
+// One [cm-patch] line per patchFile. patchRatio = replaced region ÷ file size.
+// A ratio near 1.0 means the "diff" was really a whole-file rewrite — the silent
+// regression that makes diff-only edits creep back into full-file output (slow +
+// error-prone). Surfacing it makes that regression visible in the metrics.
+export function logPatch(event: { path: string; patchRatio: number; rewrite: boolean }): void {
+  try {
+    console.log(
+      '[cm-patch]',
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        path: event.path,
+        patchRatio: Number(event.patchRatio.toFixed(2)),
+        rewrite: event.rewrite,
+      })
+    )
+  } catch {
+    /* non-fatal */
+  }
+}
+
 // ── Phase 1: read round-trip tracking ────────────────────────────────────────
 // One [cm-read] line per readFile / readFiles call. Aggregating these per turn
 // (and computing p50/p90 of the count) tells us how often edits pay the serial-

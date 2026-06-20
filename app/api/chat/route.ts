@@ -28,6 +28,7 @@ import { saveCheckpoint } from '@/ai/tools/checkpoint'
 import { getWarmEntry } from '@/ai/warm-pool'
 import { logRepair } from '@/lib/telemetry'
 import { ensureValidCss } from '@/lib/css-guard'
+import { trimStaleReadResults } from '@/lib/trim-history'
 import prompt from './prompt.md'
 
 export const maxDuration = 800
@@ -597,7 +598,9 @@ async function runAgenticLoop({
   const result = streamText({
     ...getModelOptions(isEdit ? EDIT_MODEL : DEFAULT_MODEL),
     system: resolvedSystemPrompt,
-    messages: await convertToModelMessages(transformMessages(messages)),
+    // Phase 4: drop stale file-read results from history so each edit turn doesn't
+    // re-pay for files the model already used. Preserves the cached system prefix.
+    messages: trimStaleReadResults(await convertToModelMessages(transformMessages(messages))),
     stopWhen: stepCountIs(30),
     // Model's max output — patchFile/generateFiles tool arguments stream through
     // this budget; a small cap truncated large patches mid-file (a blank-preview
@@ -644,11 +647,7 @@ async function runPipeline({
     hadWarmSandbox = true
   } else {
     try {
-      // 10-min lifetime (was 20). Sandboxes bill for provisioned memory the whole
-      // time they're alive, so a shorter cap directly halves idle cost when a user
-      // leaves after generating. Editing resumes the sandbox via Sandbox.get; a
-      // session longer than this is rare and re-creates cleanly on the next action.
-      sandbox = await Sandbox.create({ timeout: 600_000, ports: [3000] })
+      sandbox = await Sandbox.create({ timeout: 1_200_000, ports: [3000] })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       writer.write({

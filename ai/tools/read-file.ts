@@ -2,6 +2,7 @@ import { Sandbox } from '@vercel/sandbox'
 import { tool } from 'ai'
 import z from 'zod/v3'
 import { logRead } from '@/lib/telemetry'
+import { recordRead, READ_CAP } from '../read-budget'
 
 export const readFile = () =>
   tool({
@@ -12,6 +13,16 @@ export const readFile = () =>
     }),
     execute: async ({ sandboxId, path }) => {
       logRead({ kind: 'readFile', count: 1, sandboxId })
+      const budget = recordRead(sandboxId)
+      if (!budget.allowed) {
+        return {
+          error:
+            `Read limit reached (${READ_CAP} reads this edit). You already have enough context — ` +
+            `make your change now with patchFile. If you still cannot find the right code, use grepCode ` +
+            `to locate the exact symbol instead of reading more files. Do NOT keep reading.`,
+          path,
+        }
+      }
       try {
         const sandbox = await Sandbox.get({ sandboxId })
         const cmd = await sandbox.runCommand({ cmd: 'cat', args: [path], detached: true })
