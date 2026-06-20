@@ -27,6 +27,9 @@ import { SCAFFOLD_FILES, getScaffoldFiles } from '@/ai/tools/scaffold'
 import { saveCheckpoint } from '@/ai/tools/checkpoint'
 import { getWarmEntry } from '@/ai/warm-pool'
 import { logRepair, logDesign } from '@/lib/telemetry'
+import { getCurrentUser } from '@/lib/supabase/server'
+import { createProjectRow, snapshotProject, updateProjectRow } from '@/lib/projects-db'
+import { tokenStore } from '@/lib/token-context'
 import { ensureValidCss } from '@/lib/css-guard'
 import { trimStaleReadResults } from '@/lib/trim-history'
 import prompt from './prompt.md'
@@ -694,8 +697,28 @@ export async function POST(req: Request) {
           `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately call generateFiles.\n\n` +
           formatBrief(brief)
 
+        // Create a durable project row for the signed-in user (RLS-scoped). The
+        // snapshot at the end of the pipeline makes it reopenable from the dashboard.
+        const user = await getCurrentUser()
+        let projectId: string | null = null
+        if (user) {
+          projectId = await createProjectRow({
+            name: brief.brandName || 'Untitled project',
+            prompt: userText,
+            skill,
+          })
+        }
+
         // ── SERVER-SIDE PIPELINE ────────────────────────────────────────────
-        await runPipeline({ writer, messages, systemPrompt, skill })
+        // Wrap in a token-accounting context so every model call this generation
+        // makes is summed into tokens_used on the project row.
+        const tokenBox = { total: 0 }
+        await tokenStore.run(tokenBox, () =>
+          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null })
+        )
+        if (projectId && tokenBox.total > 0) {
+          updateProjectRow(projectId, { tokens_used: tokenBox.total }).catch(() => {})
+        }
       },
     }),
   })
@@ -759,11 +782,15 @@ async function runPipeline({
   messages,
   systemPrompt,
   skill,
+  projectId,
+  userId,
 }: {
   writer: Writer
   messages: ChatUIMessage[]
   systemPrompt: string
   skill: Skill
+  projectId?: string | null
+  userId?: string | null
 }) {
   // ── Step 1: Acquire sandbox (warm pool or fresh creation) ─────────────────
   writer.write({
@@ -1187,6 +1214,21 @@ async function runPipeline({
   // this version back — a working preview always beats a broken one.
   if (!devError) {
     saveCheckpoint(sandbox).catch(() => {})
+
+    // Durable snapshot → Supabase Storage so the project can be reopened from the
+    // dashboard in a fresh sandbox. Runs after the URL is emitted, so it never
+    // blocks what the user sees.
+    if (projectId && userId) {
+      snapshotProject(sandbox, userId, projectId)
+        .then(snapshotPath =>
+          updateProjectRow(projectId, {
+            sandbox_id: sandboxId,
+            preview_url: url,
+            ...(snapshotPath ? { snapshot_path: snapshotPath } : {}),
+          })
+        )
+        .catch(() => {})
+    }
   }
 }
 

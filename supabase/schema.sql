@@ -14,6 +14,7 @@ create table if not exists public.projects (
   preview_url  text,
   deploy_url   text,
   snapshot_path text,                 -- storage path of the latest file snapshot
+  tokens_used  bigint not null default 0,  -- cumulative model tokens spent on this project
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );

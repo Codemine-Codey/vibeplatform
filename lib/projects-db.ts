@@ -1,0 +1,161 @@
+import type { Sandbox } from '@vercel/sandbox'
+import { getServerSupabase, getAdminSupabase } from '@/lib/supabase/server'
+
+const SNAPSHOT_BUCKET = 'project-snapshots'
+
+export interface ProjectRow {
+  id: string
+  user_id: string
+  name: string
+  prompt: string | null
+  skill: string | null
+  sandbox_id: string | null
+  preview_url: string | null
+  deploy_url: string | null
+  snapshot_path: string | null
+  tokens_used: number
+  created_at: string
+  updated_at: string
+}
+
+// Read a binary file (e.g. a tar.gz) out of the sandbox into a Buffer.
+async function readSandboxBinary(sandbox: Sandbox, path: string): Promise<Buffer | null> {
+  try {
+    const stream = await sandbox.readFile({ path })
+    if (!stream) return null
+    const chunks: Buffer[] = []
+    for await (const c of stream) {
+      chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as unknown as ArrayBuffer))
+    }
+    return Buffer.concat(chunks)
+  } catch {
+    return null
+  }
+}
+
+// ── Project rows (RLS — each call is scoped to the signed-in user) ────────────
+export async function createProjectRow(input: {
+  name: string
+  prompt: string
+  skill: string
+}): Promise<string | null> {
+  const sb = await getServerSupabase()
+  const {
+    data: { user },
+  } = await sb.auth.getUser()
+  if (!user) return null
+  const { data, error } = await sb
+    .from('projects')
+    .insert({ user_id: user.id, name: input.name, prompt: input.prompt, skill: input.skill })
+    .select('id')
+    .single()
+  if (error) {
+    console.warn('[projects] createProjectRow failed:', error.message)
+    return null
+  }
+  return data.id as string
+}
+
+// Background update (snapshot path, preview url, token count). Runs post-response,
+// so it uses the service-role admin client — no request cookies needed. Project
+// IDs are unguessable UUIDs created for this user, so updating by id is safe.
+export async function updateProjectRow(
+  projectId: string,
+  patch: Partial<Pick<ProjectRow, 'name' | 'sandbox_id' | 'preview_url' | 'deploy_url' | 'snapshot_path' | 'tokens_used'>>
+): Promise<void> {
+  try {
+    const sb = getAdminSupabase()
+    await sb.from('projects').update(patch).eq('id', projectId)
+  } catch (e) {
+    console.warn('[projects] updateProjectRow failed:', e instanceof Error ? e.message : e)
+  }
+}
+
+export async function listProjects(): Promise<ProjectRow[]> {
+  const sb = await getServerSupabase()
+  const { data, error } = await sb.from('projects').select('*').order('updated_at', { ascending: false })
+  if (error) return []
+  return (data ?? []) as ProjectRow[]
+}
+
+export async function getProject(projectId: string): Promise<ProjectRow | null> {
+  const sb = await getServerSupabase()
+  const { data, error } = await sb.from('projects').select('*').eq('id', projectId).single()
+  if (error) return null
+  return data as ProjectRow
+}
+
+export async function deleteProjectDb(projectId: string): Promise<void> {
+  const sb = await getServerSupabase()
+  const project = await getProject(projectId)
+  if (project?.snapshot_path) {
+    try {
+      await sb.storage.from(SNAPSHOT_BUCKET).remove([project.snapshot_path])
+    } catch {
+      /* ignore */
+    }
+  }
+  await sb.from('projects').delete().eq('id', projectId)
+}
+
+// ── File snapshots (tar.gz of the project source → Supabase Storage) ──────────
+// The sandbox is ephemeral; the snapshot is the durable source of truth so a
+// project can be reopened in a fresh sandbox from the dashboard.
+export async function snapshotProject(
+  sandbox: Sandbox,
+  userId: string,
+  projectId: string
+): Promise<string | null> {
+  try {
+    const tarCmd = await sandbox.runCommand({
+      detached: true,
+      cmd: 'bash',
+      args: [
+        '-c',
+        'cd /vercel/sandbox && tar --exclude=node_modules --exclude=.git --exclude=dist -czf /tmp/cm-snapshot.tar.gz . 2>/dev/null && echo OK',
+      ],
+    })
+    await Promise.race([
+      tarCmd.wait(),
+      new Promise<void>((_, rej) => setTimeout(() => rej(new Error('tar timeout')), 30_000)),
+    ])
+    const buf = await readSandboxBinary(sandbox, '/tmp/cm-snapshot.tar.gz')
+    if (!buf || buf.length === 0) return null
+
+    const path = `${userId}/${projectId}.tar.gz`
+    const sb = getAdminSupabase()
+    const { error } = await sb.storage
+      .from(SNAPSHOT_BUCKET)
+      .upload(path, buf, { upsert: true, contentType: 'application/gzip' })
+    if (error) {
+      console.warn('[projects] snapshot upload failed:', error.message)
+      return null
+    }
+    return path
+  } catch (e) {
+    console.warn('[projects] snapshotProject failed:', e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
+// Restore a snapshot into a fresh sandbox: download the tar.gz, write it in, extract.
+// Caller then runs install + dev. Returns true on success.
+export async function restoreSnapshotInto(sandbox: Sandbox, snapshotPath: string): Promise<boolean> {
+  try {
+    const sb = getAdminSupabase()
+    const { data, error } = await sb.storage.from(SNAPSHOT_BUCKET).download(snapshotPath)
+    if (error || !data) return false
+    const buf = Buffer.from(await data.arrayBuffer())
+    await sandbox.writeFiles([{ path: '/tmp/cm-restore.tar.gz', content: buf }])
+    const cmd = await sandbox.runCommand({
+      detached: true,
+      cmd: 'bash',
+      args: ['-c', 'cd /vercel/sandbox && tar -xzf /tmp/cm-restore.tar.gz 2>/dev/null && echo OK'],
+    })
+    const done = await cmd.wait()
+    return done.exitCode === 0
+  } catch (e) {
+    console.warn('[projects] restoreSnapshotInto failed:', e instanceof Error ? e.message : e)
+    return false
+  }
+}
