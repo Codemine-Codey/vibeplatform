@@ -336,6 +336,13 @@ Each sub-page has complete, rich content. Never a single-section stub.
 
 Each sub-page must have: a hero section, rich body content, and a clear CTA at the bottom.
 
+#### Per-page composition (multi-page is first-class — do NOT repeat one template)
+Before writing pages, commit to a composition for each route, then build to it:
+- **Distinct layout per route.** Each page uses a DIFFERENT composition/archetype — the home hero is full-bleed, `/work` might be an asymmetric grid, `/about` an editorial two-column with a portrait, `/contact` a split form+map. Never paste the same three-section template onto every page. A site that reads as "designed" has pages that feel related but not identical.
+- **Each route is a real route** (React Router) with its own page component and `<head>`/title — not hash anchors scrolling one long page.
+- **Shared shell defined once:** Nav and Footer are single components reused on every page (consistent), with a page-transition wrapper. The shell is constant; the page body is bespoke per route.
+- **Vary the section rhythm:** different pages lead with different section types (a stat band, a pull-quote, a gallery, a timeline) so no two pages have the same vertical rhythm.
+
 #### Design quality
 
 - Derive the entire visual identity from brand context — color, type, imagery, spacing
@@ -370,6 +377,8 @@ Each sub-page must have: a hero section, rich body content, and a clear CTA at t
 **What a great web app does:** It solves a real problem efficiently. Every interaction must feel snappy. No dead ends. No broken states. No confusion about what to do next.
 
 #### Core requirements
+
+**Screen inventory + shell (decide before building)** — List every screen/view the app needs, define ONE persistent navigation shell (sidebar or top bar + content area) reused across screens, and give each screen a real route. Information density should suit the task (a dashboard is dense and data-forward; a focused tool is calm). Then, for EACH screen, handle the full state matrix below.
 
 **State completeness** — Every possible state must be handled and styled:
 - Empty state: use CSS-only illustration (pure Tailwind shapes, border-radius, gradients) or a Lucide icon at large size with a helpful prompt. Never SVG, never grey boxes.

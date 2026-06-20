@@ -382,7 +382,7 @@ async function verifyAndRepair({
 async function visualVerdict(
   screenshot: Buffer,
   sandboxId?: string
-): Promise<{ broken: boolean; reason: string }> {
+): Promise<{ broken: boolean; reason: string; score: number | null }> {
   try {
     const res = await generateText({
       ...getModelOptions('claude-haiku-4-5-20251001'),
@@ -411,13 +411,17 @@ async function visualVerdict(
       ],
     })
     const t = res.text.trim()
-    if (/^BROKEN/i.test(t)) return { broken: true, reason: t.replace(/^BROKEN:?\s*/i, '').slice(0, 300) }
+    if (/^BROKEN/i.test(t)) return { broken: true, reason: t.replace(/^BROKEN:?\s*/i, '').slice(0, 300), score: null }
     const m = t.match(/SCORE:\s*(\d+(?:\.\d+)?)\s*\|?\s*(.*)/i)
-    if (m) logDesign({ score: Number(m[1]), note: m[2] || '', sandboxId })
-    return { broken: false, reason: '' }
+    if (m) {
+      const score = Number(m[1])
+      logDesign({ score, note: m[2] || '', sandboxId })
+      return { broken: false, reason: m[2] || '', score }
+    }
+    return { broken: false, reason: '', score: null }
   } catch (e) {
     console.warn('[visual-verdict] skipped:', e instanceof Error ? e.message : e)
-    return { broken: false, reason: '' } // graceful — never block on a vision failure
+    return { broken: false, reason: '', score: null } // graceful — never block on a vision failure
   }
 }
 
@@ -431,7 +435,7 @@ async function visualVerdict(
 async function headlessRuntimeCheck(
   url: string,
   sandboxId?: string
-): Promise<{ status: 'ok' | 'broken' | 'skipped'; detail: string }> {
+): Promise<{ status: 'ok' | 'broken' | 'skipped'; detail: string; score?: number | null; screenshot?: Buffer }> {
   let browser: unknown = null
   try {
     const chromiumMod = await import('@sparticuz/chromium')
@@ -497,6 +501,9 @@ async function headlessRuntimeCheck(
             '\nLikely causes: text color matching the background, a section with zero height, content positioned off-screen, or missing styles. Check src/index.css and src/App.tsx.',
         }
       }
+      // Renders fine — return the score + the screenshot so the caller can run the
+      // gated design-improvement pass without re-capturing.
+      return { status: 'ok', detail: '', score: verdict.score, screenshot: shot }
     } catch (e) {
       console.warn('[runtime-check] screenshot/vision step skipped:', e instanceof Error ? e.message : e)
     }
@@ -508,6 +515,122 @@ async function headlessRuntimeCheck(
   } finally {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     try { if (browser) await (browser as any).close() } catch { /* ignore */ }
+  }
+}
+
+// Run `vite build` once and report whether it compiled — used to guard the design
+// pass: a design rewrite is only kept if it still builds, otherwise we restore.
+async function viteBuildPasses(sandbox: Sandbox): Promise<boolean> {
+  try {
+    const cmd = await sandbox.runCommand({
+      detached: true,
+      cmd: 'bash',
+      args: ['-c', '(./node_modules/.bin/vite build 2>&1; echo "##EXIT:$?") | tee /tmp/cm-dq.log >/dev/null'],
+    })
+    await Promise.race([
+      cmd.wait(),
+      new Promise<void>((_, rej) => setTimeout(() => rej(new Error('build timeout')), 90_000)),
+    ])
+  } catch { /* timeout — treat as fail below */ }
+  const log = (await readSandboxFile(sandbox, '/tmp/cm-dq.log')) ?? ''
+  const m = log.match(/##EXIT:(\d+)/)
+  return m ? m[1] === '0' : false
+}
+
+// ── Stage 6: gated design-improvement pass ───────────────────────────────────
+// Fires ONLY when the rendered result scored below the threshold (rare after the
+// structured brief + locked tokens), so the common path pays nothing. Sonnet SEES
+// the screenshot + the low-score critique and rewrites the two highest-leverage
+// design files (index.css + App.tsx) to lift the craft. Fully safe: originals are
+// restored if the rewrite fails to build, so we never ship a broken "improvement".
+async function improveDesignPass({
+  sandbox,
+  screenshot,
+  critique,
+  writer,
+  sandboxId,
+}: {
+  sandbox: Sandbox
+  screenshot: Buffer
+  critique: string
+  writer: Writer
+  sandboxId: string
+}): Promise<void> {
+  const targets = ['src/index.css', 'src/App.tsx']
+  const originals: Record<string, string> = {}
+  for (const p of targets) {
+    const c = await readSandboxFile(sandbox, p)
+    if (c) originals[p] = c
+  }
+  if (Object.keys(originals).length === 0) return
+
+  writer.write({
+    id: 'srv-design',
+    type: 'data-run-command',
+    data: { sandboxId, command: 'Refining the design', args: [], status: 'executing' },
+  })
+  logRepair({ layer: 'runtime-check', action: 'design-improve-fired', detail: critique.slice(0, 160), sandboxId })
+
+  try {
+    const res = await generateText({
+      ...getModelOptions(DEFAULT_MODEL), // Sonnet 4.6 — vision-capable + strong code
+      maxOutputTokens: getMaxOutputTokens(DEFAULT_MODEL),
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text:
+                'This freshly generated page scored LOW on visual design. A reviewer noted: "' +
+                critique +
+                '".\nRewrite ONLY the two files below to make the design genuinely excellent — strong visual hierarchy, ' +
+                'confident use of the existing brand color tokens, generous and consistent spacing, real typographic scale, ' +
+                'and the page\'s intended personality. Keep ALL functionality, component imports, and routing identical. ' +
+                'Do NOT use <svg> or raw hex in components — use the CSS variables/token classes already defined. ' +
+                'Return EXACTLY each file in this format and nothing else:\n' +
+                '<<<FILE src/index.css>>>\n<full file>\n<<<END>>>\n<<<FILE src/App.tsx>>>\n<full file>\n<<<END>>>\n\n' +
+                Object.entries(originals)
+                  .map(([p, c]) => `Current ${p}:\n${c}`)
+                  .join('\n\n'),
+            },
+            { type: 'image', image: screenshot },
+          ],
+        },
+      ],
+    })
+
+    const text = res.text
+    let wroteAny = false
+    for (const p of targets) {
+      const re = new RegExp(`<<<FILE ${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}>>>\\n([\\s\\S]*?)\\n<<<END>>>`)
+      const m = text.match(re)
+      if (m && m[1] && m[1].trim().length > 20) {
+        const content = p.endsWith('.css') ? ensureValidCss(m[1]) : m[1]
+        await sandbox.writeFiles([{ path: p, content: Buffer.from(content, 'utf8') }])
+        wroteAny = true
+      }
+    }
+
+    if (wroteAny) {
+      // Safety: only keep the rewrite if it still compiles; otherwise restore.
+      if (await viteBuildPasses(sandbox)) {
+        logRepair({ layer: 'runtime-check', action: 'design-improve-applied', sandboxId })
+      } else {
+        await sandbox.writeFiles(
+          Object.entries(originals).map(([path, content]) => ({ path, content: Buffer.from(content, 'utf8') }))
+        )
+        logRepair({ layer: 'runtime-check', action: 'design-improve-reverted-build-fail', sandboxId })
+      }
+    }
+  } catch (e) {
+    console.warn('[design-improve] skipped:', e instanceof Error ? e.message : e)
+  } finally {
+    writer.write({
+      id: 'srv-design',
+      type: 'data-run-command',
+      data: { sandboxId, command: 'Refining the design', args: [], status: 'done', exitCode: 0 },
+    })
   }
 }
 
@@ -1026,6 +1149,25 @@ async function runPipeline({
         type: 'data-run-command',
         data: { sandboxId, command: 'Visual quality check', args: [], status: 'done', exitCode: 0 },
       })
+
+      // ── Stage 6: gated design-improvement pass ───────────────────────────────
+      // Only when the page renders fine BUT scored below threshold (< 4/10). Rare
+      // after the structured brief + locked tokens, so the common path is untouched.
+      if (
+        rt.status === 'ok' &&
+        typeof rt.score === 'number' &&
+        rt.score < 4 &&
+        rt.screenshot
+      ) {
+        await improveDesignPass({
+          sandbox,
+          screenshot: rt.screenshot,
+          critique: rt.detail || 'low visual design quality',
+          writer,
+          sandboxId,
+        })
+        await new Promise(r => setTimeout(r, 3000)) // let Vite HMR reload the refined files
+      }
     } catch (e) {
       console.warn('[runtime-check] wrapper error (non-fatal):', e instanceof Error ? e.message : e)
     }
