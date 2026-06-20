@@ -103,6 +103,27 @@ export function logPatch(event: { path: string; patchRatio: number; rewrite: boo
   }
 }
 
+// ── Stage 6: design-quality score ────────────────────────────────────────────
+// One [cm-design] line per generation — the vision model's 1-10 score of the
+// rendered result (distinctiveness, hierarchy, contrast, polish) plus a one-line
+// critique. Makes design quality measurable over time, so we can confirm the
+// brief/token work actually lifted it before paying for a corrective loop.
+export function logDesign(event: { score: number; note: string; sandboxId?: string }): void {
+  try {
+    console.log(
+      '[cm-design]',
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        score: event.score,
+        note: (event.note ?? '').slice(0, 240),
+        sandboxId: event.sandboxId ?? null,
+      })
+    )
+  } catch {
+    /* non-fatal */
+  }
+}
+
 // ── Phase 1: read round-trip tracking ────────────────────────────────────────
 // One [cm-read] line per readFile / readFiles call. Aggregating these per turn
 // (and computing p50/p90 of the count) tells us how often edits pay the serial-

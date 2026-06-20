@@ -26,7 +26,7 @@ import { Sandbox } from '@vercel/sandbox'
 import { SCAFFOLD_FILES, getScaffoldFiles } from '@/ai/tools/scaffold'
 import { saveCheckpoint } from '@/ai/tools/checkpoint'
 import { getWarmEntry } from '@/ai/warm-pool'
-import { logRepair } from '@/lib/telemetry'
+import { logRepair, logDesign } from '@/lib/telemetry'
 import { ensureValidCss } from '@/lib/css-guard'
 import { trimStaleReadResults } from '@/lib/trim-history'
 import prompt from './prompt.md'
@@ -375,12 +375,18 @@ async function verifyAndRepair({
 // Vision verdict: the AI literally SEES the screenshot and judges whether the
 // page is visually broken — catching failures the DOM can't reveal (white-on-white
 // text, off-screen content, overlapping unreadable layouts, raw unstyled HTML).
+// Stage 6: when the page is NOT broken, it ALSO scores design quality 1-10
+// (distinctiveness, hierarchy, contrast, polish) and logs it as [cm-design] — one
+// vision call, no extra latency, makes design quality trackable over time.
 // Uses Claude Haiku (vision-capable). Conservative by design; graceful on failure.
-async function visualVerdict(screenshot: Buffer): Promise<{ broken: boolean; reason: string }> {
+async function visualVerdict(
+  screenshot: Buffer,
+  sandboxId?: string
+): Promise<{ broken: boolean; reason: string }> {
   try {
     const res = await generateText({
       ...getModelOptions('claude-haiku-4-5-20251001'),
-      maxOutputTokens: 200,
+      maxOutputTokens: 220,
       messages: [
         {
           role: 'user',
@@ -388,14 +394,16 @@ async function visualVerdict(screenshot: Buffer): Promise<{ broken: boolean; rea
             {
               type: 'text',
               text:
-                'You are a QA checker for a freshly generated web preview (could be a website, web app, or game). ' +
-                'Look at the screenshot and decide if it is BROKEN or FINE.\n\n' +
-                'BROKEN = a blank or solid-color page with no real content; raw unstyled HTML; an error or stack-trace screen; ' +
-                'text that is invisible because it matches the background; or content so overlapping/cut-off it is unusable.\n' +
+                'You are a senior design reviewer for a freshly generated web preview (website, web app, or game). ' +
+                'First decide if it is BROKEN or FINE.\n' +
+                'BROKEN = a blank or solid-color page with no real content; raw unstyled HTML; an error/stack-trace screen; ' +
+                'text invisible because it matches the background; or content so overlapping/cut-off it is unusable.\n' +
                 'FINE = any legitimately rendered UI, including minimal/clean designs, hero sections, dashboards, forms, ' +
                 'game start screens, or game canvases.\n\n' +
-                'Be conservative — only answer BROKEN if it clearly is. ' +
-                'Answer with EXACTLY one line: "BROKEN: <short reason>" or "FINE".',
+                'If BROKEN, answer EXACTLY: "BROKEN: <short reason>".\n' +
+                'If FINE, rate the DESIGN 1-10 (10 = looks like a top studio shipped it; consider distinctiveness vs templated, ' +
+                'visual hierarchy, spacing/alignment consistency, contrast/readability, and overall polish) and answer EXACTLY: ' +
+                '"SCORE: <n> | <one concrete sentence on the weakest aspect>".',
             },
             { type: 'image', image: screenshot },
           ],
@@ -404,6 +412,8 @@ async function visualVerdict(screenshot: Buffer): Promise<{ broken: boolean; rea
     })
     const t = res.text.trim()
     if (/^BROKEN/i.test(t)) return { broken: true, reason: t.replace(/^BROKEN:?\s*/i, '').slice(0, 300) }
+    const m = t.match(/SCORE:\s*(\d+(?:\.\d+)?)\s*\|?\s*(.*)/i)
+    if (m) logDesign({ score: Number(m[1]), note: m[2] || '', sandboxId })
     return { broken: false, reason: '' }
   } catch (e) {
     console.warn('[visual-verdict] skipped:', e instanceof Error ? e.message : e)
@@ -419,7 +429,8 @@ async function visualVerdict(screenshot: Buffer): Promise<{ broken: boolean; rea
 // launch, it returns ok (never worse than before). Returns the error detail (with
 // file paths from the stack where available) so the offending files can be repaired.
 async function headlessRuntimeCheck(
-  url: string
+  url: string,
+  sandboxId?: string
 ): Promise<{ status: 'ok' | 'broken' | 'skipped'; detail: string }> {
   let browser: unknown = null
   try {
@@ -476,7 +487,7 @@ async function headlessRuntimeCheck(
     // Catches visually-broken-but-not-erroring pages (white-on-white, off-screen).
     try {
       const shot: Buffer = await page.screenshot({ type: 'png', fullPage: false })
-      const verdict = await visualVerdict(shot)
+      const verdict = await visualVerdict(shot, sandboxId)
       if (verdict.broken) {
         return {
           status: 'broken',
@@ -967,7 +978,7 @@ async function runPipeline({
         type: 'data-run-command',
         data: { sandboxId, command: 'Visual quality check', args: [], status: 'executing' },
       })
-      let rt = await headlessRuntimeCheck(url)
+      let rt = await headlessRuntimeCheck(url, sandboxId)
       console.log(`[runtime-check] verdict status=${rt.status}${rt.status === 'ok' ? '' : ' — ' + rt.detail.slice(0, 160)}`)
       if (rt.status === 'broken') {
         logRepair({ layer: 'runtime-check', action: 'broken', detail: rt.detail.slice(0, 200), sandboxId })
@@ -978,7 +989,7 @@ async function runPipeline({
       if (rt.status === 'broken' && (await installMissingModules(sandbox, rt.detail))) {
         await restartDevServer(sandbox)
         await new Promise(r => setTimeout(r, 4000))
-        rt = await headlessRuntimeCheck(url)
+        rt = await headlessRuntimeCheck(url, sandboxId)
       }
 
       if (rt.status === 'broken') {
@@ -996,7 +1007,7 @@ async function runPipeline({
         }
         if (repaired) {
           await new Promise(r => setTimeout(r, 3500)) // let Vite HMR reload
-          rt = await headlessRuntimeCheck(url)
+          rt = await headlessRuntimeCheck(url, sandboxId)
         }
         if (rt.status === 'broken') {
           // Still broken after one repair — surface so the client self-heal also kicks in.
