@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils'
-import { ZapIcon, LayoutDashboardIcon } from 'lucide-react'
+import { ZapIcon, LayoutDashboardIcon, LogOutIcon } from 'lucide-react'
 import Link from 'next/link'
+import { getCurrentUser } from '@/lib/supabase/server'
 
 interface Props {
   className?: string
@@ -8,6 +9,8 @@ interface Props {
 }
 
 export async function Header({ className, page = 'builder' }: Props) {
+  const user = await getCurrentUser()
+  const initial = (user?.email?.[0] ?? 'C').toUpperCase()
   return (
     <header className={cn('flex items-center justify-between', className)}>
       <Link href="/" className="flex items-center gap-2 ml-1 md:ml-2.5 hover:opacity-70 transition-opacity">
@@ -36,10 +39,22 @@ export async function Header({ className, page = 'builder' }: Props) {
           </Link>
         )}
 
-        {/* User avatar placeholder */}
-        <div className="w-7 h-7 rounded-full bg-foreground/10 border border-primary/20 flex items-center justify-center text-xs font-semibold text-foreground/70 select-none">
-          S
+        {/* User avatar + sign out */}
+        <div
+          title={user?.email ?? ''}
+          className="w-7 h-7 rounded-full bg-foreground/10 border border-primary/20 flex items-center justify-center text-xs font-semibold text-foreground/70 select-none"
+        >
+          {initial}
         </div>
+        <form action="/auth/signout" method="post">
+          <button
+            type="submit"
+            title="Sign out"
+            className="flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            <LogOutIcon className="w-3.5 h-3.5" />
+          </button>
+        </form>
       </div>
     </header>
   )
