@@ -29,6 +29,14 @@ const openrouterProvider = createOpenAI({
         body.reasoning = { enabled: false }
         body.include_reasoning = false
         body.thinking = { type: 'disabled' }
+        // Prompt-cache fix: OpenRouter load-balances DeepSeek across 16 providers,
+        // so consecutive calls hit different instances and the cache never matches.
+        // Pin to DeepSeek's own infrastructure (it does automatic prefix caching).
+        // allow_fallbacks stays true so a DeepSeek outage doesn't fail the request —
+        // we just lose the cache hit on that rare call.
+        if (typeof body.model === 'string' && body.model.startsWith('deepseek/')) {
+          body.provider = { order: ['DeepSeek'], allow_fallbacks: true }
+        }
         init = { ...init, body: JSON.stringify(body) }
       } catch { }
     }
