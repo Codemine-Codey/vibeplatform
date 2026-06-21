@@ -55,22 +55,27 @@ function splitConcatenated(path: string, content: string, requested: string[]): 
   return out
 }
 
+const GEN_SYSTEM =
+  'You are a code file generator. Write each file completely using the writeFile tool.\n' +
+  'One writeFile call per file — NEVER combine two files into one call. Write COMPLETE production-quality code — never truncate or abbreviate.\n' +
+  'File order: write shared utilities and types first, then components, then pages.\n' +
+  'CSS rule: in src/index.css always use @tailwind base/components/utilities — NEVER @import.\n' +
+  'No <svg> tags. No placeholder content. Real code only.'
+
 // Generates files using streaming tool calls — each file is yielded individually
-// as soon as Flash finishes writing it. The UI shows files appearing one by one
-// instead of waiting for a full JSON blob to complete.
+// as soon as the model finishes writing it, so the UI shows files appearing one
+// by one. (Parallel fan-out was tried for speed but crashed the dev server under
+// the token-accounting async context — reverted; the real win is Part B sandbox
+// cold-start, not model concurrency.)
 export async function* getContents(
   params: Params
 ): AsyncGenerator<FileContentChunk> {
   const { messages, modelId, paths } = params
 
-  // Queue-based channel between tool execute() and the async generator.
-  // execute() pushes files and resolves the current signal promise.
-  // The generator drains the queue and waits on the signal when empty.
   const queue: File[] = []
   let finished = false
   let notify!: () => void
   let signal = new Promise<void>(r => { notify = r })
-
   function enqueue(file: File) {
     queue.push(file)
     const prev = notify
@@ -81,12 +86,7 @@ export async function* getContents(
   const result = streamText({
     ...getModelOptions(modelId),
     maxOutputTokens: getMaxOutputTokens(modelId),
-    system:
-      'You are a code file generator. Write each file completely using the writeFile tool.\n' +
-      'One writeFile call per file — NEVER combine two files into one call. Write COMPLETE production-quality code — never truncate or abbreviate.\n' +
-      'File order: write shared utilities and types first, then components, then pages.\n' +
-      'CSS rule: in src/index.css always use @tailwind base/components/utilities — NEVER @import.\n' +
-      'No <svg> tags. No placeholder content. Real code only.',
+    system: GEN_SYSTEM,
     messages: [
       ...messages,
       {
@@ -106,7 +106,6 @@ export async function* getContents(
         execute: async ({ path, content }) => {
           if (!paths.includes(path)) return 'skipped: not in requested list'
           if (content.trim().length < 5) return 'skipped: empty content'
-          // One writeFile may contain several concatenated files — split them.
           for (const file of splitConcatenated(path, content, paths)) {
             enqueue({ path: file.path, content: fixCss(file.path, file.content) })
           }
@@ -122,13 +121,10 @@ export async function* getContents(
     onError: err => console.error('[getContents] stream error:', err),
   })
 
-  // Start consuming the stream (non-blocking — generator runs concurrently)
   result.consumeStream()
 
   const written = new Set<string>()
-
   while (true) {
-    // Drain all queued files before waiting
     while (queue.length > 0) {
       const file = queue.shift()!
       if (!written.has(file.path)) {

@@ -18,11 +18,11 @@ export async function expandPrompt(
 
   try {
     await generateText({
-      // Reasoning ON — the design brief is the single highest-leverage step for
-      // visual quality. A few hundred tokens of thinking here makes the whole
-      // project look intentional. Bulk file generation stays non-reasoning (fast).
-      ...getModelOptions(FILE_GENERATION_MODEL, { reasoning: true }),
-      // Anthropic requires max_tokens; the brief is one structured tool call.
+      // Speed v2 Lever 6: reasoning OFF. The brief is a structured tool call whose
+      // fields (palette, fonts, signature moves, archetype) already pin the design
+      // decisions — extended thinking added 15-30s for little gain. Score-gated:
+      // if design quality dips on the test prompts, restore { reasoning: true }.
+      ...getModelOptions(FILE_GENERATION_MODEL),
       maxOutputTokens: 8000,
       stopWhen: stepCountIs(2),
       system: `You are a creative director for a premium web builder. Expand the user's prompt into a detailed project brief.

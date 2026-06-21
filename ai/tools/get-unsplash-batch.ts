@@ -33,13 +33,17 @@ export const getUnsplashBatch = () =>
           keyword: z.string().describe('Descriptive search term, e.g. "Japanese sushi restaurant warm lighting"'),
           orientation: z.enum(['landscape', 'portrait', 'squarish']).optional().default('landscape'),
         })
-      ).min(1).max(12).describe('List of all images needed for the project'),
+      ).min(1).max(30).describe('List of all images needed for the project'),
     }),
     execute: async ({ images }) => {
       const accessKey = process.env.UNSPLASH_ACCESS_KEY
+      // Cap actual fetches at 14 regardless of how many were requested — a model
+      // over-requesting (some ask for 16+) must never error or burn the Unsplash
+      // rate limit. The schema is lenient so the call always validates.
+      const wanted = images.slice(0, 14)
       const urls = await Promise.all(
-        images.map(({ keyword, orientation }) => fetchOne(keyword, orientation ?? 'landscape', accessKey))
+        wanted.map(({ keyword, orientation }) => fetchOne(keyword, orientation ?? 'landscape', accessKey))
       )
-      return urls.map((url, i) => ({ keyword: images[i].keyword, url }))
+      return urls.map((url, i) => ({ keyword: wanted[i].keyword, url }))
     },
   })

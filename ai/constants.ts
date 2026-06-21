@@ -1,8 +1,11 @@
-// Initial generation (orchestration + file content) uses Claude Sonnet 4.6 —
-// far stronger first-shot code quality than DeepSeek Flash. Edits and error
-// analysis stay on Flash (fast + cheap for surgical work).
-export const DEFAULT_MODEL = 'claude-sonnet-4-6'
-export const FILE_GENERATION_MODEL = 'claude-sonnet-4-6'
+// Initial generation (orchestration + file content). Currently TESTING GLM 5.2
+// via OpenRouter (1M context, 128K output, tool-calling, ~$1.2/$4.1 per M —
+// cheaper than Sonnet). Draws on the OpenRouter balance (the direct Anthropic
+// key's credits are depleted).
+//   - Fallback if GLM underperforms: 'anthropic/claude-sonnet-4.6' (Sonnet, NEVER Opus).
+//   - Direct Anthropic (once topped up): 'claude-sonnet-4-6'.
+export const DEFAULT_MODEL = 'z-ai/glm-5.2'
+export const FILE_GENERATION_MODEL = 'z-ai/glm-5.2'
 export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek/deepseek-v4-flash'
 
