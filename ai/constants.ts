@@ -1,11 +1,12 @@
-// Initial generation (orchestration + file content). Currently TESTING GLM 5.2
-// via OpenRouter (1M context, 128K output, tool-calling, ~$1.2/$4.1 per M —
-// cheaper than Sonnet). Draws on the OpenRouter balance (the direct Anthropic
-// key's credits are depleted).
-//   - Fallback if GLM underperforms: 'anthropic/claude-sonnet-4.6' (Sonnet, NEVER Opus).
-//   - Direct Anthropic (once topped up): 'claude-sonnet-4-6'.
-export const DEFAULT_MODEL = 'z-ai/glm-5.2'
-export const FILE_GENERATION_MODEL = 'z-ai/glm-5.2'
+// Initial generation (orchestration + file content): DeepSeek V4 Pro via
+// OpenRouter — top-tier first-try code quality (80.6% SWE-bench, ~Sonnet) at
+// the cheapest price of any quality model ($0.435/$0.87 per M). 1M context,
+// tool-calling, automatic prefix caching. Chosen for launch; revisit if speed
+// needs the faster Gemini 3.5 Flash tier.
+//   - Quality benchmark fallback: 'anthropic/claude-sonnet-4.6' (Sonnet, NEVER Opus).
+//   - Speed tier option: 'google/gemini-3.5-flash'.
+export const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro'
+export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-pro'
 export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek/deepseek-v4-flash'
 

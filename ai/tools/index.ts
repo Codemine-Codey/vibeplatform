@@ -9,6 +9,7 @@ import { getUnsplash } from './get-unsplash'
 import { getUnsplashBatch } from './get-unsplash-batch'
 import { patchFile } from './patch-file'
 import { planProject } from './plan-project'
+import { loadSkill } from './load-skill'
 import { readFile } from './read-file'
 import { readFiles } from './read-files'
 import { restoreCheckpoint } from './checkpoint'
@@ -32,6 +33,7 @@ export function tools({ modelId, writer }: Params) {
     readFile: readFile(),
     readFiles: readFiles(),
     grepCode: grepCode(),
+    loadSkill: loadSkill(),
     patchFile: patchFile(),
     planProject: planProject(),
     restoreCheckpoint: restoreCheckpoint({ writer }),

@@ -21,6 +21,8 @@ import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
 import { formatBrief } from '@/ai/types/project-brief'
 import { getSkillPack } from '@/ai/packs'
+import { getSkillCatalog, loadSkillBody, designSkillFor } from '@/ai/skills'
+import { loadSkill } from '@/ai/tools/load-skill'
 import type { Skill } from '@/ai/types/project-brief'
 import { Sandbox } from '@vercel/sandbox'
 import { SCAFFOLD_FILES, getScaffoldFiles } from '@/ai/tools/scaffold'
@@ -688,11 +690,21 @@ export async function POST(req: Request) {
           return runAgenticLoop({ writer, messages, systemPrompt: prompt })
         }
 
-        // Build system prompt: base + skill pack + brief
+        // Build system prompt: base + the relevant design skill (deterministic —
+        // so design depth always reaches generation) + a catalog of the other
+        // skills the AI can pull on demand via loadSkill + the brief.
+        const designSkill = designSkillFor(skill)
+        const designBody = loadSkillBody(designSkill) ?? ''
+        const catalog = getSkillCatalog()
+          .map(s => `- ${s.name}: ${s.description}`)
+          .join('\n')
         const systemPrompt =
-          `${prompt}\n\n## SKILL PACK — ${skill.toUpperCase()} PATTERNS\n` +
-          `Apply these design and code patterns for this project type. These are non-negotiable quality standards.\n\n` +
-          getSkillPack(skill) +
+          `${prompt}\n\n## ACTIVE SKILL — ${designSkill}\n` +
+          `These are non-negotiable design/code standards for this build. Follow them exactly.\n\n` +
+          designBody +
+          `\n\n## SKILLS CATALOG (load the full guidance with the loadSkill tool when relevant)\n` +
+          `${catalog}\n` +
+          `If this build needs premium animation, call loadSkill("motion-fx") before generating.\n` +
           `\n\n## PROJECT BRIEF (authoritative design spec — use this, do not ask clarifying questions)\n` +
           `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately call generateFiles.\n\n` +
           formatBrief(brief)
@@ -910,18 +922,22 @@ async function runPipeline({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pipelineTools: Record<string, any> = skill === 'website'
     ? {
+        loadSkill: loadSkill(),
         generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
         getUnsplashBatch: getUnsplashBatch(),
         planProject: planProject(),
       }
     : {
+        loadSkill: loadSkill(),
         generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
         planProject: planProject(),
       }
 
-  // website: text + getUnsplashBatch + planProject + generateFiles (max 4 steps)
-  // app/game: text + planProject + generateFiles (3 steps)
-  const maxSteps = skill === 'website' ? 4 : 3
+  // +1 step headroom so an optional loadSkill call (e.g. motion-fx) doesn't
+  // crowd out the required plan→generate sequence.
+  // website: text + (loadSkill?) + getUnsplashBatch + planProject + generateFiles
+  // app/game: text + (loadSkill?) + planProject + generateFiles
+  const maxSteps = skill === 'website' ? 5 : 4
 
   const aiResult = streamText({
     ...getModelOptions(DEFAULT_MODEL),
