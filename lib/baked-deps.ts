@@ -1,17 +1,21 @@
 import { Sandbox } from '@vercel/sandbox'
 import { getAdminSupabase } from '@/lib/supabase/server'
-import { SCAFFOLD_FILES } from '@/ai/tools/scaffold'
+import { getScaffoldFiles } from '@/ai/tools/scaffold'
+import type { Skill } from '@/ai/types/project-brief'
 
-// Baked node_modules: the scaffold's dependencies are FIXED, so we install them
-// ONCE, tar them, and host the archive on the public `assets` bucket. Each fresh
-// sandbox then curls + extracts it (~10-20s) instead of running a full install
-// (~70s). No idle sandboxes (unlike the warm pool) — just fast cold starts.
+// Baked node_modules: the scaffold's dependencies are FIXED per project type, so we
+// install them ONCE, tar them, and host on the public `assets` bucket. Each fresh
+// sandbox curls + extracts it (~10-20s) instead of a full install (~70s). No idle
+// sandboxes (unlike the warm pool) — just fast cold starts. One tarball per type:
+// websites/apps (shadcn + form/data libs) and games (three/r3f/drei/howler/zustand).
 const BAKE_BUCKET = 'assets'
-const BAKE_OBJECT = 'baked/node_modules.tar.gz'
+function bakeObject(skill?: Skill): string {
+  return skill === 'game' ? 'baked/game-node-modules.tar.gz' : 'baked/node_modules.tar.gz'
+}
 
-function publicUrl(): string {
+function publicUrl(skill?: Skill): string {
   const base = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? '').replace(/\/$/, '')
-  return `${base}/storage/v1/object/public/${BAKE_BUCKET}/${BAKE_OBJECT}`
+  return `${base}/storage/v1/object/public/${BAKE_BUCKET}/${bakeObject(skill)}`
 }
 
 async function readSandboxBinary(sandbox: Sandbox, path: string): Promise<Buffer | null> {
@@ -40,69 +44,64 @@ const SHADCN_COMPONENTS = [
 // One-time (run via scripts/bake-deps.mts): in a throwaway sandbox, install deps +
 // generate the full shadcn component set via the official CLI, then tar node_modules
 // AND the component source so each sandbox gets both. Returns the public URL.
-export async function bakeDeps(): Promise<string> {
+export async function bakeDeps(skill?: Skill): Promise<string> {
+  const isGame = skill === 'game'
   const sandbox = await Sandbox.create({ timeout: 900_000, ports: [3000] })
   try {
-    await sandbox.writeFiles(SCAFFOLD_FILES.map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') })))
-    // The shadcn CLI reads the ROOT tsconfig for the @ alias — give it one with the
-    // paths (only in this throwaway bake sandbox; the real scaffold is untouched) +
-    // a components.json so `add` resolves to src/components/ui.
-    const rootTsconfig = JSON.stringify({
-      files: [], references: [{ path: './tsconfig.app.json' }, { path: './tsconfig.node.json' }],
-      compilerOptions: { baseUrl: '.', paths: { '@/*': ['./src/*'] } },
-    }, null, 2)
-    const componentsJson = JSON.stringify({
-      $schema: 'https://ui.shadcn.com/schema.json', style: 'default', rsc: false, tsx: true,
-      tailwind: { config: 'tailwind.config.js', css: 'src/index.css', baseColor: 'slate', cssVariables: true },
-      aliases: { components: '@/components', utils: '@/lib/utils', ui: '@/components/ui' },
-    }, null, 2)
-    await sandbox.writeFiles([
-      { path: 'tsconfig.json', content: Buffer.from(rootTsconfig, 'utf8') },
-      { path: 'components.json', content: Buffer.from(componentsJson, 'utf8') },
-    ])
-    console.log('[bake] installing deps…')
+    await sandbox.writeFiles(getScaffoldFiles(skill).map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') })))
+    if (!isGame) {
+      // Websites/apps: give the shadcn CLI a root tsconfig with the @ alias + a
+      // components.json (only in this throwaway bake sandbox; the real scaffold is
+      // untouched) so `add` resolves to src/components/ui.
+      const rootTsconfig = JSON.stringify({
+        files: [], references: [{ path: './tsconfig.app.json' }, { path: './tsconfig.node.json' }],
+        compilerOptions: { baseUrl: '.', paths: { '@/*': ['./src/*'] } },
+      }, null, 2)
+      const componentsJson = JSON.stringify({
+        $schema: 'https://ui.shadcn.com/schema.json', style: 'default', rsc: false, tsx: true,
+        tailwind: { config: 'tailwind.config.js', css: 'src/index.css', baseColor: 'slate', cssVariables: true },
+        aliases: { components: '@/components', utils: '@/lib/utils', ui: '@/components/ui' },
+      }, null, 2)
+      await sandbox.writeFiles([
+        { path: 'tsconfig.json', content: Buffer.from(rootTsconfig, 'utf8') },
+        { path: 'components.json', content: Buffer.from(componentsJson, 'utf8') },
+      ])
+    }
+    console.log(`[bake:${skill ?? 'web'}] installing deps…`)
     const install = await sandbox.runCommand({
       detached: true, cmd: 'bash',
       args: ['-c', 'cd /vercel/sandbox && (command -v bun >/dev/null 2>&1 && bun install || pnpm install) && echo INSTALL_OK'],
     })
     await install.wait()
-    console.log(`[bake] generating ${SHADCN_COMPONENTS.length} shadcn components…`)
-    const add = await sandbox.runCommand({
-      detached: true, cmd: 'bash',
-      args: ['-c', `cd /vercel/sandbox && npx --yes shadcn@latest add ${SHADCN_COMPONENTS.join(' ')} --yes --overwrite 2>&1 | tail -5; ls src/components/ui | wc -l`],
-    })
-    const addDone = await add.wait()
-    console.log('[bake] shadcn add result:', (await addDone.stdout()).slice(-300))
-    console.log('[bake] final dependencies (add these to makePackageJson):')
-    const deps = await sandbox.runCommand({
-      detached: true, cmd: 'bash', args: ['-c', 'cd /vercel/sandbox && node -e "console.log(JSON.stringify(require(\'./package.json\').dependencies,null,2))"'],
-    })
-    console.log((await (await deps.wait()).stdout()))
-    console.log('[bake] taring node_modules + components…')
+    if (!isGame) {
+      console.log(`[bake] generating ${SHADCN_COMPONENTS.length} shadcn components…`)
+      const add = await sandbox.runCommand({
+        detached: true, cmd: 'bash',
+        args: ['-c', `cd /vercel/sandbox && npx --yes shadcn@latest add ${SHADCN_COMPONENTS.join(' ')} --yes --overwrite 2>&1 | tail -5; ls src/components/ui | wc -l`],
+      })
+      console.log('[bake] shadcn add result:', (await (await add.wait()).stdout()).slice(-300))
+    }
+    // Games tar node_modules only; web also tars the generated component source.
+    const tarTargets = isGame ? 'node_modules' : 'node_modules src/components/ui src/lib components.json'
+    console.log(`[bake] taring ${tarTargets}…`)
     const tar = await sandbox.runCommand({
       detached: true, cmd: 'bash',
-      args: ['-c', 'cd /vercel/sandbox && tar -czf /tmp/node_modules.tar.gz node_modules src/components/ui src/lib components.json && du -h /tmp/node_modules.tar.gz'],
+      args: ['-c', `cd /vercel/sandbox && tar -czf /tmp/nm.tar.gz ${tarTargets} && du -h /tmp/nm.tar.gz`],
     })
     await tar.wait()
-    const buf = await readSandboxBinary(sandbox, '/tmp/node_modules.tar.gz')
+    const buf = await readSandboxBinary(sandbox, '/tmp/nm.tar.gz')
     if (!buf || buf.length === 0) throw new Error('tarball empty')
-    console.log(`[bake] uploading ${(buf.length / 1e6).toFixed(1)}MB…`)
-    // Raw REST upload — the supabase-js client mangles large binary Buffers
-    // ("Bad Request"); the raw /storage/v1/object endpoint handles them fine.
+    console.log(`[bake] uploading ${(buf.length / 1e6).toFixed(1)}MB to ${bakeObject(skill)}…`)
+    // Raw REST upload — the supabase-js client mangles large binary Buffers.
     const base = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? '').replace(/\/$/, '')
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE ?? ''
-    const res = await fetch(`${base}/storage/v1/object/${BAKE_BUCKET}/${BAKE_OBJECT}`, {
+    const res = await fetch(`${base}/storage/v1/object/${BAKE_BUCKET}/${bakeObject(skill)}`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${serviceKey}`,
-        apikey: serviceKey,
-        'Content-Type': 'application/gzip',
-        'x-upsert': 'true',
-      },
+      headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey, 'Content-Type': 'application/gzip', 'x-upsert': 'true' },
       body: new Uint8Array(buf),
     })
     if (!res.ok) throw new Error(`upload failed: ${res.status} ${await res.text()}`)
-    return publicUrl()
+    return publicUrl(skill)
   } finally {
     await sandbox.stop().catch(() => {})
   }
@@ -112,9 +111,9 @@ export async function bakeDeps(): Promise<string> {
 // node_modules now exists. Caller still runs a fast install afterward to pick up
 // any package the AI ADDED to package.json (most generations add none → install
 // is a no-op and near-instant because the deps are already present).
-export async function restoreBakedDeps(sandbox: Sandbox): Promise<boolean> {
+export async function restoreBakedDeps(sandbox: Sandbox, skill?: Skill): Promise<boolean> {
   try {
-    const url = publicUrl()
+    const url = publicUrl(skill)
     const cmd = await sandbox.runCommand({
       detached: true, cmd: 'bash',
       args: ['-c',

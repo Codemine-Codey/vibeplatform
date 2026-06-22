@@ -48,6 +48,28 @@ function fixImports(path: string, content: string): string {
     .replace(/(import\s*\(\s*['"])motion\/react(['"]\s*\))/g, '$1framer-motion$2')
 }
 
+// Deterministic FONT guard: the model sometimes picks a premium non-Google font
+// (Geist, Satoshi, Cabinet Grotesk…). Those aren't on Google Fonts, so the @import
+// silently fails and text falls back to a default — quietly ruining the type. We
+// swap each known non-Google font for the nearest Google equivalent everywhere in
+// src/index.css (font-family, CSS vars, AND the @import URL), then re-encode spaces
+// in the Google Fonts `family=` params to '+' so the URL stays valid.
+const FONT_SWAPS: Array<[RegExp, string]> = [
+  [/Geist[\s+]Sans|Geist[\s+]Mono|Geist/gi, 'Space Grotesk'],
+  [/Satoshi/gi, 'Plus Jakarta Sans'],
+  [/Cabinet[\s+]Grotesk|Clash[\s+]Display|Clash[\s+]Grotesk/gi, 'Space Grotesk'],
+  [/General[\s+]Sans|Switzer/gi, 'Outfit'],
+  [/Neue[\s+]Montreal|Neue[\s+]Haas([\s+]Grotesk)?|Aeonik|TT[\s+]Norms|TT[\s+]Commons|S[öo]hne|Graphik|Basier([\s+]Circle)?/gi, 'Inter'],
+]
+function fixFonts(path: string, content: string): string {
+  if (path !== 'src/index.css') return content
+  let out = content
+  for (const [re, good] of FONT_SWAPS) out = out.replace(re, good)
+  // Re-encode spaces inside Google Fonts `family=...` params to '+' (valid URL).
+  out = out.replace(/(family=)([^&'")]+)/g, (_m, p: string, fam: string) => p + fam.replace(/\s+/g, '+'))
+  return out
+}
+
 // The model sometimes concatenates TWO requested files into ONE writeFile call,
 // separated by a comment header like `// src/pages/Contact.tsx`. The second file
 // then never exists → broken import → broken preview. Detect those boundary
@@ -151,7 +173,7 @@ export async function* getContents(
           if (!paths.includes(path)) return 'skipped: not in requested list'
           if (content.trim().length < 5) return 'skipped: empty content'
           for (const file of splitConcatenated(path, content, paths)) {
-            enqueue({ path: file.path, content: fixImports(file.path, fixCss(file.path, file.content)) })
+            enqueue({ path: file.path, content: fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content))) })
           }
           return 'ok'
         },

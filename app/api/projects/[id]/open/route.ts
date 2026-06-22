@@ -32,7 +32,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   // Restore the baked node_modules (fast extract) — node_modules isn't in the
   // snapshot. Then a reconcile install for any package this project added. This
   // is the critical-path install for resume, so the baked extract matters most here.
-  const baked = await restoreBakedDeps(sandbox).catch(() => false)
+  const baked = await restoreBakedDeps(sandbox, project.skill as any).catch(() => false)
   try {
     const install = await sandbox.runCommand({
       detached: true,

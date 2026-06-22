@@ -897,7 +897,7 @@ async function runPipeline({
       // plain install if the baked archive is unavailable. Runs in the background
       // during file generation so it's done before the dev server starts.
       ;(async () => {
-        const baked = await restoreBakedDeps(sandbox).catch(() => false)
+        const baked = await restoreBakedDeps(sandbox, skill).catch(() => false)
         const installCmd = baked
           ? 'command -v bun >/dev/null 2>&1 && bun install --no-save || pnpm install --prefer-offline'
           : 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'

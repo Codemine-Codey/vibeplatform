@@ -1,7 +1,12 @@
-// One-time: bake the scaffold's node_modules into the public assets bucket.
+// One-time: bake node_modules for each project type into the public assets bucket.
 // Run: npx tsx --env-file=.env.local scripts/bake-deps.mts
-// Re-run whenever the scaffold's dependencies change.
+// Re-run whenever a scaffold's dependencies change.
 import { bakeDeps } from '../lib/baked-deps'
 
-const url = await bakeDeps()
-console.log('\n✅ Baked node_modules published at:\n' + url)
+console.log('=== Baking WEB (websites/apps) ===')
+const webUrl = await bakeDeps()
+console.log('✅ web:', webUrl, '\n')
+
+console.log('=== Baking GAME ===')
+const gameUrl = await bakeDeps('game')
+console.log('✅ game:', gameUrl)

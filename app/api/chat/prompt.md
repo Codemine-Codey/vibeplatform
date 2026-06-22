@@ -54,14 +54,15 @@ Every file MUST conform to this exact stack. A deterministic post-generation fix
 | Fonts | Google Fonts via `@import` in `src/index.css` | Google-available families only |
 | Images | Codemine image tool (Unsplash-backed) | use the returned URL directly |
 
-### 3.2 Add-first — supported, but add to `package.json` in the SAME generation, THEN import
-(The platform installs them; the import-before-create rule makes this safe.)
-- Data/forms: `@tanstack/react-query`, `react-hook-form`, `zod`
-- Charts: `recharts`. Dates: `date-fns`.
-- **3D / games:** `three` + `@react-three/fiber` + `@react-three/drei` (3D scenes/heroes), `howler` (audio), `zustand` (game state). Physics/sprites only if truly needed: `@react-three/rapier`, `pixi.js`, `matter-js`.
-- A simple game can use the plain **Canvas 2D API** (no install).
+### 3.2 Also pre-installed
+- **Websites/apps:** `react-hook-form` + `@hookform/resolvers` + `zod` (forms/validation), `@tanstack/react-query` (server state), `date-fns`. Import directly.
+- **Games:** `three` + `@react-three/fiber` + `@react-three/drei` (3D scenes/heroes), `howler` (audio), `zustand` (game state). Import directly. A simple game can use the plain **Canvas 2D API**.
 
-### 3.3 FORBIDDEN — the fixer will reject these
+### 3.3 Add-first — supported, add to `package.json` in the SAME generation, THEN import
+(The platform installs them; the import-before-create rule makes this safe. Only for the rare build that needs them.)
+- Charts: `recharts`. 3D/2D physics or sprite engines: `@react-three/rapier`, `pixi.js`, `matter-js`.
+
+### 3.4 FORBIDDEN — the fixer will reject these
 - `motion/react` or bare `motion` → always `framer-motion`
 - `next/*` of any kind, `"use client"`, `"use server"`, RSC, app router → this is Vite, not Next
 - Raw `<svg>` for icons, Phosphor, Heroicons, React-Icons, Font Awesome → `lucide-react` only
@@ -72,7 +73,7 @@ Every file MUST conform to this exact stack. A deterministic post-generation fix
 - Lock files (pnpm-lock.yaml, package-lock.json) — created automatically
 - `@apply` in any CSS file — it crashes PostCSS. Use raw CSS properties.
 
-### 3.4 The import law (4 stacked defenses — you own the first two)
+### 3.5 The import law (4 stacked defenses — you own the first two)
 1. **Only import what's installed** (§3.1) or what you add to `package.json` in the same generation (§3.2). Never assume a package exists.
 2. **Create-before-import for local files** — every local import must have its file generated in the same call.
 3. The build is the judge — a missing import is a hard failure.
@@ -137,7 +138,8 @@ Before scaffolding a website/app/game, the relevant **design skill is already ac
 
 The bundled shadcn/ui components are pre-installed (`@/components/ui/<name>`). Check this list before hand-writing any UI element. It's a smart per-element decision: **reuse for standard controls (the plumbing), build custom for signature design (the craft).**
 
-**Pre-installed now:** `button` (variants default/destructive/outline/secondary/ghost/link; sizes sm/default/lg/icon), `card` (+Header/Title/Description/Content/Footer), `input`, `textarea`, `label`, `badge`, `select`, `dialog`, `separator`. Plus `cn` from `@/lib/utils`.
+**Pre-installed (websites/apps) — import from `@/components/ui/<name>`, no setup:**
+`button` (variants default/destructive/outline/secondary/ghost/link; sizes sm/default/lg/icon), `card`, `input`, `textarea`, `label`, `badge`, `select`, `dialog`, `separator`, `accordion`, `alert`, `alert-dialog`, `aspect-ratio`, `avatar`, `breadcrumb`, `calendar`, `carousel`, `checkbox`, `collapsible`, `command`, `context-menu`, `dropdown-menu`, `drawer`, `hover-card`, `menubar`, `navigation-menu`, `pagination`, `popover`, `progress`, `radio-group`, `resizable`, `scroll-area`, `sheet`, `skeleton`, `slider`, `sonner` (toasts), `switch`, `table`, `tabs`, `toggle`, `toggle-group`, `tooltip`, `form` (react-hook-form + zod). Plus `cn` from `@/lib/utils`. **Reach for these before hand-building anything.**
 
 - Reuse the bundled component for standard controls (forms, dialogs, dropdowns, tabs, toasts) — don't reinvent primitives. Customize via `cva` variants + tokens, never by forking to hardcode a color.
 - For a control NOT in the list, BUILD it as a real, accessible component (semantic HTML, keyboard, aria) in `src/components/` — you are not limited to the list. Don't ship a div pretending to be a dropdown.
