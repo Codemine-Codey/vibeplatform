@@ -14,11 +14,11 @@ Reusing components everywhere makes a site look templated and AI-generated. Hand
 Rule of thumb: **plumbing → reuse; craft → custom.** A login form? Reuse. The hero that defines the brand? Custom. A pricing section's toggle? Reuse the control, but the section's layout is yours to design.
 
 ## What's available
-**Pre-installed (import from `@/components/ui/<name>`, zero setup):** button, card, input, textarea, select, dialog, badge, label, separator. They read the CSS color tokens, so they match the brand palette automatically — don't override with raw hex.
+**Pre-installed and guaranteed (import from `@/components/ui/<name>`, zero setup):** button, card, input, textarea, select, dialog, badge, label, separator. They read the CSS color tokens, so they match the brand palette automatically — don't override with raw hex.
 
-**Any other shadcn component, on demand:** the full shadcn registry (~48: accordion, tabs, carousel, tooltip, dropdown-menu, sheet, popover, command, table, calendar, avatar, switch, slider, progress, skeleton, sonner/toast, navigation-menu, hover-card, etc.) can be added when you decide reuse is the smart call — run `npx shadcn@latest add <name>` in the workspace (it fetches the official, correct source). Use this instead of hand-writing a standard control.
+**Anything else → BUILD it.** For a control not in the list above (tabs, accordion, carousel, tooltip, dropdown, sheet, popover, command palette, table, etc.), write it yourself as a real, accessible component in `src/components/` — compose from the primitives above + Tailwind + framer-motion + Radix-style keyboard/aria patterns. You are fully capable of building any component; you are NOT limited to the 9. (Do not rely on a CLI to add components — build the source directly.)
 
 ## Notes
 - A reused component still gets YOUR styling via className + tokens — reuse the behavior/accessibility, not a generic look.
-- Never ship an inaccessible hand-rolled version of something shadcn already does well (a div pretending to be a dropdown).
-- Conversely, never let a stock component flatten a signature section — that section is where you design.
+- Whatever you build, make it accessible (semantic HTML, keyboard support, aria labels) — never a div pretending to be a dropdown.
+- Never let a stock component flatten a signature section — that section is where you design.
