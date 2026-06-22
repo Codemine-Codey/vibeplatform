@@ -48,7 +48,7 @@ export async function bakeDeps(skill?: Skill): Promise<string> {
   const isGame = skill === 'game'
   const sandbox = await Sandbox.create({ timeout: 900_000, ports: [3000] })
   try {
-    await sandbox.writeFiles(getScaffoldFiles(skill).map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') })))
+    await sandbox.writeFiles(getScaffoldFiles(skill ?? 'website').map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') })))
     if (!isGame) {
       // Websites/apps: give the shadcn CLI a root tsconfig with the @ alias + a
       // components.json (only in this throwaway bake sandbox; the real scaffold is
