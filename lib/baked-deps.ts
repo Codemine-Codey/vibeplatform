@@ -26,22 +26,62 @@ async function readSandboxBinary(sandbox: Sandbox, path: string): Promise<Buffer
   }
 }
 
-// One-time (run via scripts/bake-deps.mjs): build node_modules in a throwaway
-// sandbox, tar it, upload to the public bucket. Returns the public URL.
+// The expanded shadcn component set generated via the official CLI (correct source
+// + auto-installed Radix deps). Baked into the tarball so the scaffold stays clean.
+const SHADCN_COMPONENTS = [
+  'accordion', 'alert', 'alert-dialog', 'aspect-ratio', 'avatar', 'breadcrumb',
+  'calendar', 'carousel', 'checkbox', 'collapsible', 'command', 'context-menu',
+  'drawer', 'dropdown-menu', 'hover-card', 'menubar', 'navigation-menu', 'pagination',
+  'popover', 'progress', 'radio-group', 'resizable', 'scroll-area', 'sheet',
+  'skeleton', 'slider', 'sonner', 'switch', 'table', 'tabs', 'toggle', 'toggle-group',
+  'tooltip', 'form',
+]
+
+// One-time (run via scripts/bake-deps.mts): in a throwaway sandbox, install deps +
+// generate the full shadcn component set via the official CLI, then tar node_modules
+// AND the component source so each sandbox gets both. Returns the public URL.
 export async function bakeDeps(): Promise<string> {
-  const sandbox = await Sandbox.create({ timeout: 600_000, ports: [3000] })
+  const sandbox = await Sandbox.create({ timeout: 900_000, ports: [3000] })
   try {
     await sandbox.writeFiles(SCAFFOLD_FILES.map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') })))
+    // The shadcn CLI reads the ROOT tsconfig for the @ alias — give it one with the
+    // paths (only in this throwaway bake sandbox; the real scaffold is untouched) +
+    // a components.json so `add` resolves to src/components/ui.
+    const rootTsconfig = JSON.stringify({
+      files: [], references: [{ path: './tsconfig.app.json' }, { path: './tsconfig.node.json' }],
+      compilerOptions: { baseUrl: '.', paths: { '@/*': ['./src/*'] } },
+    }, null, 2)
+    const componentsJson = JSON.stringify({
+      $schema: 'https://ui.shadcn.com/schema.json', style: 'default', rsc: false, tsx: true,
+      tailwind: { config: 'tailwind.config.js', css: 'src/index.css', baseColor: 'slate', cssVariables: true },
+      aliases: { components: '@/components', utils: '@/lib/utils', ui: '@/components/ui' },
+    }, null, 2)
+    await sandbox.writeFiles([
+      { path: 'tsconfig.json', content: Buffer.from(rootTsconfig, 'utf8') },
+      { path: 'components.json', content: Buffer.from(componentsJson, 'utf8') },
+    ])
     console.log('[bake] installing deps…')
     const install = await sandbox.runCommand({
       detached: true, cmd: 'bash',
       args: ['-c', 'cd /vercel/sandbox && (command -v bun >/dev/null 2>&1 && bun install || pnpm install) && echo INSTALL_OK'],
     })
     await install.wait()
-    console.log('[bake] taring node_modules…')
+    console.log(`[bake] generating ${SHADCN_COMPONENTS.length} shadcn components…`)
+    const add = await sandbox.runCommand({
+      detached: true, cmd: 'bash',
+      args: ['-c', `cd /vercel/sandbox && npx --yes shadcn@latest add ${SHADCN_COMPONENTS.join(' ')} --yes --overwrite 2>&1 | tail -5; ls src/components/ui | wc -l`],
+    })
+    const addDone = await add.wait()
+    console.log('[bake] shadcn add result:', (await addDone.stdout()).slice(-300))
+    console.log('[bake] final dependencies (add these to makePackageJson):')
+    const deps = await sandbox.runCommand({
+      detached: true, cmd: 'bash', args: ['-c', 'cd /vercel/sandbox && node -e "console.log(JSON.stringify(require(\'./package.json\').dependencies,null,2))"'],
+    })
+    console.log((await (await deps.wait()).stdout()))
+    console.log('[bake] taring node_modules + components…')
     const tar = await sandbox.runCommand({
       detached: true, cmd: 'bash',
-      args: ['-c', 'cd /vercel/sandbox && tar -czf /tmp/node_modules.tar.gz node_modules && du -h /tmp/node_modules.tar.gz'],
+      args: ['-c', 'cd /vercel/sandbox && tar -czf /tmp/node_modules.tar.gz node_modules src/components/ui src/lib components.json && du -h /tmp/node_modules.tar.gz'],
     })
     await tar.wait()
     const buf = await readSandboxBinary(sandbox, '/tmp/node_modules.tar.gz')
