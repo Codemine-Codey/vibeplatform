@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { Sandbox } from '@vercel/sandbox'
 import { getProject, updateProjectRow, restoreSnapshotInto } from '@/lib/projects-db'
+import { restoreBakedDeps } from '@/lib/baked-deps'
 
 export const maxDuration = 300
 
@@ -28,12 +29,17 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: 'Could not restore the project files.' }, { status: 500 })
   }
 
-  // Install dependencies (node_modules is not in the snapshot).
+  // Restore the baked node_modules (fast extract) — node_modules isn't in the
+  // snapshot. Then a reconcile install for any package this project added. This
+  // is the critical-path install for resume, so the baked extract matters most here.
+  const baked = await restoreBakedDeps(sandbox).catch(() => false)
   try {
     const install = await sandbox.runCommand({
       detached: true,
       cmd: 'bash',
-      args: ['-c', 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'],
+      args: ['-c', baked
+        ? 'command -v bun >/dev/null 2>&1 && bun install --no-save || pnpm install --prefer-offline'
+        : 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'],
     })
     await Promise.race([
       install.wait(),

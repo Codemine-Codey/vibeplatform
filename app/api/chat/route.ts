@@ -28,6 +28,7 @@ import { Sandbox } from '@vercel/sandbox'
 import { SCAFFOLD_FILES, getScaffoldFiles } from '@/ai/tools/scaffold'
 import { saveCheckpoint } from '@/ai/tools/checkpoint'
 import { getWarmEntry } from '@/ai/warm-pool'
+import { restoreBakedDeps } from '@/lib/baked-deps'
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { createProjectRow, snapshotProject, updateProjectRow, getProjectBySandboxId, incrementProjectTokens } from '@/lib/projects-db'
@@ -891,10 +892,20 @@ async function runPipeline({
       await sandbox.writeFiles(
         getScaffoldFiles(skill).map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
       )
-      sandbox
-        .runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'] })
-        .then(cmd => cmd.wait())
-        .catch(() => {})
+      // Restore the BAKED node_modules (fast extract) then a reconcile install for
+      // any package the AI adds — far quicker than a cold install. Falls back to a
+      // plain install if the baked archive is unavailable. Runs in the background
+      // during file generation so it's done before the dev server starts.
+      ;(async () => {
+        const baked = await restoreBakedDeps(sandbox).catch(() => false)
+        const installCmd = baked
+          ? 'command -v bun >/dev/null 2>&1 && bun install --no-save || pnpm install --prefer-offline'
+          : 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'
+        await sandbox
+          .runCommand({ detached: true, cmd: 'bash', args: ['-c', installCmd] })
+          .then(cmd => cmd.wait())
+          .catch(() => {})
+      })().catch(() => {})
     }
   } catch {
     // Non-fatal — AI generates without scaffold if write fails

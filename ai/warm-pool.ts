@@ -5,6 +5,7 @@ interface WarmEntry {
   sandbox: Sandbox
   sandboxId: string
   createdAt: number
+  ready: boolean // true only after scaffold deps finished installing
 }
 
 const POOL_SIZE = 2
@@ -22,13 +23,21 @@ async function addOne() {
     await sandbox.writeFiles(
       SCAFFOLD_FILES.map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
     )
-    // bun install (falls back to pnpm if bun unavailable) — runs in background so it's
-    // done (or nearly done) by the time this sandbox is assigned to a user request
+    const entry: WarmEntry = { sandbox, sandboxId: sandbox.sandboxId, createdAt: Date.now(), ready: false }
+    pool.push(entry)
+    // Install the base deps, then flip ready=true. getWarmEntry only hands out
+    // READY sandboxes, so a user never receives one mid-install (the reliability
+    // fix). This is the whole point of the pool: the ~70s base install is already
+    // done before the sandbox is assigned.
     sandbox
       .runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'] })
       .then(cmd => cmd.wait())
-      .catch(() => {})
-    pool.push({ sandbox, sandboxId: sandbox.sandboxId, createdAt: Date.now() })
+      .then(() => { entry.ready = true })
+      .catch(() => {
+        // Install failed — drop this entry so it's never handed out broken.
+        pool = pool.filter(e => e !== entry)
+        fillPool()
+      })
   } catch {
     // Non-fatal — pipeline falls back to fresh creation
   } finally {
@@ -49,16 +58,21 @@ export function getWarmEntry(): WarmEntry | null {
   const now = Date.now()
   pool = pool.filter(e => now - e.createdAt <= MAX_AGE_MS)
 
-  if (pool.length === 0) {
+  // Only hand out a sandbox whose deps finished installing. If none are ready yet,
+  // return null (the caller creates a fresh one) — never a half-installed sandbox.
+  const idx = pool.findIndex(e => e.ready)
+  if (idx === -1) {
     fillPool()
     return null
   }
 
-  const entry = pool.shift()!
+  const [entry] = pool.splice(idx, 1)
   // Immediately start refilling so the next user doesn't wait
   fillPool()
   return entry
 }
 
-// Only pre-warm when WARM_POOL=true — disable during pre-launch testing to avoid idle sandbox costs
+// Only pre-warm when WARM_POOL=true. Enabled for launch (instant sandboxes, no
+// ~70s install wait). Each idle sandbox costs provisioned memory until used —
+// acceptable for the speed win.
 if (process.env.WARM_POOL === 'true') fillPool()
