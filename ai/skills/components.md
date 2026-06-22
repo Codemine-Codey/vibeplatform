@@ -1,39 +1,24 @@
 ---
 name: components
-description: Pre-installed shadcn/ui components catalog + composition patterns. Load to reuse ready-made, accessible components instead of hand-building buttons, cards, dialogs, forms, etc.
+description: When to REUSE a pre-made shadcn/ui component vs BUILD a custom one — a smart per-element decision, plus how to pull any shadcn component on demand. Load when building UI that mixes standard controls and signature design.
 ---
 
-# Components — reuse, don't rebuild
+# Components — a smart decision, never a forced one
 
-These shadcn/ui components are ALREADY installed in every project. Import and use them — do NOT hand-build equivalents. They are accessible, themeable (they read the CSS color tokens), and consistent.
+Reusing components everywhere makes a site look templated and AI-generated. Hand-building everything is inconsistent and slow. **Decide per element — this is a judgment call, not a rule:**
 
-## Available (import from `@/components/ui/<name>`)
-- **button** — `import { Button } from '@/components/ui/button'` · variants: default, secondary, outline, ghost, destructive, link · sizes: sm, default, lg, icon
-- **card** — `Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter`
-- **input** — `Input` (text fields) · pair with **label** (`Label`)
-- **textarea** — `Textarea` (multiline)
-- **select** — `Select, SelectTrigger, SelectValue, SelectContent, SelectItem`
-- **dialog** — `Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter` (modals)
-- **badge** — `Badge` · variants: default, secondary, outline, destructive (tags/pills)
-- **label** — `Label` (form labels, always ABOVE the input)
-- **separator** — `Separator` (hairline dividers)
+## The decision
+- **REUSE a pre-made component when** the element is a STANDARD control where users expect familiar behavior and accessibility matters more than uniqueness: form inputs, selects, checkboxes, dialogs/modals, dropdowns, tooltips, tabs, command palettes, date pickers, data tables. Reinventing these is a waste and usually less accessible.
+- **BUILD custom when** the element CARRIES THE BRAND'S DESIGN IDENTITY — the hero, signature sections, the distinctive layout moments, anything that should look art-directed and unlike every other site. Dropping a generic component here is exactly what makes output look templated. The taste-design law applies here: this is where craft lives.
 
-## Rules
-- Reach for these FIRST. A custom `<button>` with hand-written Tailwind is a smell — use `<Button>`.
-- They inherit the brand via CSS tokens (bg-primary, etc.) — so a themed Button matches the palette automatically. Don't override their colors with raw hex.
-- Forms: `Label` above `Input`/`Textarea`/`Select`, with a submit `Button` that shows a pending state.
-- Need a component NOT in this list (tabs, accordion, tooltip, dropdown)? You may add the shadcn source file for it in the same generation, OR compose from the primitives above — but never ship an inaccessible hand-rolled version.
+Rule of thumb: **plumbing → reuse; craft → custom.** A login form? Reuse. The hero that defines the brand? Custom. A pricing section's toggle? Reuse the control, but the section's layout is yours to design.
 
-## Composition examples
-```tsx
-import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-// Pricing card
-<Card className="border-border">
-  <CardHeader><CardTitle className="text-foreground">Pro</CardTitle></CardHeader>
-  <CardContent>
-    <p className="text-muted-foreground">Everything you need.</p>
-    <Button className="mt-4 w-full">Get started</Button>
-  </CardContent>
-</Card>
-```
+## What's available
+**Pre-installed (import from `@/components/ui/<name>`, zero setup):** button, card, input, textarea, select, dialog, badge, label, separator. They read the CSS color tokens, so they match the brand palette automatically — don't override with raw hex.
+
+**Any other shadcn component, on demand:** the full shadcn registry (~48: accordion, tabs, carousel, tooltip, dropdown-menu, sheet, popover, command, table, calendar, avatar, switch, slider, progress, skeleton, sonner/toast, navigation-menu, hover-card, etc.) can be added when you decide reuse is the smart call — run `npx shadcn@latest add <name>` in the workspace (it fetches the official, correct source). Use this instead of hand-writing a standard control.
+
+## Notes
+- A reused component still gets YOUR styling via className + tokens — reuse the behavior/accessibility, not a generic look.
+- Never ship an inaccessible hand-rolled version of something shadcn already does well (a div pretending to be a dropdown).
+- Conversely, never let a stock component flatten a signature section — that section is where you design.

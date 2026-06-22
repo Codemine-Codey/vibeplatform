@@ -704,9 +704,11 @@ export async function POST(req: Request) {
           `${prompt}\n\n## DESIGN LAW IS ACTIVE\n` +
           `The "${designSkill}" design skill is loaded for the file generator and is binding. ` +
           `Plan the project structure to honor the brief's design direction.\n` +
-          `\n## SKILLS CATALOG (call loadSkill("<name>") to pull a skill's full guidance when the build needs it)\n` +
+          `\n## OPTIONAL SKILLS (only if truly needed — do NOT load by default)\n` +
           `${catalog}\n` +
-          `Call loadSkill before generating if this build needs something specialized (e.g. 3D/three.js, premium animation).\n` +
+          `The core design law is ALREADY active — do NOT loadSkill for design/components. ` +
+          `Call loadSkill AT MOST ONCE, and ONLY if the user explicitly asked for 3D/three.js or advanced custom animation. ` +
+          `For a normal website, skip loadSkill entirely and go straight to planProject then generateFiles.\n` +
           `\n## PROJECT BRIEF (authoritative design spec — use this, do not ask clarifying questions)\n` +
           `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately call generateFiles.\n\n` +
           formatBrief(brief)
@@ -948,11 +950,12 @@ async function runPipeline({
         planProject: planProject(),
       }
 
-  // +1 step headroom so an optional loadSkill call (e.g. motion-fx) doesn't
-  // crowd out the required plan→generate sequence.
-  // website: text + (loadSkill?) + getUnsplashBatch + planProject + generateFiles
-  // app/game: text + (loadSkill?) + planProject + generateFiles
-  const maxSteps = skill === 'website' ? 5 : 4
+  // Generous step headroom so an optional loadSkill + a stray retry can NEVER
+  // crowd out the required planProject -> generateFiles sequence (A5 caught a run
+  // where the AI burned its budget before generating). generateFiles is the goal.
+  // website: text + (loadSkill?) + getUnsplashBatch + planProject + generateFiles + slack
+  // app/game: text + (loadSkill?) + planProject + generateFiles + slack
+  const maxSteps = skill === 'website' ? 8 : 7
 
   const aiResult = streamText({
     ...getModelOptions(DEFAULT_MODEL),
