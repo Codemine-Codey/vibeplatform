@@ -5,10 +5,14 @@
 // needs the faster Gemini 3.5 Flash tier.
 //   - Quality benchmark fallback: 'anthropic/claude-sonnet-4.6' (Sonnet, NEVER Opus).
 //   - Speed tier option: 'google/gemini-3.5-flash'.
-export const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro'
-export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-pro'
-export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
-export const ERROR_MODEL = 'deepseek/deepseek-v4-flash'
+// Generation → Gemini 3.5 Flash: ~164 tok/s (2.3x DeepSeek Pro) — the speed fix.
+// The deterministic guards (import-fixer, css/contrast/font, catch-all 404) catch
+// the quality slips a faster model can introduce. Edits → DeepSeek V4 Pro (quality
+// on small, fast changes). No provider-pin applies to Gemini, so no DeepSeek stalls.
+export const DEFAULT_MODEL = 'google/gemini-3.5-flash'
+export const FILE_GENERATION_MODEL = 'google/gemini-3.5-flash'
+export const EDIT_MODEL = 'google/gemini-3.5-flash'
+export const ERROR_MODEL = 'google/gemini-3.5-flash'
 // Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
 // gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
 // and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),

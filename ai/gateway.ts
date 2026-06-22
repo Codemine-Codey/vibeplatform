@@ -26,9 +26,16 @@ const openrouterProvider = createOpenAI({
     if (init?.body) {
       try {
         const body = JSON.parse(init.body as string)
-        body.reasoning = { enabled: false }
-        body.include_reasoning = false
-        body.thinking = { type: 'disabled' }
+        const m: string = typeof body.model === 'string' ? body.model : ''
+        // Some models REQUIRE reasoning and reject any attempt to disable it
+        // (Gemini, GPT-5, o-series). Leave those at the provider default; only
+        // force-disable where reasoning is optional and just adds latency/cost
+        // (DeepSeek, GLM, Kimi).
+        if (!/gemini|gpt-5|openai\/o\d/i.test(m)) {
+          body.reasoning = { enabled: false }
+          body.include_reasoning = false
+          body.thinking = { type: 'disabled' }
+        }
         // Prompt-cache fix: OpenRouter load-balances DeepSeek across 16 providers,
         // so consecutive calls hit different instances and the cache never matches.
         // Pin to DeepSeek's own infrastructure (it does automatic prefix caching).

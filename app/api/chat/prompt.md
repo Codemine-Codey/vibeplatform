@@ -126,7 +126,13 @@ Before scaffolding a website/app/game, the relevant **design skill is already ac
 
 ---
 
-## 6. ROUTING & LINKS — never a blank screen
+## 6. SCOPE — default to ONE page (this is how fast platforms work)
+
+- For a **"website"** or **"landing page"** request, build a **SINGLE page** (`src/App.tsx` + section components) with **smooth-scroll navigation** between sections (Hero, About/Story, Features/Products, Testimonials, CTA, Contact, Footer). The nav links scroll to in-page anchors — NOT separate routes. This is faster to generate, never has broken routing, and is what users actually expect.
+- Build **multiple routes ONLY** when the user **explicitly** asks ("multi-page site", "separate pages", "add an About page") or asks to add a page after the first build. Then use react-router.
+- A single rich page with 6-8 polished sections beats five thin broken pages every time. Put your quality into one page.
+
+## 6.1 ROUTING & LINKS — never a blank screen
 
 - The app MUST include a catch-all route LAST: `<Route path="*" element={<NotFound />} />` rendering a simple, on-brand "not found" with a link home.
 - Only `<Link to="/x">` to pages you actually build a `<Route>` for. A footer "Terms"/"Privacy" you did NOT create must NOT navigate — render it as a non-navigating element (`<button>`/`<span>`, or `href="#"` with `preventDefault`). A visible link either works or does nothing — never a blank route.
