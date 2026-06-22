@@ -1,5 +1,6 @@
 import { FILE_GENERATION_MODEL } from './constants'
 import { getModelOptions } from './gateway'
+import { guardColorTokens } from '@/lib/contrast'
 import { generateText, stepCountIs, tool } from 'ai'
 import type { ProjectBrief, Skill } from './types/project-brief'
 import z from 'zod/v3'
@@ -109,7 +110,18 @@ Use the create_brief tool.`,
   }
 
   if (output) {
-    return { ...(output as Omit<ProjectBrief, 'skill'>), skill }
+    const brief = { ...(output as Omit<ProjectBrief, 'skill'>), skill }
+    // A3 — contrast guard: guarantee readable text by math. If the model produced
+    // a low-contrast palette (text near the background), auto-correct before the
+    // painter ever sees it, so headlines can never blend into the background.
+    if (brief.colorTokens) {
+      const { tokens, changed } = guardColorTokens(brief.colorTokens)
+      if (changed.length > 0) {
+        brief.colorTokens = tokens
+        console.warn('[contrast-guard] corrected low-contrast tokens:', changed.join(', '))
+      }
+    }
+    return brief
   }
 
   // Fallback brief when expansion fails
