@@ -9,6 +9,12 @@ export const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro'
 export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-pro'
 export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek/deepseek-v4-flash'
+// Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
+// gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
+// and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),
+// verified to give accurate, design-aware reads. It only LOOKS; the strong code
+// model does any fixing. (Anthropic Haiku was the old eyes — its credits are dead.)
+export const VISION_MODEL = 'google/gemma-3-12b-it'
 
 // Max output tokens per model family. Two separate constraints:
 //  - Anthropic 400s if the value exceeds the model ceiling (Sonnet/Haiku 64K,

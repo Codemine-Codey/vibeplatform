@@ -9,7 +9,7 @@ import {
 } from 'ai'
 import type { UIMessage, UIMessageStreamWriter } from 'ai'
 import type { DataPart } from '@/ai/messages/data-parts'
-import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL, getMaxOutputTokens } from '@/ai/constants'
+import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL, VISION_MODEL, getMaxOutputTokens } from '@/ai/constants'
 import { NextResponse } from 'next/server'
 import { getModelOptions } from '@/ai/gateway'
 import { checkBotId } from 'botid/server'
@@ -390,7 +390,7 @@ async function visualVerdict(
 ): Promise<{ broken: boolean; reason: string; score: number | null }> {
   try {
     const res = await generateText({
-      ...getModelOptions('claude-haiku-4-5-20251001'),
+      ...getModelOptions(VISION_MODEL),
       maxOutputTokens: 220,
       messages: [
         {

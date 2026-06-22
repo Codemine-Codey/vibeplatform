@@ -1,11 +1,13 @@
 import { tool, generateText } from 'ai'
 import { Sandbox } from '@vercel/sandbox'
 import { getModelOptions } from '@/ai/gateway'
+import { ERROR_MODEL } from '@/ai/constants'
 import description from './visual-check.md'
 import z from 'zod/v3'
 
-// Claude Haiku — fast, cheap, vision-capable for future screenshot upgrade
-const REVIEW_MODEL = 'claude-haiku-4-5-20251001'
+// Source-file review is a TEXT task — DeepSeek Flash (cheap, fast). The screenshot
+// VISION check (visualVerdict in route.ts) uses VISION_MODEL separately.
+const REVIEW_MODEL = ERROR_MODEL
 
 export const visualCheck = () =>
   tool({
