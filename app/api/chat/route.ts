@@ -690,22 +690,24 @@ export async function POST(req: Request) {
           return runAgenticLoop({ writer, messages, systemPrompt: prompt })
         }
 
-        // Build system prompt: base + the relevant design skill (deterministic —
-        // so design depth always reaches generation) + a catalog of the other
-        // skills the AI can pull on demand via loadSkill + the brief.
+        // PLANNER system prompt — LEAN (progressive disclosure): the planner plans
+        // structure from the brief; it does NOT carry the full design skill (~22k).
+        // It gets only the skill CATALOG (tiny) and can pull optional skills on
+        // demand with loadSkill. The full design law is injected into the WRITER
+        // (get-contents) via designContext below — that's where the painting happens.
         const designSkill = designSkillFor(skill)
         const designBody = loadSkillBody(designSkill) ?? ''
         const catalog = getSkillCatalog()
           .map(s => `- ${s.name}: ${s.description}`)
           .join('\n')
         const systemPrompt =
-          `${prompt}\n\n## ACTIVE SKILL — ${designSkill}\n` +
-          `These are non-negotiable design/code standards for this build. Follow them exactly.\n\n` +
-          designBody +
-          `\n\n## SKILLS CATALOG (load the full guidance with the loadSkill tool when relevant)\n` +
+          `${prompt}\n\n## DESIGN LAW IS ACTIVE\n` +
+          `The "${designSkill}" design skill is loaded for the file generator and is binding. ` +
+          `Plan the project structure to honor the brief's design direction.\n` +
+          `\n## SKILLS CATALOG (call loadSkill("<name>") to pull a skill's full guidance when the build needs it)\n` +
           `${catalog}\n` +
-          `If this build needs premium animation, call loadSkill("motion-fx") before generating.\n` +
-          `\n\n## PROJECT BRIEF (authoritative design spec — use this, do not ask clarifying questions)\n` +
+          `Call loadSkill before generating if this build needs something specialized (e.g. 3D/three.js, premium animation).\n` +
+          `\n## PROJECT BRIEF (authoritative design spec — use this, do not ask clarifying questions)\n` +
           `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately call generateFiles.\n\n` +
           formatBrief(brief)
 
@@ -721,12 +723,17 @@ export async function POST(req: Request) {
           })
         }
 
+        // The design contract the FILE-WRITER must follow (brief tokens + fonts +
+        // the active design skill). This is what makes generated code actually
+        // match the design — without it the file-writer is blind to colors/fonts.
+        const designContext = `${formatBrief(brief)}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
+
         // ── SERVER-SIDE PIPELINE ────────────────────────────────────────────
         // Wrap in a token-accounting context so every model call this generation
         // makes is summed into tokens_used on the project row.
         const tokenBox = { total: 0 }
         await tokenStore.run(tokenBox, () =>
-          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null })
+          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext })
         )
         if (projectId && tokenBox.total > 0) {
           updateProjectRow(projectId, { tokens_used: tokenBox.total }).catch(() => {})
@@ -750,16 +757,22 @@ async function runAgenticLoop({
   // Fallback (clarification / unknown skill) uses Pro — it may end up doing full generation.
   const isEdit = hasActiveSandbox(messages)
 
-  // For edit turns: inject file tree + sandboxId so AI knows exactly what exists
+  // For edit turns: inject the sandboxId so the AI edits the EXISTING project
+  // instead of rebuilding. The file list is included when known; when it isn't,
+  // the AI is told to discover files with grepCode/readFiles — it must NEVER
+  // create a new sandbox or regenerate the project just because the list is absent.
   let resolvedSystemPrompt = systemPrompt
   if (isEdit) {
     const { sandboxId, filePaths } = getProjectContext(messages)
-    if (sandboxId && filePaths.length > 0) {
+    if (sandboxId) {
       resolvedSystemPrompt +=
         `\n\n## YOUR CURRENT PROJECT\n` +
-        `sandboxId: ${sandboxId}\n\n` +
-        `Files in this project (these all exist — use readFile + patchFile to edit them):\n` +
-        filePaths.map(p => `- ${p}`).join('\n') +
+        `sandboxId: ${sandboxId} — this workspace ALREADY EXISTS. Edit it. NEVER call createSandbox or rebuild.\n\n` +
+        (filePaths.length > 0
+          ? `Files in this project (these all exist — use readFiles + patchFile to edit them):\n` +
+            filePaths.map(p => `- ${p}`).join('\n')
+          : `The project's files exist in this workspace but the list isn't provided here. ` +
+            `Use grepCode to locate code and readFiles to read it before patching. Do NOT guess paths or rebuild.`) +
         `\n\nScaffold files that also exist (do NOT regenerate): package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig.json, src/lib/utils.ts, src/components/ui/*`
     }
   }
@@ -827,6 +840,7 @@ async function runPipeline({
   skill,
   projectId,
   userId,
+  designContext,
 }: {
   writer: Writer
   messages: ChatUIMessage[]
@@ -834,6 +848,7 @@ async function runPipeline({
   skill: Skill
   projectId?: string | null
   userId?: string | null
+  designContext?: string
 }) {
   // ── Step 1: Acquire sandbox (warm pool or fresh creation) ─────────────────
   writer.write({
@@ -923,13 +938,13 @@ async function runPipeline({
   const pipelineTools: Record<string, any> = skill === 'website'
     ? {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
         getUnsplashBatch: getUnsplashBatch(),
         planProject: planProject(),
       }
     : {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
         planProject: planProject(),
       }
 

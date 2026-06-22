@@ -13,6 +13,10 @@ interface Params {
   messages: ModelMessage[]
   modelId: string
   paths: string[]
+  // The design contract (brief color tokens + fonts + taste rules). Without this,
+  // the file-writer has no idea what colors/fonts/layout to use → generic, low-
+  // contrast output. Injected into the system prompt so design reaches the code.
+  designContext?: string
 }
 
 interface FileContentChunk {
@@ -56,11 +60,21 @@ function splitConcatenated(path: string, content: string, requested: string[]): 
 }
 
 const GEN_SYSTEM =
-  'You are a code file generator. Write each file completely using the writeFile tool.\n' +
+  'You are a senior product designer + engineer writing real, production files via the writeFile tool.\n' +
   'One writeFile call per file — NEVER combine two files into one call. Write COMPLETE production-quality code — never truncate or abbreviate.\n' +
   'File order: write shared utilities and types first, then components, then pages.\n' +
   'CSS rule: in src/index.css always use @tailwind base/components/utilities — NEVER @import.\n' +
-  'No <svg> tags. No placeholder content. Real code only.'
+  'No <svg> tags. No placeholder content. Real code only.\n' +
+  '\nDESIGN IS NON-NEGOTIABLE — follow the DESIGN CONTRACT below exactly:\n' +
+  '- Use ONLY the contract\'s color tokens. Headlines and body text MUST use a high-contrast token against their background — NEVER let text color approach the background color (no invisible/low-contrast text).\n' +
+  '- Load and use the contract\'s exact font pairing (Google Fonts @import in src/index.css); display font for headings at a real scale, body font for copy.\n' +
+  '- Honor the layout archetype and signature moves. No generic three-equal-cards, no centered-mesh hero, no default Inter/Roboto.\n' +
+  '- Establish a clear type scale (one large display size, one heading size, one body size) and consistent spacing.'
+
+function buildGenSystem(designContext?: string): string {
+  if (!designContext) return GEN_SYSTEM
+  return GEN_SYSTEM + '\n\n## DESIGN CONTRACT (authoritative — every file must honor this)\n' + designContext
+}
 
 // Generates files using streaming tool calls — each file is yielded individually
 // as soon as the model finishes writing it, so the UI shows files appearing one
@@ -70,7 +84,7 @@ const GEN_SYSTEM =
 export async function* getContents(
   params: Params
 ): AsyncGenerator<FileContentChunk> {
-  const { messages, modelId, paths } = params
+  const { messages, modelId, paths, designContext } = params
 
   const queue: File[] = []
   let finished = false
@@ -86,7 +100,7 @@ export async function* getContents(
   const result = streamText({
     ...getModelOptions(modelId),
     maxOutputTokens: getMaxOutputTokens(modelId),
-    system: GEN_SYSTEM,
+    system: buildGenSystem(designContext),
     messages: [
       ...messages,
       {

@@ -13,6 +13,7 @@ import tasteDesign from './taste-design.md'
 import webappPatterns from './webapp-patterns.md'
 import gamePatterns from './game-patterns.md'
 import motionFx from './motion-fx.md'
+import threejs from './threejs.md'
 import type { Skill } from '@/ai/types/project-brief'
 
 const RAW: Record<string, string> = {
@@ -20,6 +21,7 @@ const RAW: Record<string, string> = {
   'webapp-patterns': webappPatterns,
   'game-patterns': gamePatterns,
   'motion-fx': motionFx,
+  'threejs': threejs,
 }
 
 export interface SkillMeta {

@@ -85,9 +85,12 @@ if (!done) {
 interface Params {
   modelId: string
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
+  // The design contract (brief tokens + fonts + taste rules) — passed into the
+  // file-writer's system prompt so generated code actually matches the design.
+  designContext?: string
 }
 
-export const generateFiles = ({ writer, modelId }: Params) =>
+export const generateFiles = ({ writer, modelId, designContext }: Params) =>
   tool({
     description,
     inputSchema: z.object({
@@ -128,7 +131,7 @@ export const generateFiles = ({ writer, modelId }: Params) =>
 
       // Streaming writeFile tool calls — each file is yielded as soon as Flash
       // finishes writing it. No heartbeat needed; tokens flow continuously.
-      const iterator = getContents({ messages, modelId, paths })
+      const iterator = getContents({ messages, modelId, paths, designContext })
       try {
         for await (const chunk of iterator) {
           if (chunk.files.length > 0) {
@@ -153,7 +156,7 @@ export const generateFiles = ({ writer, modelId }: Params) =>
       const missing = paths.filter(p => !writtenPaths.has(p))
       if (missing.length > 0) {
         console.warn(`[generateFiles] Retrying ${missing.length} missing file(s): ${missing.join(', ')}`)
-        const retryIterator = getContents({ messages, modelId, paths: missing })
+        const retryIterator = getContents({ messages, modelId, paths: missing, designContext })
         try {
           for await (const chunk of retryIterator) {
             if (chunk.files.length > 0) {
@@ -217,7 +220,7 @@ export const generateFiles = ({ writer, modelId }: Params) =>
           ]
 
           let gotAny = false
-          const closureIter = getContents({ messages: closureMessages, modelId, paths: missingPaths })
+          const closureIter = getContents({ messages: closureMessages, modelId, paths: missingPaths, designContext })
           try {
             for await (const chunk of closureIter) {
               if (chunk.files.length > 0) {
