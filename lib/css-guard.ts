@@ -14,8 +14,18 @@ const MINIMAL_FALLBACK =
   '@tailwind base;\n@tailwind components;\n@tailwind utilities;\n'
 
 export function ensureValidCss(css: string): string {
+  // Pass 0: drop declarations whose value is an EMPTY function — e.g.
+  // `background-image: repeating-linear-gradient();` or `background: linear-gradient( );`.
+  // These are syntactically valid (so the parser keeps them) but render nothing /
+  // broken, which makes the AI re-edit the file forever (the divider-lattice loop).
+  // Dropping the whole declaration leaves a clean page and breaks that cycle.
+  let out = css.replace(
+    /[^;{}\n]*:\s*[^;{}\n]*(?:linear|radial|conic|repeating-linear|repeating-radial)-gradient\(\s*\)[^;{}\n]*;?/gi,
+    ''
+  )
+
   // Pass 1: strip @apply anywhere (unknown classes crash Tailwind even when parseable)
-  let out = css.replace(/@apply\s+[^;{}\n]*;?/gi, '')
+  out = out.replace(/@apply\s+[^;{}\n]*;?/gi, '')
 
   // Pass 2: drop bare Tailwind class names used as declarations (`tracking-wide;`)
   out = out

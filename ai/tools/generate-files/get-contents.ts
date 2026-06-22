@@ -33,6 +33,21 @@ function fixCss(path: string, content: string): string {
     .replace(/@import\s+['"]tailwindcss\/utilities['"]\s*;?/g, '@tailwind utilities;')
 }
 
+// Deterministic import GUARANTEE: no matter what the model writes, rewrite known
+// wrong-but-equivalent imports to the package that is actually installed. This is
+// the safety net behind the VERIFIED STACK CONTRACT — the #1 real-world break was
+// `from 'motion/react'` (the framer-motion rebrand) when only `framer-motion` is
+// installed. The two packages share an identical API, so the rewrite is lossless.
+// Catches the bug before the preview ever loads — not a hope, a guarantee.
+function fixImports(path: string, content: string): string {
+  if (!/\.(tsx|ts|jsx|js)$/.test(path)) return content
+  return content
+    // framer-motion rebrand: 'motion/react' and bare 'motion' -> 'framer-motion'
+    .replace(/(from\s*['"])motion\/react(['"])/g, '$1framer-motion$2')
+    .replace(/(from\s*['"])motion(['"])/g, '$1framer-motion$2')
+    .replace(/(import\s*\(\s*['"])motion\/react(['"]\s*\))/g, '$1framer-motion$2')
+}
+
 // The model sometimes concatenates TWO requested files into ONE writeFile call,
 // separated by a comment header like `// src/pages/Contact.tsx`. The second file
 // then never exists → broken import → broken preview. Detect those boundary
@@ -63,13 +78,25 @@ const GEN_SYSTEM =
   'You are a senior product designer + engineer writing real, production files via the writeFile tool.\n' +
   'One writeFile call per file — NEVER combine two files into one call. Write COMPLETE production-quality code — never truncate or abbreviate.\n' +
   'File order: write shared utilities and types first, then components, then pages.\n' +
-  'CSS rule: in src/index.css always use @tailwind base/components/utilities — NEVER @import.\n' +
-  'No <svg> tags. No placeholder content. Real code only.\n' +
-  '\nDESIGN IS NON-NEGOTIABLE — follow the DESIGN CONTRACT below exactly:\n' +
-  '- Use ONLY the contract\'s color tokens. Headlines and body text MUST use a high-contrast token against their background — NEVER let text color approach the background color (no invisible/low-contrast text).\n' +
-  '- Load and use the contract\'s exact font pairing (Google Fonts @import in src/index.css); display font for headings at a real scale, body font for copy.\n' +
-  '- Honor the layout archetype and signature moves. No generic three-equal-cards, no centered-mesh hero, no default Inter/Roboto.\n' +
-  '- Establish a clear type scale (one large display size, one heading size, one body size) and consistent spacing.'
+  '\n## VERIFIED STACK CONTRACT — use ONLY what is installed. NEVER guess an import or a package.\n' +
+  'This is a React 18 + Vite SPA (NOT Next.js — NO "use client", NO server components, NO RSC).\n' +
+  'EXACT imports (these packages ARE installed — use these exact specifiers):\n' +
+  '- Animation: import { motion, useInView, useScroll, useTransform, AnimatePresence } from "framer-motion"  ← NEVER "motion/react", NEVER "motion".\n' +
+  '- Icons: import { IconName } from "lucide-react"  ← the ONLY icon source. NEVER @phosphor-icons, NEVER @radix-ui/react-icons, NEVER inline <svg>.\n' +
+  '- Routing: import { Routes, Route, Link, useNavigate } from "react-router-dom" (v6).\n' +
+  '- Class util: import { cn } from "@/lib/utils". Pre-made UI: import { Button, Card, ... } from "@/components/ui/<name>".\n' +
+  'If you need a package NOT listed above, you MUST add it to package.json dependencies in this same generation (it will be installed). Never import a package you have not ensured exists.\n' +
+  'SUBSTITUTION RULE: if the user (or your design instinct) wants something we do NOT have — a different icon set (Phosphor/Heroicons), a non-Google font (Geist/Satoshi), a specific library — DO NOT import it. Substitute the closest equivalent we DO have (Lucide for icons, a Google font in the same style, framer-motion for animation). Working with verified tools beats a broken import every time.\n' +
+  '\n## CSS — write COMPLETE, VALID CSS only (a malformed rule breaks the build and triggers fix-loops).\n' +
+  '- In src/index.css always use @tailwind base/components/utilities — NEVER @import for tailwind.\n' +
+  '- Every property MUST have a complete value. NEVER write an empty/cut-off value like "background-image: repeating-linear-gradient();" or "background:;". If unsure, use a solid color or omit the rule.\n' +
+  '- Close every (), {}, and string. No truncated gradients, no dangling declarations.\n' +
+  '\n## DESIGN IS NON-NEGOTIABLE — follow the DESIGN CONTRACT below exactly:\n' +
+  '- Use ONLY the contract\'s color tokens (CSS variables / token classes). NEVER hardcode ad-hoc hex for text or section backgrounds. Headlines and body text MUST use a high-contrast token against their background — NEVER let text color approach the background color (no invisible/low-contrast text).\n' +
+  '- Use the contract\'s exact font pairing via Google Fonts @import in src/index.css. The fonts MUST be available on Google Fonts (the brief picks Google-available families). NEVER use Geist/Satoshi/Cabinet Grotesk (not on Google Fonts) — they will fail to load.\n' +
+  '- Honor the layout archetype and signature moves. No generic three-equal-cards, no centered-mesh hero, no default Inter/Roboto as the display face.\n' +
+  '- Establish a clear type scale (one large display size, one heading size, one body size) and consistent spacing.\n' +
+  '\nBefore finishing each file, self-check: every import resolves to an installed package, every CSS value is complete, colors use tokens, text has contrast. No placeholder content. Real code only.'
 
 function buildGenSystem(designContext?: string): string {
   if (!designContext) return GEN_SYSTEM
@@ -121,7 +148,7 @@ export async function* getContents(
           if (!paths.includes(path)) return 'skipped: not in requested list'
           if (content.trim().length < 5) return 'skipped: empty content'
           for (const file of splitConcatenated(path, content, paths)) {
-            enqueue({ path: file.path, content: fixCss(file.path, file.content) })
+            enqueue({ path: file.path, content: fixImports(file.path, fixCss(file.path, file.content)) })
           }
           return 'ok'
         },
