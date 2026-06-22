@@ -59,13 +59,22 @@ function ProjectCard({ project, onDelete }: { project: Project; onDelete: () => 
   const [opening, setOpening] = useState(false)
 
   async function handleOpen() {
+    // Pre-open the tab SYNCHRONOUSLY inside the click — opening it after the
+    // await gets blocked by the popup blocker (that was the "nothing happened" bug).
+    const win = window.open('', '_blank')
     setOpening(true)
     try {
       const res = await fetch(`/api/projects/${project.id}/open`, { method: 'POST' })
       const data = (await res.json()) as { url?: string; error?: string }
-      if (data.url) window.open(data.url, '_blank', 'noopener')
-      else alert(data.error ?? 'Could not reopen this project.')
+      if (data.url) {
+        if (win) win.location.href = data.url
+        else window.location.href = data.url // popup blocked anyway → same tab
+      } else {
+        if (win) win.close()
+        alert(data.error ?? 'Could not reopen this project.')
+      }
     } catch {
+      if (win) win.close()
       alert('Could not reopen this project.')
     } finally {
       setOpening(false)
@@ -107,12 +116,22 @@ function ProjectCard({ project, onDelete }: { project: Project; onDelete: () => 
             {opening ? <Loader2Icon className="w-3 h-3 animate-spin" /> : <ExternalLinkIcon className="w-3 h-3" />}
             {opening ? 'Opening…' : 'Open'}
           </button>
-          <Link href="/" className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/20 text-xs font-medium hover:bg-accent transition-colors">
-            <ZapIcon className="w-3 h-3" />
-            New
-          </Link>
         </div>
       </div>
+
+      {opening && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4 px-8 py-7 rounded-2xl bg-white shadow-xl border border-primary/10 max-w-sm mx-4 text-center">
+            <Loader2Icon className="w-8 h-8 animate-spin text-foreground/70" />
+            <div className="flex flex-col gap-1.5">
+              <p className="text-sm font-semibold">Starting your workspace, please wait…</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                We&apos;re fetching your project files and spinning up a fresh live preview. This can take up to a minute.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
