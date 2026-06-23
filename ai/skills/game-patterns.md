@@ -1,44 +1,55 @@
 ---
 name: game-patterns
-description: Web-game design + logic law — the core loop, a rigorous state machine, controls, difficulty curve, and the "juice" (screen shake, particles, sound, easing, score popups) that makes a game feel designed instead of like a tech demo. The authoritative skill for game builds.
+description: Web-game design + logic law — the loop, a rigorous state machine, controls, difficulty, and the "juice" (screen shake, particles, sound, easing, hit-stop) that makes a game feel designed, not a tech demo. Always-injected for game builds.
 ---
 
-> Juice/feel principles validated against Phaser's official skills + LottieFiles motion-design (both MIT). Canvas-first for simple games; Phaser via CDN for complex ones.
-> PLATFORM OVERRIDES (always win): NO <svg> (Lucide for any HUD icons). Use the brief's palette + mood cohesively. Keyboard AND touch controls. localStorage high score.
+# Game Design Law — make it feel ALIVE, not a demo
 
-# Game patterns — make it feel designed, not a demo
+> Canvas-first for simple games; three + @react-three/fiber + drei (pre-installed) for 3D; howler for audio; zustand for game state. NO <svg> (Lucide for HUD icons). Keyboard AND touch. localStorage high score.
 
-## The contract (decide before coding)
-- **Core loop**: the one action the player repeats (flap, dodge, match, place). Make it tight and responsive — input latency is death.
-- **State machine**: ONE explicit state var — `Start → Playing → Paused → GameOver → (replay)`. Never ambiguous; every transition is explicit. Pause actually freezes the loop (cancel/resume rAF).
+## 1. The contract — decide before coding
+- **Core loop**: the ONE action the player repeats (flap, dodge, match, place, shoot). Make it tight + responsive — input latency is death. The whole game is this loop made juicy.
+- **State machine**: ONE explicit state variable — `Start → Playing → Paused → GameOver → (replay)`. Every transition explicit; never ambiguous. Pause actually freezes the loop (cancel/resume rAF).
 - **Win/lose**: clear, reachable conditions for both. No soft-locks.
-- **Difficulty curve**: start easy, ramp. Speed/spawn-rate scales with score or time.
+- **Difficulty curve**: starts easy, ramps. Speed / spawn-rate / complexity scales with score or time. The player should feel themselves getting better as it gets harder.
 
-## The loop (do it right)
-- `requestAnimationFrame` loop with a **fixed timestep** for physics (accumulate dt; step at e.g. 1/60s) so behavior is frame-rate independent. Render interpolated.
-- Keep game logic separate from rendering (update() then draw()). Constants (speeds, sizes, gravity, colors) at the TOP of the file, easy to tune.
+## 2. The loop — do it right
+- `requestAnimationFrame` with a **fixed timestep** for physics (accumulate dt, step at 1/60s) so behavior is frame-rate independent; interpolate the render. Never tie game speed to frame rate.
+- Separate **update()** from **draw()**. Constants (speeds, gravity, sizes, colors, spawn rates) at the TOP of the file — easy to tune.
 - Clear the canvas each frame; draw back-to-front (background → entities → particles → HUD).
+- Object-pool particles/bullets — never allocate per frame (GC stutter kills feel).
 
-## Juice — this is what makes it feel good (NON-NEGOTIABLE)
-Every one of these is cheap and transforms the feel:
-- **Easing on everything that moves** — no linear snaps. Ease-out for entrances, ease-in for exits (LottieFiles principle: entrances decelerate, exits accelerate).
-- **Screen shake** on impact/crash: offset the canvas translate by a small random amount that decays over ~200ms (`shake *= 0.9` each frame).
-- **Particles** on score/collision: spawn 8–20 small dots/squares with random velocity + gravity + fade; pool them, don't allocate per frame.
-- **Score popups**: floating "+1" text that rises and fades.
-- **Hit-stop / flash**: a 1–3 frame freeze or white flash on big impacts sells weight.
-- **Sound** via Web Audio API — even basic oscillator tones for flap/score/crash/jump. A game with no sound feels dead. Gate behind a first user gesture (autoplay policy).
-- **Anticipation + follow-through**: a tiny squash/stretch on jump/land reads as alive.
+## 3. JUICE — this is what separates good from forgettable (NON-NEGOTIABLE)
+Every one is cheap and transforms the feel. Use most of them:
+- **Easing on everything that moves** — no linear snaps. Ease-out for entrances, ease-in for exits, overshoot (back-ease) for pops.
+- **Screen shake** on impact/crash: offset the canvas translate by a small random amount that decays (`shake *= 0.9` each frame). Scale magnitude to impact.
+- **Particles** on score/collision/death: 8-24 dots/shards with random velocity + gravity + fade + shrink. Pool them.
+- **Hit-stop**: freeze the game 1-4 frames on a big impact — sells weight enormously.
+- **Flash**: white/color flash on the entity (or full screen) on hit.
+- **Score popups**: floating "+1"/"+100" that rises and fades. Combo counters that scale up.
+- **Squash & stretch**: tiny squash on land, stretch on jump — reads as alive (anticipation + follow-through).
+- **Sound** via Web Audio / howler — even basic oscillator tones for jump/score/crash/click. A silent game feels dead. Gate audio behind the first user gesture (autoplay policy). Pitch-shift repeated sounds slightly so they don't grate.
+- **Trail/afterimage** on fast-moving entities. **Camera** ease-follow (lerp) the player, never hard-locked.
 
-## Controls
-- Map BOTH keyboard and touch. Show the controls on the start screen.
-- Input buffering/forgiveness: a jump pressed just before landing should still fire — forgiveness feels good.
-- Pointer/touch: large hit areas; prevent default scroll/zoom on the canvas.
+## 4. Controls — responsive + forgiving
+- Map BOTH keyboard and touch/pointer. Show controls on the start screen.
+- **Input buffering**: a jump pressed just before landing should still fire. **Coyote time**: allow a jump a few frames after leaving a platform. Forgiveness feels good.
+- Large touch hit areas; `preventDefault` scroll/zoom/context-menu on the canvas. Immediate visual/audio feedback on every input.
 
-## Theme cohesion (the start screen sets the tone)
-- Background, entities, particles, and HUD share one palette + mood. A neon arcade game and a pastel zen game should look nothing alike.
-- Start screen: title in a display font, a one-line hook, a clear Play button, the high score, the controls.
-- Game-over: score + best, a reason if relevant, and an obvious replay (key + tap).
+## 5. Feel & balance
+- **Game feel = responsiveness + juice + readability.** The player must always understand what's happening (clear silhouettes, contrast between player/enemies/background, telegraphed threats).
+- Tune by feel, not theory: if it's not fun in the first 10 seconds, adjust the constants (speed up, add juice, tighten controls).
+- Reward streaks/combos. Escalate stakes. Give "near-miss" moments (juice the close calls).
 
-## Complexity routing
-- **Simple** (flappy, snake, pong, breakout, runner): pure HTML5 Canvas, one or two files.
-- **Complex** (platformers, physics, many entities, tilemaps): Phaser 4 via CDN — use its cameras (`camera.shake()`, `fade`), particle emitters (`emitter.explode()`), tweens (easing), and arcade physics to get the juice above without hand-rolling it.
+## 6. Theme cohesion — the start screen sets the tone
+- Background, entities, particles, and HUD share ONE palette + mood. A neon arcade game and a pastel zen game should look nothing alike. Commit to a vibe.
+- **Start screen**: title in a display font, a one-line hook, a clear Play button, the high score, the controls.
+- **Game-over**: score + best (localStorage), a reason if relevant, and an obvious replay (key + tap). Make losing feel like "one more try", not a dead end.
+
+## 7. Complexity routing
+- **Simple** (flappy, snake, pong, breakout, runner, dodge): pure HTML5 Canvas 2D, one or two files.
+- **3D / rich** (endless runner 3D, shooter, physics toys): three + @react-three/fiber + drei inside a `<Canvas>`; drei helpers (OrbitControls, Float, Environment, useGLTF); add @react-three/rapier for physics (on-demand). Keep it 60fps: dispose, suspense for assets, instance repeated meshes.
+- **Sprite-heavy 2D**: pixi.js (on-demand). **2D physics**: matter-js (on-demand).
+
+## 8. Pre-ship self-check
+Core loop tight + responsive · explicit state machine · both controls mapped + shown · win AND lose reachable · difficulty ramps · ≥4 juice effects (shake/particles/hit-stop/sound/popups) · sound present + gated · high score persists · start + game-over screens polished · cohesive palette · 60fps (pooled particles, no per-frame alloc) · replay is one tap/key.
