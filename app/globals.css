@@ -195,3 +195,19 @@
 .chat-shimmer {
   animation: vp-shimmer-sweep 1.4s linear infinite;
 }
+
+/* Activity items rise + fade in as they stream — the Lovable "momentum" feel */
+@keyframes cm-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cm-rise-in {
+  animation: cm-rise-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
