@@ -153,10 +153,30 @@ function buildGenSystem(designContext?: string): string {
 // and BOTH times destabilized the Next.js dev server (async-context/stream issues) —
 // reverted permanently. Speed must come from elsewhere (less output, warm pool, etc.),
 // NOT model concurrency in this environment. Stability over speed.
+// Interruption guard: order so the FILES THAT IMPORT OTHERS come last. App.tsx
+// (the router — it imports every page) and main are generated dead last; index.css
+// + lib/types first; components/pages in the middle. If a generation is cut off
+// (timeout, network drop, closed tab) the router is either not-yet-written (no
+// dangling import) or written only AFTER every page it references already exists.
+// Turns a half-finished generation from "blank screen" into "a few pages missing
+// but the app still renders" — and the import-closure fills the rest on a full run.
+function rankPath(p: string): number {
+  if (/(^|\/)(App)\.(tsx|jsx)$/.test(p) || /(^|\/)main\.(tsx|jsx)$/.test(p)) return 4
+  if (/(^|\/)(routes?|router)\.(tsx|jsx|ts)$/i.test(p)) return 3.5
+  if (/\/pages?\//.test(p)) return 3
+  if (/\/components?\//.test(p)) return 2
+  if (/\.css$/.test(p) || /\/(lib|utils|types|hooks|data|constants)\//.test(p)) return 0
+  return 1
+}
+function orderForResilience(paths: string[]): string[] {
+  return [...paths].sort((a, b) => rankPath(a) - rankPath(b))
+}
+
 export async function* getContents(
   params: Params
 ): AsyncGenerator<FileContentChunk> {
-  const { messages, modelId, paths, designContext } = params
+  const { messages, modelId, designContext } = params
+  const paths = orderForResilience(params.paths)
 
   const queue: File[] = []
   let finished = false
@@ -178,7 +198,9 @@ export async function* getContents(
       {
         role: 'user' as const,
         content:
-          'Write ALL of the following files completely using writeFile. One call per file:\n' +
+          'Write ALL of the following files completely using writeFile, one call per file, ' +
+          'IN THIS EXACT ORDER (foundation + pages first, the App/router that imports them LAST — ' +
+          'so the app is always coherent even if generation is interrupted):\n' +
           paths.map(p => `- ${p}`).join('\n'),
       },
     ],
