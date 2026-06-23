@@ -9,6 +9,7 @@
 //
 // Skill .md files are bundled as raw strings by the existing md→string loader
 // (next.config.ts / turbopack), so there is no runtime filesystem read.
+import websiteDesign from './website-design.md'
 import tasteDesign from './taste-design.md'
 import webappPatterns from './webapp-patterns.md'
 import gamePatterns from './game-patterns.md'
@@ -18,6 +19,7 @@ import components from './components.md'
 import type { Skill } from '@/ai/types/project-brief'
 
 const RAW: Record<string, string> = {
+  'website-design': websiteDesign,
   'taste-design': tasteDesign,
   'webapp-patterns': webappPatterns,
   'game-patterns': gamePatterns,
@@ -66,5 +68,7 @@ export function loadSkillBody(name: string): string | null {
 export function designSkillFor(skill: Skill): string {
   if (skill === 'game') return 'game-patterns'
   if (skill === 'webapp') return 'webapp-patterns'
-  return 'taste-design'
+  // Compressed, sharp website law (always-injected). The full taste-skill stays
+  // available via loadSkill('taste-design') for when deep guidance is wanted.
+  return 'website-design'
 }
