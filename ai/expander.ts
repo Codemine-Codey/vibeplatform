@@ -1,4 +1,4 @@
-import { FILE_GENERATION_MODEL } from './constants'
+import { ORCHESTRATION_MODEL } from './constants'
 import { getModelOptions } from './gateway'
 import { guardColorTokens } from '@/lib/contrast'
 import { generateText, stepCountIs, tool } from 'ai'
@@ -23,7 +23,7 @@ export async function expandPrompt(
       // fields (palette, fonts, signature moves, archetype) already pin the design
       // decisions — extended thinking added 15-30s for little gain. Score-gated:
       // if design quality dips on the test prompts, restore { reasoning: true }.
-      ...getModelOptions(FILE_GENERATION_MODEL),
+      ...getModelOptions(ORCHESTRATION_MODEL),
       maxOutputTokens: 8000,
       stopWhen: stepCountIs(2),
       system: `You are a creative director for a premium web builder. Expand the user's prompt into a detailed project brief.

@@ -1,4 +1,4 @@
-import { FILE_GENERATION_MODEL } from './constants'
+import { ORCHESTRATION_MODEL } from './constants'
 import { getModelOptions } from './gateway'
 import { generateText, stepCountIs, tool } from 'ai'
 import type { Skill } from './types/project-brief'
@@ -15,7 +15,7 @@ export async function classifyPrompt(userPrompt: string): Promise<ClassifierResu
 
   try {
     await generateText({
-      ...getModelOptions(FILE_GENERATION_MODEL),
+      ...getModelOptions(ORCHESTRATION_MODEL),
       // Anthropic requires max_tokens; classification is a single small tool call.
       maxOutputTokens: 2000,
       stopWhen: stepCountIs(2),

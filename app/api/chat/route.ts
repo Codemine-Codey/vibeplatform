@@ -735,6 +735,14 @@ export async function POST(req: Request) {
           return runAgenticLoop({ writer, messages, systemPrompt: prompt })
         }
 
+        // Now we're committed to building — provision the workspace VM in parallel with
+        // the remaining setup (project row, planner prompt) and the planner's first
+        // turn, so its ~35s cold-create overlaps work instead of blocking afterward.
+        // Started only here (post-brief) so a clarify/bail never orphans a VM. runPipeline
+        // awaits it; the no-op catch prevents an unhandled rejection while it provisions.
+        const sandboxPromise: Promise<Sandbox> = Sandbox.create({ timeout: 1_800_000, ports: [3000] })
+        sandboxPromise.catch(() => {})
+
         // PLANNER system prompt — LEAN (progressive disclosure): the planner plans
         // structure from the brief; it does NOT carry the full design skill (~22k).
         // It gets only the skill CATALOG (tiny) and can pull optional skills on
@@ -780,7 +788,7 @@ export async function POST(req: Request) {
         // makes is summed into tokens_used on the project row.
         const tokenBox = { total: 0 }
         await tokenStore.run(tokenBox, () =>
-          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext })
+          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise })
         )
         if (projectId && tokenBox.total > 0) {
           updateProjectRow(projectId, { tokens_used: tokenBox.total }).catch(() => {})
@@ -888,6 +896,7 @@ async function runPipeline({
   projectId,
   userId,
   designContext,
+  sandboxPromise,
 }: {
   writer: Writer
   messages: ChatUIMessage[]
@@ -896,6 +905,7 @@ async function runPipeline({
   projectId?: string | null
   userId?: string | null
   designContext?: string
+  sandboxPromise?: Promise<Sandbox>
 }) {
   // ── Step 1: Acquire sandbox (warm pool or fresh creation) ─────────────────
   writer.write({
@@ -916,7 +926,9 @@ async function runPipeline({
       // 30-min ceiling. Abandoned sessions are killed early by the client
       // "kill-on-leave" beacon (POST /api/sandbox/stop on tab close), so the long
       // ceiling only benefits users actively working — it doesn't inflate idle cost.
-      sandbox = await Sandbox.create({ timeout: 1_800_000, ports: [3000] })
+      // Prefer the VM already provisioning in parallel with classify/brief/plan; fall
+      // back to a fresh create if none was pre-started.
+      sandbox = sandboxPromise ? await sandboxPromise : await Sandbox.create({ timeout: 1_800_000, ports: [3000] })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       writer.write({
