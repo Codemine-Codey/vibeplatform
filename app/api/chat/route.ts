@@ -493,6 +493,50 @@ async function headlessRuntimeCheck(
       return { status: 'broken', detail: 'Runtime errors detected on the live page:\n' + errors.slice(0, 8).join('\n') }
     }
 
+    // ── Per-route verification: home renders, but do the OTHER pages? ──────────
+    // Navigate every internal link the page exposes and confirm each route renders
+    // without error. Catches a broken /shop or /about even when home is fine — the
+    // "did the AI actually build all the pages correctly" check, not just the entry.
+    try {
+      const links: string[] = await page
+        .evaluate(() => {
+          const hrefs = new Set<string>()
+          document.querySelectorAll('a[href^="/"]').forEach((a) => {
+            const h = (a as HTMLAnchorElement).getAttribute('href') || ''
+            if (h && h !== '/' && !h.startsWith('//') && !h.includes('#')) hrefs.add(h)
+          })
+          return [...hrefs].slice(0, 6)
+        })
+        .catch(() => [] as string[])
+      for (const href of links) {
+        const routeErrors: string[] = []
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const onErr = (e: any) => routeErrors.push(String(e?.stack || e?.message || e))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const onConsole = (msg: any) => { if (msg.type() === 'error') routeErrors.push(String(msg.text())) }
+        page.on('pageerror', onErr)
+        page.on('console', onConsole)
+        const dest = new URL(href, url).toString()
+        await page.goto(dest, { waitUntil: 'networkidle2', timeout: 15_000 }).catch(() => {})
+        await new Promise(r => setTimeout(r, 1200))
+        const kids: number = await page
+          .evaluate(() => { const r = document.getElementById('root'); return r ? r.childElementCount : -1 })
+          .catch(() => -1)
+        page.off('pageerror', onErr)
+        page.off('console', onConsole)
+        if (kids <= 0 || routeErrors.length > 0) {
+          return {
+            status: 'broken',
+            detail: `The page "${href}" is broken (blank or threw a runtime error) even though Home works. ` +
+              `Fix the component for that route.\n` + routeErrors.slice(0, 4).join('\n'),
+          }
+        }
+      }
+      // Return to home so the screenshot below captures the entry page.
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 15_000 }).catch(() => {})
+      await new Promise(r => setTimeout(r, 800))
+    } catch { /* per-route check is best-effort — never blocks the preview */ }
+
     // DOM looks populated and no console errors — now the AI LOOKS at it.
     // Catches visually-broken-but-not-erroring pages (white-on-white, off-screen).
     try {
