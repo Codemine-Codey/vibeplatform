@@ -149,11 +149,11 @@ function buildGenSystem(designContext?: string): string {
   return GEN_SYSTEM + '\n\n## DESIGN CONTRACT (authoritative — every file must honor this)\n' + designContext
 }
 
-// Generates files using streaming tool calls — each file is yielded individually
-// as soon as the model finishes writing it, so the UI shows files appearing one
-// by one. (Parallel fan-out was tried for speed but crashed the dev server under
-// the token-accounting async context — reverted; the real win is Part B sandbox
-// cold-start, not model concurrency.)
+// SERIAL generation (STABLE) — one streamText writes all files via writeFile, each
+// yielded as it completes. Parallel/concurrent streamText was tried twice for speed
+// and BOTH times destabilized the Next.js dev server (async-context/stream issues) —
+// reverted permanently. Speed must come from elsewhere (less output, warm pool, etc.),
+// NOT model concurrency in this environment. Stability over speed.
 export async function* getContents(
   params: Params
 ): AsyncGenerator<FileContentChunk> {
@@ -201,10 +201,7 @@ export async function* getContents(
       }),
     },
     stopWhen: stepCountIs(paths.length + 5),
-    onFinish: () => {
-      finished = true
-      notify()
-    },
+    onFinish: () => { finished = true; notify() },
     onError: err => console.error('[getContents] stream error:', err),
   })
 
