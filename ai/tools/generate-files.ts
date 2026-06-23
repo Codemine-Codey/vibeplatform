@@ -4,6 +4,7 @@ import { Sandbox } from '@vercel/sandbox'
 import { getContents, type File } from './generate-files/get-contents'
 import { getRichError } from './get-rich-error'
 import { getWriteFiles } from './generate-files/get-write-files'
+import { computeMissingKnownPackages } from './generate-files/import-gate'
 import { SCAFFOLD_PATH_SET } from './scaffold'
 import { tool } from 'ai'
 import description from './generate-files.md'
@@ -233,6 +234,43 @@ export const generateFiles = ({ writer, modelId, designContext }: Params) =>
         }
       } catch (e) {
         console.warn('[closure] pass failed (non-fatal):', e instanceof Error ? e.message : e)
+      }
+
+      // ── Package pre-declare gate ─────────────────────────────────────────────
+      // Any allow-listed real package the AI imported but didn't declare is added
+      // to package.json NOW, so the upcoming install resolves it up-front — no
+      // runtime "module not found" + dev-server restart. Curated list + safe
+      // versions, so this can never add a fake or React-incompatible package.
+      // (Unknown packages still fall through to the runtime install catch-all.)
+      try {
+        let pkgRaw: string | null = null
+        try {
+          const stream = await sandbox.readFile({ path: 'package.json' })
+          if (stream) {
+            const chunks: Buffer[] = []
+            for await (const c of stream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as string))
+            pkgRaw = Buffer.concat(chunks).toString('utf8')
+          }
+        } catch { /* no package.json readable — skip */ }
+
+        if (pkgRaw) {
+          const pkg = JSON.parse(pkgRaw)
+          const declared = new Set<string>([
+            ...Object.keys(pkg.dependencies ?? {}),
+            ...Object.keys(pkg.devDependencies ?? {}),
+          ])
+          const toAdd = computeMissingKnownPackages(uploaded, declared)
+          const names = Object.keys(toAdd)
+          if (names.length > 0) {
+            pkg.dependencies = { ...(pkg.dependencies ?? {}), ...toAdd }
+            await sandbox.writeFiles([
+              { path: 'package.json', content: Buffer.from(JSON.stringify(pkg, null, 2), 'utf8') },
+            ])
+            console.warn(`[pkg-gate] pre-declared ${names.length} package(s): ${names.join(', ')}`)
+          }
+        }
+      } catch (e) {
+        console.warn('[pkg-gate] pass failed (non-fatal):', e instanceof Error ? e.message : e)
       }
 
       // In-sandbox Vite patch — belt-and-suspenders after server-side patch

@@ -3,6 +3,7 @@ import z from 'zod/v3'
 import type { ModelMessage } from 'ai'
 import { getModelOptions } from '../../gateway'
 import { getMaxOutputTokens } from '../../constants'
+import { applySubstitutions } from './import-gate'
 
 export type File = {
   path: string
@@ -41,11 +42,9 @@ function fixCss(path: string, content: string): string {
 // Catches the bug before the preview ever loads — not a hope, a guarantee.
 function fixImports(path: string, content: string): string {
   if (!/\.(tsx|ts|jsx|js)$/.test(path)) return content
-  return content
-    // framer-motion rebrand: 'motion/react' and bare 'motion' -> 'framer-motion'
-    .replace(/(from\s*['"])motion\/react(['"])/g, '$1framer-motion$2')
-    .replace(/(from\s*['"])motion(['"])/g, '$1framer-motion$2')
-    .replace(/(import\s*\(\s*['"])motion\/react(['"]\s*\))/g, '$1framer-motion$2')
+  // Centralized, API-compatible specifier rewrites (motion→framer-motion, deep
+  // lucide icon paths→root). See import-gate.ts.
+  return applySubstitutions(content)
 }
 
 // Deterministic FONT guard: the model sometimes picks a premium non-Google font
