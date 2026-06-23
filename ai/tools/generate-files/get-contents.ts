@@ -70,6 +70,25 @@ function fixFonts(path: string, content: string): string {
   return out
 }
 
+// Router GUARANTEE (pairs with main.tsx wrapping <BrowserRouter>): main.tsx already
+// mounts the router, so the AI must NEVER add BrowserRouter in App — doing so creates
+// a double-router crash. Deterministically strip BrowserRouter/HashRouter (import +
+// JSX wrapper) from generated files; <Routes> keeps the context from main.tsx. With
+// this, the "Missing <BrowserRouter>" AND the double-router bugs are both impossible.
+function fixRouter(path: string, content: string): string {
+  if (!/\.(tsx|jsx)$/.test(path)) return content
+  let out = content
+  // Drop BrowserRouter/HashRouter from react-router-dom imports (keep Routes/Route/Link/etc.)
+  out = out.replace(/import\s*\{([^}]*)\}\s*from\s*['"]react-router-dom['"]\s*;?/g, (m, names: string) => {
+    const kept = names.split(',').map(s => s.trim())
+      .filter(n => n && !/^(BrowserRouter|HashRouter)(\s+as\s+\w+)?$/.test(n))
+    return kept.length ? `import { ${kept.join(', ')} } from 'react-router-dom'` : ''
+  })
+  // Unwrap any <BrowserRouter ...> / </BrowserRouter> (and HashRouter) — keep children.
+  out = out.replace(/<\/?(BrowserRouter|HashRouter)(\s[^>]*)?>/g, '')
+  return out
+}
+
 // The model sometimes concatenates TWO requested files into ONE writeFile call,
 // separated by a comment header like `// src/pages/Contact.tsx`. The second file
 // then never exists → broken import → broken preview. Detect those boundary
@@ -99,6 +118,8 @@ function splitConcatenated(path: string, content: string, requested: string[]): 
 const GEN_SYSTEM =
   'You are a senior product designer + engineer writing real, production files via the writeFile tool.\n' +
   'One writeFile call per file — NEVER combine two files into one call. Write COMPLETE production-quality code — never truncate or abbreviate.\n' +
+  'Be CONCISE to stay fast: no redundant comments, no over-abstraction, no boilerplate the task does not need. Tight, complete code — every feature works, but no filler.\n' +
+  'ROUTER: src/main.tsx already wraps the app in <BrowserRouter>. In App.tsx write <Routes> directly. NEVER import or add <BrowserRouter>/<HashRouter>, never edit main.tsx.\n' +
   'File order: write shared utilities and types first, then components, then pages.\n' +
   '\n## VERIFIED STACK CONTRACT — use ONLY what is installed. NEVER guess an import or a package.\n' +
   'This is a React 18 + Vite SPA (NOT Next.js — NO "use client", NO server components, NO RSC).\n' +
@@ -173,7 +194,7 @@ export async function* getContents(
           if (!paths.includes(path)) return 'skipped: not in requested list'
           if (content.trim().length < 5) return 'skipped: empty content'
           for (const file of splitConcatenated(path, content, paths)) {
-            enqueue({ path: file.path, content: fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content))) })
+            enqueue({ path: file.path, content: fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content)))) })
           }
           return 'ok'
         },

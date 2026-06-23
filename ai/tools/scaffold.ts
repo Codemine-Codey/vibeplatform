@@ -172,17 +172,21 @@ ${ERROR_BRIDGE_SCRIPT}
   </body>
 </html>`
 
-// main.tsx renders ONLY <App/> — it does NOT wrap with BrowserRouter.
-// The AI's App.tsx owns the router (its natural pattern), which avoids the
-// double-<BrowserRouter> bug that breaks routing when both wrap it.
-//
-// It DOES wrap App in an ErrorBoundary (Layer 2 of reliability): a render-time
-// crash anywhere in the tree shows a branded fallback instead of a white blank,
-// AND reports the error to the parent window so the platform auto-fixes it.
-// This file is scaffolded and never touched by the AI, so every app has it.
-const MAIN_TSX = `import { StrictMode, Component, type ErrorInfo, type ReactNode } from 'react'
+// ROUTER BOOTSTRAP INVARIANT: for websites/apps, main.tsx wraps <App/> in
+// <BrowserRouter> HERE — so the AI's App.tsx only ever needs <Routes>, and the
+// "Missing <BrowserRouter>" runtime crash becomes structurally impossible. Games
+// have no router installed, so their main.tsx renders <App/> bare. The deterministic
+// router guard (get-contents) strips any BrowserRouter the AI adds in App, so a
+// double-wrap can't happen either. This file is scaffolded, never touched by the AI.
+// It also wraps App in an ErrorBoundary: a render crash shows a branded fallback and
+// reports to the parent so the platform auto-fixes it.
+function makeMainTsx(isGame: boolean): string {
+  const routerImport = isGame ? '' : `import { BrowserRouter } from 'react-router-dom'\n`
+  const open = isGame ? '' : '<BrowserRouter>'
+  const close = isGame ? '' : '</BrowserRouter>'
+  return `import { StrictMode, Component, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
-import './index.css'
+${routerImport}import './index.css'
 import App from './App'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -217,11 +221,12 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      ${open}<App />${close}
     </ErrorBoundary>
   </StrictMode>,
 )
 `
+}
 
 // Base scaffold written to every sandbox on creation.
 // Includes: Vite+React+TypeScript+Tailwind config, shadcn/ui packages + 8 core components,
@@ -832,7 +837,7 @@ const GAME_EXCLUDED_UI = new Set([
 ])
 
 export function getScaffoldFiles(skill: Skill): Array<{ path: string; content: string }> {
-  const mainTsx = { path: 'src/main.tsx', content: MAIN_TSX }
+  const mainTsx = { path: 'src/main.tsx', content: makeMainTsx(skill === 'game') }
   if (skill === 'game') {
     return [
       ...SCAFFOLD_FILES
