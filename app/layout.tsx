@@ -1,3 +1,4 @@
+import { BotIdClient } from 'botid/client'
 import { NuqsAdapter } from 'nuqs/adapters/next/app'
 import { ChatProvider } from '@/lib/chat-context'
 import { CommandLogsStream } from '@/components/commands-logs/commands-logs-stream'
@@ -19,6 +20,11 @@ export default function RootLayout({
 }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
+      <head>
+        {/* Client-side bot detection — WITHOUT this, checkBotId() on /api/chat
+            flags every real user as a bot (403 "Bot detected") on production. */}
+        <BotIdClient protect={[{ path: '/api/chat', method: 'POST' }]} />
+      </head>
       <body className="antialiased">
         <Suspense fallback={null}>
           <NuqsAdapter>
