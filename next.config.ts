@@ -1,6 +1,5 @@
 import type { NextConfig } from 'next'
 import { withBotId } from 'botid/next/config'
-import { withWorkflow } from 'workflow/next'
 
 const nextConfig: NextConfig = {
   // Chromium + puppeteer must stay external — never bundle the browser binary.
@@ -35,4 +34,8 @@ const nextConfig: NextConfig = {
   },
 }
 
-export default withWorkflow(withBotId(nextConfig))
+// NOTE: removed withWorkflow('workflow/next') — the workflow package is unused (no
+// 'use workflow' directives anywhere), but its build hook scanned the whole codebase
+// for directives on EVERY dev compile, costing 25-107s each and starving generations
+// ("2 min and no workspace"). We use @vercel/sandbox directly, not the workflow runtime.
+export default withBotId(nextConfig)
