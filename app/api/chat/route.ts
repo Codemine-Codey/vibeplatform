@@ -12,7 +12,6 @@ import type { DataPart } from '@/ai/messages/data-parts'
 import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL, VISION_MODEL, getMaxOutputTokens } from '@/ai/constants'
 import { NextResponse } from 'next/server'
 import { getModelOptions } from '@/ai/gateway'
-import { checkBotId } from 'botid/server'
 import { tools } from '@/ai/tools'
 import { generateFiles } from '@/ai/tools/generate-files'
 import { getUnsplashBatch } from '@/ai/tools/get-unsplash-batch'
@@ -685,14 +684,10 @@ async function improveDesignPass({
 }
 
 export async function POST(req: Request) {
-  const [checkResult, { messages }] = await Promise.all([
-    checkBotId(),
-    req.json() as Promise<BodyData>,
-  ])
-
-  if (checkResult.isBot) {
-    return NextResponse.json({ error: `Bot detected` }, { status: 403 })
-  }
+  // BotID removed — its client-side challenge was silently intercepting the
+  // generation POST so the request never reached the server (0 hits in prod logs,
+  // empty console, workspace never started). Re-add proper protection post-launch.
+  const { messages } = (await req.json()) as BodyData
 
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({

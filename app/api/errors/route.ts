@@ -1,7 +1,6 @@
 import { ERROR_MODEL } from '@/ai/constants'
 import { getModelOptions } from '@/ai/gateway'
 import { NextResponse } from 'next/server'
-import { checkBotId } from 'botid/server'
 import { generateText, tool, stepCountIs } from 'ai'
 import { linesSchema } from '@/components/error-monitor/schemas'
 import { resultSchema } from '@/components/error-monitor/schemas'
@@ -11,11 +10,7 @@ import z from 'zod/v3'
 export const maxDuration = 60
 
 export async function POST(req: Request) {
-  const checkResult = await checkBotId()
-  if (checkResult.isBot) {
-    return NextResponse.json({ error: `Bot detected` }, { status: 403 })
-  }
-
+  // BotID removed (see chat/route.ts) — was silently blocking requests in production.
   const body = await req.json()
   const parsedBody = linesSchema.safeParse(body)
   if (!parsedBody.success) {
