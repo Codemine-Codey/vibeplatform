@@ -50,9 +50,13 @@ export async function createProjectRow(input: {
     data: { user },
   } = await sb.auth.getUser()
   if (!user) return null
+  // Per-project Codemine-AI-Support token (the app authenticates to the AI proxy
+  // with this — never a raw provider key). Scoped + meterable + credit-capped, so a
+  // client-side leak only spends that project owner's own credits.
+  const aiToken = 'cmai_' + (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, '')
   const { data, error } = await sb
     .from('projects')
-    .insert({ user_id: user.id, name: input.name, prompt: input.prompt, skill: input.skill })
+    .insert({ user_id: user.id, name: input.name, prompt: input.prompt, skill: input.skill, ai_token: aiToken })
     .select('id')
     .single()
   if (error) {
