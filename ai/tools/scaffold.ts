@@ -1049,6 +1049,11 @@ const GAME_EXCLUDED_UI = new Set([
   'src/components/ui/label.tsx',
   'src/components/ui/select.tsx',
   'src/components/ui/separator.tsx',
+  // The website blocks import framer-motion + react-router-dom, which are NOT in the
+  // game package.json (games use canvas / three / howler / zustand). Excluding them
+  // keeps games free of missing-dependency build errors.
+  'src/components/blocks/index.tsx',
+  'src/components/blocks/sections.tsx',
 ])
 
 export function getScaffoldFiles(skill: Skill): Array<{ path: string; content: string }> {

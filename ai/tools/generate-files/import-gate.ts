@@ -33,6 +33,11 @@ export function applySubstitutions(content: string): string {
 // versions. Auto-adding any of these to package.json can NEVER add a non-existent
 // package or an incompatible major — that's the whole point of curating it.
 export const KNOWN_PACKAGES: Record<string, string> = {
+  // In the website/app scaffold by default, but NOT in the game package.json — so if a
+  // game imports them (e.g. a menu animation or routing) the pre-declare adds them
+  // instead of erroring.
+  'framer-motion': '^11.18.2',
+  'react-router-dom': '^6.28.0',
   'react-icons': '^5.4.0',
   '@phosphor-icons/react': '^2.1.7',
   'react-intersection-observer': '^9.13.1',
