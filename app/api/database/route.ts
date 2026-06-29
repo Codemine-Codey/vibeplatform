@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { updateProjectBySandboxId } from '@/lib/projects-db'
 
 const CF_API_TOKEN = process.env.CF_API_TOKEN
 const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID
@@ -14,7 +15,7 @@ export async function POST(req: Request) {
   }
 
   const CF_BASE = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}`
-  const body = await req.json() as { action: string; databaseName?: string; databaseId?: string; sql?: string; projectName?: string }
+  const body = await req.json() as { action: string; databaseName?: string; databaseId?: string; sql?: string; projectName?: string; sandboxId?: string }
 
   if (body.action === 'create') {
     const res = await fetch(`${CF_BASE}/d1/database`, {
@@ -47,6 +48,14 @@ export async function POST(req: Request) {
       if (!bindRes.ok) {
         console.warn('[database] bind to project failed:', await bindRes.text())
       }
+    }
+
+    // Persist DB state so the Cloud panel shows it instantly on reopen.
+    if (body.sandboxId && data.result) {
+      await updateProjectBySandboxId(body.sandboxId, {
+        database_id: data.result.uuid,
+        database_name: data.result.name,
+      }).catch(() => {})
     }
 
     return NextResponse.json({ databaseId: data.result?.uuid, databaseName: data.result?.name })

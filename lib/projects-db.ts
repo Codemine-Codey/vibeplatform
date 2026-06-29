@@ -13,6 +13,12 @@ export interface ProjectRow {
   preview_url: string | null
   deploy_url: string | null
   snapshot_path: string | null
+  // Persistent CF resources — survive the sandbox so the Cloud panels show instantly
+  // on reopen (DB tables, auth users, live URL) while the editing workspace warms up.
+  database_id: string | null
+  database_name: string | null
+  auth_enabled: boolean | null
+  auth_worker_url: string | null
   tokens_used: number
   created_at: string
   updated_at: string
@@ -61,7 +67,7 @@ export async function createProjectRow(input: {
 // IDs are unguessable UUIDs created for this user, so updating by id is safe.
 export async function updateProjectRow(
   projectId: string,
-  patch: Partial<Pick<ProjectRow, 'name' | 'sandbox_id' | 'preview_url' | 'deploy_url' | 'snapshot_path' | 'tokens_used'>>
+  patch: Partial<Pick<ProjectRow, 'name' | 'sandbox_id' | 'preview_url' | 'deploy_url' | 'snapshot_path' | 'tokens_used' | 'database_id' | 'database_name' | 'auth_enabled' | 'auth_worker_url'>>
 ): Promise<void> {
   try {
     const sb = getAdminSupabase()
@@ -100,6 +106,21 @@ export async function getProjectBySandboxId(sandboxId: string): Promise<ProjectR
     return (data?.[0] as ProjectRow) ?? null
   } catch {
     return null
+  }
+}
+
+// Persist resource state (database/auth/deploy) onto the project that owns a sandbox.
+// Used by the database/auth/deploy routes, which only know the sandboxId — so the
+// Cloud panels can show this instantly on reopen, independent of the workspace.
+export async function updateProjectBySandboxId(
+  sandboxId: string,
+  patch: Partial<Pick<ProjectRow, 'database_id' | 'database_name' | 'auth_enabled' | 'auth_worker_url' | 'deploy_url'>>
+): Promise<void> {
+  try {
+    const project = await getProjectBySandboxId(sandboxId)
+    if (project) await updateProjectRow(project.id, patch)
+  } catch (e) {
+    console.warn('[projects] updateProjectBySandboxId failed:', e instanceof Error ? e.message : e)
   }
 }
 

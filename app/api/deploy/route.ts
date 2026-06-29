@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { Sandbox } from '@vercel/sandbox'
 import { logRepair } from '@/lib/telemetry'
+import { updateProjectBySandboxId } from '@/lib/projects-db'
 
 export const maxDuration = 180
 
@@ -178,6 +179,9 @@ export async function POST(req: Request) {
       await new Promise(r => setTimeout(r, 5000))
     }
     logRepair({ layer: 'deploy', action: 'published', detail: deployedUrl, sandboxId })
+
+    // Persist the live URL on the project so it shows instantly on reopen (Cloud).
+    await updateProjectBySandboxId(sandboxId, { deploy_url: deployedUrl }).catch(() => {})
 
     return NextResponse.json({ url: deployedUrl, projectName: name })
   } catch (err) {

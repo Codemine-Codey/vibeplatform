@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { updateProjectBySandboxId } from '@/lib/projects-db'
 
 export const maxDuration = 60
 
@@ -181,5 +182,9 @@ export async function POST(req: Request) {
   })
 
   const workerUrl = `https://${workerName}.workers.dev`
+
+  // Persist auth state so the Cloud panel shows it instantly on reopen.
+  await updateProjectBySandboxId(sandboxId, { auth_enabled: true, auth_worker_url: workerUrl }).catch(() => {})
+
   return NextResponse.json({ workerUrl, workerName })
 }

@@ -62,7 +62,7 @@ export function DatabasePanel({ className }: Props) {
       const res = await fetch('/api/database', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'create', databaseName: name, projectName: deployProjectName }),
+        body: JSON.stringify({ action: 'create', databaseName: name, projectName: deployProjectName, sandboxId }),
       })
       const data = await res.json() as { databaseId?: string; databaseName?: string; error?: string }
       if (!res.ok || data.error) throw new Error(data.error ?? 'Failed to create database')
