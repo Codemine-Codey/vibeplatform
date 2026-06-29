@@ -12,7 +12,10 @@
 // not a pricier model.
 export const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro'
 export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-pro'
-export const EDIT_MODEL = 'deepseek/deepseek-v4-pro'
+// Edits (changing copy, tweaking a component, fixing one thing) must be FAST — a
+// small targeted change, not a full build. DeepSeek V4 Flash handles edits in seconds
+// (Pro took minutes for a one-line copy change). Initial generation stays on Pro.
+export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek/deepseek-v4-flash'
 // Orchestration (classify intent + expand the brief) — these run BEFORE the workspace
 // is created, so they must be FAST, not Pro. Flash classifies + briefs in ~3-5s each

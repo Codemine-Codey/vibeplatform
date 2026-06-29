@@ -147,10 +147,10 @@ export function RightPanel({ className }: Props) {
         )}
         <div className={cn('absolute inset-0', activeTab !== 'preview' && 'hidden')}>
           {viewMode === 'mobile' ? (
-            <div className="flex items-center justify-center h-full bg-secondary/50 overflow-hidden p-4">
-              {/* Phone bezel — scales to the container height while holding a true
-                  390/844 ratio (no fixed width vs min-height conflict = no distortion). */}
-              <div className="relative flex flex-col h-full max-h-[844px] aspect-[390/844] rounded-[2.5rem] border-[10px] border-zinc-800 shadow-2xl bg-zinc-900 overflow-hidden">
+            <div className="flex items-center justify-center h-full bg-secondary/50 overflow-hidden p-2">
+              {/* Phone bezel — fills the panel height (true 390/844 ratio, no distortion).
+                  Uses nearly all vertical space so it isn't tiny in a tall panel. */}
+              <div className="relative flex flex-col h-full aspect-[390/844] rounded-[2.5rem] border-[10px] border-zinc-800 shadow-2xl bg-zinc-900 overflow-hidden">
                 {/* Status bar with centered notch */}
                 <div className="relative h-6 shrink-0 bg-zinc-900 flex items-center justify-center">
                   <div className="w-20 h-4 bg-black rounded-full" />

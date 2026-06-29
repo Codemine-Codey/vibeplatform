@@ -862,7 +862,9 @@ async function runAgenticLoop({
     // this budget; a small cap truncated large patches mid-file (a blank-preview
     // cause). Capped to the active model's real ceiling so the provider never 400s.
     maxOutputTokens: getMaxOutputTokens(isEdit ? EDIT_MODEL : DEFAULT_MODEL),
-    tools: tools({ modelId: FILE_GENERATION_MODEL, writer }),
+    // Edits use the fast EDIT_MODEL for file writing too (not Pro) — a copy/component
+    // tweak must finish in seconds, not minutes.
+    tools: tools({ modelId: isEdit ? EDIT_MODEL : FILE_GENERATION_MODEL, writer }),
     onError: error => {
       console.error('Error communicating with AI')
       console.error(JSON.stringify(error, null, 2))
