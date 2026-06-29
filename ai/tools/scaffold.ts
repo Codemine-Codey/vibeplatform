@@ -314,10 +314,132 @@ export function CountUp({ to, duration = 2, suffix = '', prefix = '', className 
 }
 `
 
+// v2 blocks — section components WITH VARIANTS. Content via props, look from the
+// locked tokens, so structure is reused (fast, fixes truncation) while every project
+// stays unique. The AI PICKS the variant that fits the brand — the same Hero/Footer
+// never repeats verbatim. import { Hero, Footer } from '@/components/blocks/sections'.
+const BLOCKS_SECTIONS_TSX = `import { type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import { motion } from 'framer-motion'
+
+type Cta = { label: string; href: string }
+const EASE = [0.22, 1, 0.36, 1] as const
+
+// HERO — variant: 'split' (product/SaaS) | 'spotlight' (bold/image-led) | 'editorial'
+// (premium/type-led). Pick the one that fits the brand.
+export function Hero(props: { eyebrow?: string; title: ReactNode; subtitle?: ReactNode; image?: string; primaryCta?: Cta; secondaryCta?: Cta; variant?: 'split' | 'spotlight' | 'editorial' }) {
+  const { eyebrow, title, subtitle, image, primaryCta, secondaryCta, variant = 'split' } = props
+  const ctas = (
+    <div className="mt-8 flex flex-wrap gap-3">
+      {primaryCta && <Link to={primaryCta.href} className="inline-flex items-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity">{primaryCta.label}</Link>}
+      {secondaryCta && <Link to={secondaryCta.href} className="inline-flex items-center rounded-md border border-border px-6 py-3 text-sm font-medium hover:bg-accent transition-colors">{secondaryCta.label}</Link>}
+    </div>
+  )
+  if (variant === 'spotlight') {
+    return (
+      <section className="relative flex min-h-[88vh] items-center overflow-hidden">
+        {image && <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/70 to-background/30" />
+        <div className="relative z-10 mx-auto w-full max-w-7xl px-6 md:px-10">
+          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: EASE }} className="max-w-2xl">
+            {eyebrow && <p className="mb-4 text-sm uppercase tracking-[0.2em] text-primary">{eyebrow}</p>}
+            <h1 className="font-display text-5xl md:text-7xl font-bold leading-[1.05] tracking-tight text-foreground">{title}</h1>
+            {subtitle && <p className="mt-6 max-w-xl text-lg text-muted-foreground leading-relaxed">{subtitle}</p>}
+            {ctas}
+          </motion.div>
+        </div>
+      </section>
+    )
+  }
+  if (variant === 'editorial') {
+    return (
+      <section className="mx-auto w-full max-w-7xl px-6 md:px-10 pt-28 pb-20 md:pt-36 md:pb-28">
+        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: EASE }}>
+          {eyebrow && <p className="mb-6 text-sm uppercase tracking-[0.2em] text-muted-foreground">{eyebrow}</p>}
+          <h1 className="font-display text-6xl md:text-8xl font-bold leading-[0.95] tracking-tight text-foreground max-w-5xl">{title}</h1>
+          <div className="mt-10 grid gap-8 md:grid-cols-[1fr_auto] md:items-end">
+            {subtitle && <p className="max-w-xl text-lg text-muted-foreground leading-relaxed">{subtitle}</p>}
+            {ctas}
+          </div>
+          {image && <img src={image} alt="" className="mt-16 w-full rounded-xl object-cover aspect-[16/7]" />}
+        </motion.div>
+      </section>
+    )
+  }
+  return (
+    <section className="mx-auto w-full max-w-7xl px-6 md:px-10 pt-24 pb-16 md:pt-32 md:pb-24">
+      <div className="grid items-center gap-12 md:grid-cols-2">
+        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: EASE }}>
+          {eyebrow && <p className="mb-4 text-sm uppercase tracking-[0.2em] text-primary">{eyebrow}</p>}
+          <h1 className="font-display text-5xl md:text-6xl font-bold leading-[1.05] tracking-tight text-foreground">{title}</h1>
+          {subtitle && <p className="mt-6 text-lg text-muted-foreground leading-relaxed">{subtitle}</p>}
+          {ctas}
+        </motion.div>
+        {image && (
+          <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8, ease: EASE, delay: 0.1 }}>
+            <img src={image} alt="" className="w-full rounded-xl object-cover aspect-[4/3]" />
+          </motion.div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+// FOOTER — variant: 'columns' (rich) | 'minimal' (single row).
+type FooterCol = { title: string; links: { label: string; href: string }[] }
+export function Footer(props: { brand: ReactNode; tagline?: string; columns?: FooterCol[]; variant?: 'columns' | 'minimal' }) {
+  const { brand, tagline, columns = [], variant = 'columns' } = props
+  const year = new Date().getFullYear()
+  const name = typeof brand === 'string' ? brand : ''
+  if (variant === 'minimal') {
+    return (
+      <footer className="border-t border-border">
+        <div className="mx-auto w-full max-w-7xl px-6 md:px-10 py-10 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="font-display text-lg font-semibold">{brand}</div>
+          <nav className="flex flex-wrap gap-6">
+            {columns.flatMap((c) => c.links).map((l) => (
+              <a key={l.href} href={l.href} className="text-sm text-muted-foreground hover:text-foreground transition-colors">{l.label}</a>
+            ))}
+          </nav>
+          <p className="text-xs text-muted-foreground">© {year} {name}</p>
+        </div>
+      </footer>
+    )
+  }
+  return (
+    <footer className="border-t border-border">
+      <div className="mx-auto w-full max-w-7xl px-6 md:px-10 py-16">
+        <div className="grid gap-10 md:grid-cols-[1.5fr_repeat(auto-fit,minmax(0,1fr))]">
+          <div>
+            <div className="font-display text-xl font-semibold">{brand}</div>
+            {tagline && <p className="mt-3 max-w-xs text-sm text-muted-foreground leading-relaxed">{tagline}</p>}
+          </div>
+          {columns.map((col) => (
+            <div key={col.title}>
+              <p className="text-sm font-medium">{col.title}</p>
+              <ul className="mt-3 space-y-2">
+                {col.links.map((l) => (
+                  <li key={l.href}><a href={l.href} className="text-sm text-muted-foreground hover:text-foreground transition-colors">{l.label}</a></li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+        <div className="mt-12 border-t border-border pt-6 text-xs text-muted-foreground">© {year} {name}. All rights reserved.</div>
+      </div>
+    </footer>
+  )
+}
+`
+
 export const SCAFFOLD_FILES: Array<{ path: string; content: string }> = [
   {
     path: 'src/components/blocks/index.tsx',
     content: BLOCKS_TSX,
+  },
+  {
+    path: 'src/components/blocks/sections.tsx',
+    content: BLOCKS_SECTIONS_TSX,
   },
   {
     // SPA fallback for Cloudflare Pages — every path serves index.html so client
@@ -960,6 +1082,7 @@ export const SCAFFOLD_PATH_SET: ReadonlySet<string> = new Set([
   'src/main.tsx',
   'src/lib/utils.ts',
   'src/components/blocks/index.tsx',
+  'src/components/blocks/sections.tsx',
   'public/_redirects',
   'src/components/ui/button.tsx',
   'src/components/ui/card.tsx',
