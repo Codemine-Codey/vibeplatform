@@ -127,6 +127,9 @@ const GEN_SYSTEM =
   '- Icons: import { IconName } from "lucide-react"  ← the ONLY icon source. NEVER @phosphor-icons, NEVER @radix-ui/react-icons, NEVER inline <svg>.\n' +
   '- Routing: import { Routes, Route, Link, useNavigate } from "react-router-dom" (v6).\n' +
   '- Class util: import { cn } from "@/lib/utils". Pre-made UI: import { Button, Card, ... } from "@/components/ui/<name>".\n' +
+  '- REUSABLE BLOCKS (use these — do NOT re-write this boilerplate): import { Section, Container, Reveal, Stagger, StaggerItem, Marquee, CountUp } from "@/components/blocks".\n' +
+  '  • Section = consistent section vertical padding · Container = max-width + responsive padding · Reveal = scroll fade-up (wrap any section content) · Stagger + StaggerItem = staggered list reveal · Marquee = infinite horizontal scroll (logos/tags) · CountUp = animated number (stats).\n' +
+  '  These are token-agnostic, so they inherit each project\'s unique colours/fonts/theme. Compose pages FROM them (e.g. <Section><Container><Reveal>…</Reveal></Container></Section>) — only hand-write a layout primitive when a section genuinely needs something they cannot express. This keeps output tight and the build fast.\n' +
   'If you need a package NOT listed above, you MUST add it to package.json dependencies in this same generation (it will be installed). Never import a package you have not ensured exists.\n' +
   'SUBSTITUTION RULE: if the user (or your design instinct) wants something we do NOT have — a different icon set (Phosphor/Heroicons), a non-Google font (Geist/Satoshi), a specific library — DO NOT import it. Substitute the closest equivalent we DO have (Lucide for icons, a Google font in the same style, framer-motion for animation). Working with verified tools beats a broken import every time.\n' +
   '\n## CSS — write COMPLETE, VALID CSS only (a malformed rule breaks the build and triggers fix-loops).\n' +

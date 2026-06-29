@@ -232,7 +232,93 @@ createRoot(document.getElementById('root')!).render(
 // Includes: Vite+React+TypeScript+Tailwind config, shadcn/ui packages + 8 core components,
 // path alias (@→src), lib/utils, index.html (with error bridge), and src/main.tsx.
 // The AI skips ALL of these in generateFiles — they are pre-written and correct.
+// Heavier-scaffold building blocks — token-agnostic, reusable across every project.
+// The AI composes pages from these instead of re-writing the same motion/layout
+// boilerplate each time: cuts output sharply (fixes truncation), keeps consistency,
+// and stays UNIQUE per project because colours/fonts/theme come from the locked tokens.
+// One import: `import { Section, Container, Reveal, Stagger, StaggerItem, Marquee, CountUp } from '@/components/blocks'`
+const BLOCKS_TSX = `import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { motion, useInView } from 'framer-motion'
+
+const EASE = [0.22, 1, 0.36, 1] as const
+
+// Consistent vertical rhythm for page sections.
+export function Section({ children, className = '', id }: { children: ReactNode; className?: string; id?: string }) {
+  return <section id={id} className={'py-20 md:py-28 lg:py-32 ' + className}>{children}</section>
+}
+
+// Standard max-width + responsive horizontal padding.
+export function Container({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={'mx-auto w-full max-w-7xl px-6 md:px-10 ' + className}>{children}</div>
+}
+
+// Fade + rise in when scrolled into view (once). The default reveal for any block.
+export function Reveal({ children, className = '', delay = 0, y = 24 }: { children: ReactNode; className?: string; delay?: number; y?: number }) {
+  const ref = useRef(null)
+  const inView = useInView(ref, { once: true, margin: '-80px' })
+  return (
+    <motion.div ref={ref} initial={{ opacity: 0, y }} animate={inView ? { opacity: 1, y: 0 } : {}} transition={{ duration: 0.7, ease: EASE, delay }} className={className}>
+      {children}
+    </motion.div>
+  )
+}
+
+// Stagger a group of children into view. Wrap each child in <StaggerItem>.
+export function Stagger({ children, className = '', stagger = 0.1 }: { children: ReactNode; className?: string; stagger?: number }) {
+  const ref = useRef(null)
+  const inView = useInView(ref, { once: true, margin: '-80px' })
+  return (
+    <motion.div ref={ref} initial="hidden" animate={inView ? 'show' : 'hidden'} variants={{ hidden: {}, show: { transition: { staggerChildren: stagger } } }} className={className}>
+      {children}
+    </motion.div>
+  )
+}
+export function StaggerItem({ children, className = '', y = 24 }: { children: ReactNode; className?: string; y?: number }) {
+  return (
+    <motion.div variants={{ hidden: { opacity: 0, y }, show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE } } }} className={className}>
+      {children}
+    </motion.div>
+  )
+}
+
+// Infinite horizontal marquee (logos, tags, accolades).
+export function Marquee({ children, className = '', speed = 30, reverse = false }: { children: ReactNode; className?: string; speed?: number; reverse?: boolean }) {
+  return (
+    <div className={'flex overflow-hidden ' + className}>
+      <motion.div className="flex shrink-0 gap-8 pr-8" animate={{ x: reverse ? ['-50%', '0%'] : ['0%', '-50%'] }} transition={{ duration: speed, ease: 'linear', repeat: Infinity }}>
+        {children}{children}
+      </motion.div>
+    </div>
+  )
+}
+
+// Number that counts up (ease-out) when scrolled into view.
+export function CountUp({ to, duration = 2, suffix = '', prefix = '', className = '' }: { to: number; duration?: number; suffix?: string; prefix?: string; className?: string }) {
+  const ref = useRef(null)
+  const inView = useInView(ref, { once: true, margin: '-60px' })
+  const [n, setN] = useState(0)
+  useEffect(() => {
+    if (!inView) return
+    let raf = 0
+    const start = performance.now()
+    const tick = (t: number) => {
+      const p = Math.min((t - start) / (duration * 1000), 1)
+      setN(Math.floor((1 - Math.pow(1 - p, 3)) * to))
+      if (p < 1) raf = requestAnimationFrame(tick)
+      else setN(to)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [inView, to, duration])
+  return <span ref={ref} className={className}>{prefix}{n.toLocaleString()}{suffix}</span>
+}
+`
+
 export const SCAFFOLD_FILES: Array<{ path: string; content: string }> = [
+  {
+    path: 'src/components/blocks/index.tsx',
+    content: BLOCKS_TSX,
+  },
   {
     path: 'index.html',
     content: INDEX_HTML,
@@ -866,6 +952,7 @@ export const SCAFFOLD_PATH_SET: ReadonlySet<string> = new Set([
   'src/index.css',
   'src/main.tsx',
   'src/lib/utils.ts',
+  'src/components/blocks/index.tsx',
   'src/components/ui/button.tsx',
   'src/components/ui/card.tsx',
   'src/components/ui/input.tsx',
