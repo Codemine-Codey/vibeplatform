@@ -2,29 +2,26 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  MonitorIcon, FolderOpenIcon, LoaderIcon, RocketIcon,
-  DatabaseIcon, KeyRoundIcon, MaximizeIcon, SmartphoneIcon, ScanIcon,
+  MonitorIcon, FolderOpenIcon, LoaderIcon, CloudIcon,
+  MaximizeIcon, SmartphoneIcon, ScanIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Preview } from '@/app/preview'
 import { FileExplorer } from '@/app/file-explorer'
 import { Logs } from '@/app/logs'
 import { useSandboxStore } from '@/app/state'
-import { DeployPanel } from '@/components/deploy/deploy-panel'
-import { DatabasePanel } from '@/components/deploy/database-panel'
-import { AuthPanel } from '@/components/deploy/auth-panel'
+import { CloudDashboard } from '@/components/cloud/cloud-dashboard'
 
-type Tab = 'preview' | 'files' | 'logs' | 'deploy' | 'database' | 'auth'
+type Tab = 'preview' | 'files' | 'logs' | 'cloud'
 type ViewMode = 'fit' | 'mobile' | 'fullscreen'
 
-// Logs tab is hidden from users (clutter) but the <Logs> panel + CommandLogsStream
-// stay mounted below so the AI/backend error-monitor keeps reading stderr.
+// Deploy/Database/Auth are now sections INSIDE the unified Cloud dashboard, so the
+// top-level tabs are just Preview, Code, Cloud. Logs stays mounted (hidden) for the
+// error-monitor.
 const TABS = [
   { id: 'preview' as Tab, label: 'Preview', icon: MonitorIcon },
   { id: 'files' as Tab, label: 'Code', icon: FolderOpenIcon },
-  { id: 'deploy' as Tab, label: 'Deploy', icon: RocketIcon },
-  { id: 'database' as Tab, label: 'Database', icon: DatabaseIcon },
-  { id: 'auth' as Tab, label: 'Auth', icon: KeyRoundIcon },
+  { id: 'cloud' as Tab, label: 'Cloud', icon: CloudIcon },
 ]
 
 interface Props {
@@ -190,14 +187,8 @@ export function RightPanel({ className }: Props) {
         <div className={cn('absolute inset-0', activeTab !== 'logs' && 'hidden')}>
           <Logs className="h-full rounded-t-none" />
         </div>
-        <div className={cn('absolute inset-0', activeTab !== 'deploy' && 'hidden')}>
-          <DeployPanel className="h-full rounded-t-none" />
-        </div>
-        <div className={cn('absolute inset-0', activeTab !== 'database' && 'hidden')}>
-          <DatabasePanel className="h-full rounded-t-none" />
-        </div>
-        <div className={cn('absolute inset-0', activeTab !== 'auth' && 'hidden')}>
-          <AuthPanel className="h-full rounded-t-none" />
+        <div className={cn('absolute inset-0', activeTab !== 'cloud' && 'hidden')}>
+          <CloudDashboard className="h-full" />
         </div>
       </div>
     </div>
