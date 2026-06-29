@@ -15,6 +15,7 @@ import { getModelOptions } from '@/ai/gateway'
 import { tools } from '@/ai/tools'
 import { generateFiles } from '@/ai/tools/generate-files'
 import { getUnsplashBatch } from '@/ai/tools/get-unsplash-batch'
+import { generateImageBatch } from '@/ai/tools/generate-image-batch'
 import { planProject } from '@/ai/tools/plan-project'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
@@ -984,7 +985,7 @@ async function runPipeline({
     `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
     `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
     `WORKFLOW: ${skill === 'website'
-      ? `(1) call getUnsplashBatch for all images in parallel with your first message, (2) call planProject with the complete file list (every file path you will generate), (3) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`
+      ? `(1) gather ALL images in parallel with your first message: getUnsplashBatch for real-world photos (food, people, places) AND/OR generateImageBatch for bespoke art-directed visuals (custom hero scenes, brand illustration, abstract textures) — use whichever fits each image, (2) call planProject with the complete file list (every file path you will generate), (3) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`
       : `(1) call planProject with the complete file list (every path you will generate), (2) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`}\n` +
     (skill !== 'website' ? `getUnsplashBatch is NOT available for this skill type — do not call it.\n` : '') +
     `If you need packages not in the scaffold, include package.json in your generateFiles paths.\n`
@@ -1004,6 +1005,7 @@ async function runPipeline({
         loadSkill: loadSkill(),
         generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
         getUnsplashBatch: getUnsplashBatch(),
+        generateImageBatch: generateImageBatch(),
         planProject: planProject(),
       }
     : {
