@@ -74,5 +74,16 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   }
 
   await updateProjectRow(id, { sandbox_id: sandbox.sandboxId, preview_url: url })
-  return NextResponse.json({ url, sandboxId: sandbox.sandboxId })
+
+  // Return the persisted resource state so the Cloud panels (DB/auth/live URL) render
+  // INSTANTLY on reopen — they're independent of the (slower) editing workspace.
+  return NextResponse.json({
+    url,
+    sandboxId: sandbox.sandboxId,
+    databaseId: project.database_id ?? undefined,
+    databaseName: project.database_name ?? undefined,
+    authEnabled: project.auth_enabled ?? undefined,
+    authWorkerUrl: project.auth_worker_url ?? undefined,
+    deployedUrl: project.deploy_url ?? undefined,
+  })
 }

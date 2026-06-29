@@ -23,6 +23,9 @@ export function SandboxState() {
   const setStatus = useSandboxStore((s) => s.setStatus)
   const setUrl = useSandboxStore((s) => s.setUrl)
   const setSandboxId = useSandboxStore((s) => s.setSandboxId)
+  const setDatabaseState = useSandboxStore((s) => s.setDatabaseState)
+  const setAuthState = useSandboxStore((s) => s.setAuthState)
+  const setDeployState = useSandboxStore((s) => s.setDeployState)
 
   const [phase, setPhase] = useState<Phase>('idle')
 
@@ -37,6 +40,11 @@ export function SandboxState() {
         const data = await res.json()
         if (res.ok && data.url && data.sandboxId) {
           setSandboxId(data.sandboxId)
+          // Restore persisted resource state so the Cloud panels (DB/auth/live URL)
+          // show INSTANTLY — independent of the editing workspace.
+          if (data.databaseId) setDatabaseState({ databaseId: data.databaseId, databaseName: data.databaseName })
+          if (data.authEnabled) setAuthState({ authEnabled: data.authEnabled, authWorkerUrl: data.authWorkerUrl })
+          if (data.deployedUrl) setDeployState({ deployedUrl: data.deployedUrl, deployStatus: 'done' })
           setUrl(data.url, crypto.randomUUID())
           setStatus('running')
           return true
