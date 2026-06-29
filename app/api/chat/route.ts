@@ -20,6 +20,8 @@ import { planProject } from '@/ai/tools/plan-project'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
 import { formatBrief } from '@/ai/types/project-brief'
+import { lockPaletteInCss } from '@/lib/design-tokens'
+import type { ColorTokens } from '@/ai/types/project-brief'
 import { getSkillPack } from '@/ai/packs'
 import { getSkillCatalog, loadSkillBody, designSkillFor } from '@/ai/skills'
 import { loadSkill } from '@/ai/tools/load-skill'
@@ -784,7 +786,7 @@ export async function POST(req: Request) {
         // makes is summed into tokens_used on the project row.
         const tokenBox = { total: 0 }
         await tokenStore.run(tokenBox, () =>
-          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise })
+          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise, tokens: brief.colorTokens })
         )
         if (projectId && tokenBox.total > 0) {
           updateProjectRow(projectId, { tokens_used: tokenBox.total }).catch(() => {})
@@ -893,6 +895,7 @@ async function runPipeline({
   userId,
   designContext,
   sandboxPromise,
+  tokens,
 }: {
   writer: Writer
   messages: ChatUIMessage[]
@@ -902,6 +905,7 @@ async function runPipeline({
   userId?: string | null
   designContext?: string
   sandboxPromise?: Promise<Sandbox>
+  tokens?: ColorTokens
 }) {
   // ── Step 1: Acquire sandbox (warm pool or fresh creation) ─────────────────
   writer.write({
@@ -985,7 +989,7 @@ async function runPipeline({
     `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
     `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
     `WORKFLOW: ${skill === 'website'
-      ? `(1) gather ALL images in parallel with your first message: getUnsplashBatch for real-world photos (food, people, places) AND/OR generateImageBatch for bespoke art-directed visuals (custom hero scenes, brand illustration, abstract textures) — use whichever fits each image, (2) call planProject with the complete file list (every file path you will generate), (3) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`
+      ? `(1) gather ALL images in parallel with your first message: PREFER generateImageBatch for the HERO and any signature/art-directed/abstract visual (it gives unique, on-brand imagery); use getUnsplashBatch for real-world content photos (food, people, venues) and as the reliable fallback. Every project's hero should have a strong visual. (2) call planProject with the complete file list (every file path you will generate), (3) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`
       : `(1) call planProject with the complete file list (every path you will generate), (2) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`}\n` +
     (skill !== 'website' ? `getUnsplashBatch is NOT available for this skill type — do not call it.\n` : '') +
     `If you need packages not in the scaffold, include package.json in your generateFiles paths.\n`
@@ -1131,7 +1135,18 @@ async function runPipeline({
         console.warn('[css-check] Fixed wrong @import tailwindcss syntax')
       }
 
-      if (!css.includes(':root')) {
+      // DETERMINISTIC PALETTE LOCK: write the brief's unique brand palette into :root
+      // as the source of truth — so colours are consistently on-brand every run, and
+      // the fallback is never the generic blue/grey defaults. This is the design-
+      // consistency engine: token-driven components + a locked per-project palette.
+      if (tokens) {
+        const locked = lockPaletteInCss(css, tokens)
+        if (locked && locked !== css) {
+          css = locked
+          changed = true
+          console.warn('[css-check] Locked brand palette into :root')
+        }
+      } else if (!css.includes(':root')) {
         css += `\n:root {\n  --background: 0 0% 100%;\n  --foreground: 222.2 84% 4.9%;\n  --primary: 221.2 83.2% 53.3%;\n  --primary-foreground: 210 40% 98%;\n  --secondary: 210 40% 96.1%;\n  --secondary-foreground: 222.2 47.4% 11.2%;\n  --muted: 210 40% 96.1%;\n  --muted-foreground: 215.4 16.3% 46.9%;\n  --accent: 210 40% 96.1%;\n  --accent-foreground: 222.2 47.4% 11.2%;\n  --destructive: 0 84.2% 60.2%;\n  --destructive-foreground: 210 40% 98%;\n  --border: 214.3 31.8% 91.4%;\n  --input: 214.3 31.8% 91.4%;\n  --ring: 221.2 83.2% 53.3%;\n  --radius: 0.5rem;\n}\n* { border-color: hsl(var(--border)); }\nbody { background-color: hsl(var(--background)); color: hsl(var(--foreground)); }\n`
         changed = true
         console.warn('[css-check] Appended missing :root CSS variables')
