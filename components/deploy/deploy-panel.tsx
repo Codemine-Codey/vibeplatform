@@ -387,6 +387,19 @@ export function DeployPanel({ className }: Props) {
             )}
             {envError && <p className="text-xs text-destructive">{envError}</p>}
           </div>
+
+          <div className="border-t border-primary/10" />
+
+          {/* Connectors — coming soon */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium">Connectors</p>
+              <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">Coming soon</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Connect your app to Stripe, Slack, and Google. Ask the agent to get started — launching soon.
+            </p>
+          </div>
         </div>
       )}
     </div>
