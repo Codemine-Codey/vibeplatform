@@ -686,11 +686,32 @@ async function improveDesignPass({
   }
 }
 
+// A generation cut off mid-tool-call (e.g. by the function timeout) leaves an
+// assistant tool-call part with NO result. convertToModelMessages then throws
+// "Tool result is missing for tool call …", which breaks "Continue generation".
+// Drop any incomplete tool part (state not output-available/-error) so the history
+// is always valid and continue/resume works after any interruption.
+function sanitizeMessages(messages: ChatUIMessage[]): ChatUIMessage[] {
+  return messages.map((m) => {
+    if (m.role !== 'assistant' || !Array.isArray(m.parts)) return m
+    const parts = m.parts.filter((p) => {
+      const t = typeof (p as { type?: string }).type === 'string' ? (p as { type: string }).type : ''
+      if (t.startsWith('tool-') || t === 'dynamic-tool') {
+        const state = (p as { state?: string }).state
+        return state === 'output-available' || state === 'output-error'
+      }
+      return true
+    })
+    return { ...m, parts }
+  })
+}
+
 export async function POST(req: Request) {
   // BotID removed — its client-side challenge was silently intercepting the
   // generation POST so the request never reached the server (0 hits in prod logs,
   // empty console, workspace never started). Re-add proper protection post-launch.
-  const { messages } = (await req.json()) as BodyData
+  const { messages: rawMessages } = (await req.json()) as BodyData
+  const messages = sanitizeMessages(rawMessages)
 
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({
