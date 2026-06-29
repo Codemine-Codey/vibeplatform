@@ -37,6 +37,7 @@ export function RightPanel({ className }: Props) {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const previewContainerRef = useRef<HTMLDivElement>(null) // kept for future use
   const chatStatus = useSandboxStore((s) => s.chatStatus)
+  const previewUrl = useSandboxStore((s) => s.url)
   const isWorking = chatStatus === 'streaming' || chatStatus === 'submitted'
 
   // CSS fullscreen — fixed overlay covering the whole viewport, no browser API needed.
@@ -154,8 +155,29 @@ export function RightPanel({ className }: Props) {
                 <div className="relative h-6 shrink-0 bg-zinc-900 flex items-center justify-center">
                   <div className="w-20 h-4 bg-black rounded-full" />
                 </div>
-                {/* Iframe fills the remaining space below the notch */}
-                <Preview className="flex-1 w-full rounded-none" />
+                {/* Clean mobile iframe (NO browser chrome) — at ~370px the site renders
+                    its responsive mobile layout. Mobile-safe: touch scrolling + lazy +
+                    sandbox + hardware permissions. */}
+                {previewUrl ? (
+                  <div
+                    className="flex-1 w-full overflow-auto bg-white"
+                    style={{ WebkitOverflowScrolling: 'touch' }}
+                  >
+                    <iframe
+                      key={previewUrl}
+                      src={previewUrl}
+                      loading="lazy"
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                      allow="geolocation; camera; microphone"
+                      className="w-full h-full border-0 block"
+                      title="Mobile preview"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center text-xs text-zinc-400">
+                    Preview will appear here
+                  </div>
+                )}
               </div>
             </div>
           ) : (
