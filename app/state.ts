@@ -27,6 +27,7 @@ interface SandboxStore {
   generatedFiles: Set<string>
   lastFilesUploadedAt?: number
   paths: string[]
+  projectId?: string
   projectName?: string
   sandboxId?: string
   streamError: string | null
@@ -36,6 +37,7 @@ interface SandboxStore {
   setDatabaseState: (s: Partial<Pick<SandboxStore, 'databaseId' | 'databaseName'>>) => void
   setDeployState: (s: Partial<Pick<SandboxStore, 'deployedUrl' | 'deployStatus' | 'deployError' | 'deployProjectName'>>) => void
   setLastFilesUploadedAt: (t: number) => void
+  setProjectId: (id: string) => void
   setProjectName: (name: string) => void
   setSandboxId: (id: string) => void
   setStatus: (status: 'running' | 'stopped') => void
@@ -157,6 +159,7 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
   setDatabaseState: (s) => set(() => ({ ...s })),
   setDeployState: (s) => set(() => ({ ...s })),
   setLastFilesUploadedAt: (t) => set(() => ({ lastFilesUploadedAt: t })),
+  setProjectId: (projectId) => set(() => ({ projectId })),
   setProjectName: (name) => set(() => ({ projectName: name })),
   setSandboxId: (sandboxId) =>
     set(() => ({
@@ -213,6 +216,7 @@ export function useDataStateMapper() {
   // causing ChatProvider (and the entire app) to re-render on every log line.
   const addPaths = useSandboxStore((s) => s.addPaths)
   const setSandboxId = useSandboxStore((s) => s.setSandboxId)
+  const setProjectId = useSandboxStore((s) => s.setProjectId)
   const setUrl = useSandboxStore((s) => s.setUrl)
   const upsertCommand = useSandboxStore((s) => s.upsertCommand)
   const addGeneratedFiles = useSandboxStore((s) => s.addGeneratedFiles)
@@ -226,6 +230,7 @@ export function useDataStateMapper() {
       switch (data.type) {
         case 'data-create-sandbox':
           if (data.data.sandboxId) setSandboxId(data.data.sandboxId)
+          if (data.data.projectId) setProjectId(data.data.projectId)
           break
         case 'data-generating-files':
           if (data.data.status === 'uploaded') {
@@ -277,6 +282,6 @@ export function useDataStateMapper() {
           break
       }
     },
-    [addGeneratedFiles, addPaths, setCursor, setSandboxId, setLastFilesUploadedAt, setUrl, upsertCommand, setDatabaseState]
+    [addGeneratedFiles, addPaths, setCursor, setSandboxId, setProjectId, setLastFilesUploadedAt, setUrl, upsertCommand, setDatabaseState]
   )
 }

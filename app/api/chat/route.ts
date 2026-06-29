@@ -970,7 +970,7 @@ async function runPipeline({
   writer.write({
     id: 'srv-sandbox',
     type: 'data-create-sandbox',
-    data: { sandboxId, status: 'done' },
+    data: { sandboxId, projectId: projectId ?? undefined, status: 'done' },
   })
 
   // ── Step 2: Build pipeline addendum ─────────────────────────────────────

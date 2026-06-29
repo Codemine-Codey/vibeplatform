@@ -39,7 +39,7 @@ export function buildFileTree(paths: string[]): FileNode[] {
             ? `// Content for ${currentPath}\n// This will be loaded when the file is selected`
             : undefined,
           children: isFile ? undefined : {},
-          expanded: false,
+          expanded: true, // all folders open by default — clicking a file opens it directly
         }
       }
 

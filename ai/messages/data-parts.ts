@@ -7,6 +7,7 @@ export const errorSchema = z.object({
 export const dataPartSchema = z.object({
   'create-sandbox': z.object({
     sandboxId: z.string().optional(),
+    projectId: z.string().optional(), // surfaced so the client can re-hydrate from snapshot on expiry
     status: z.enum(['loading', 'done', 'error']),
     error: errorSchema.optional(),
   }),
