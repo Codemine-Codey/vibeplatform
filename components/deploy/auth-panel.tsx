@@ -12,10 +12,9 @@ interface Props {
 
 export function AuthPanel({ className }: Props) {
   const sandboxId = useSandboxStore((s) => s.sandboxId)
-  const databaseId = useSandboxStore((s) => s.databaseId)
-  const deployProjectName = useSandboxStore((s) => s.deployProjectName)
   const authEnabled = useSandboxStore((s) => s.authEnabled)
   const authWorkerUrl = useSandboxStore((s) => s.authWorkerUrl)
+  const authAppId = useSandboxStore((s) => s.authAppId)
   const setAuthState = useSandboxStore((s) => s.setAuthState)
   const chatStatus = useSandboxStore((s) => s.chatStatus)
 
@@ -29,28 +28,29 @@ export function AuthPanel({ className }: Props) {
   const aiWorking = chatStatus === 'streaming' || chatStatus === 'submitted'
 
   async function handleEnable() {
-    if (!sandboxId || !databaseId) return
+    if (!sandboxId) return
     setEnabling(true)
     setError(undefined)
     try {
       const res = await fetch('/api/auth/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sandboxId, databaseId, projectName: deployProjectName, maxUsers: 100 }),
+        body: JSON.stringify({ sandboxId }),
       })
-      const data = await res.json() as { workerUrl?: string; error?: string }
-      if (!res.ok || data.error) throw new Error(data.error ?? 'Setup failed')
-      setAuthState({ authEnabled: true, authWorkerUrl: data.workerUrl })
+      const data = await res.json() as { authUrl?: string; appId?: string; error?: string }
+      if (!res.ok || data.error || !data.authUrl || !data.appId) throw new Error(data.error ?? 'Setup failed')
+      setAuthState({ authEnabled: true, authWorkerUrl: data.authUrl, authAppId: data.appId })
 
-      // Auto-trigger the AI to add login/signup to the app — no copy-paste needed
+      const apiBase = `${data.authUrl}/${data.appId}`
+      // Auto-trigger the AI to add login/signup to the app — no copy-paste needed.
       chat.sendMessage({
-        text: `Auth is now enabled for this project. The auth API is at ${data.workerUrl} with these endpoints:
-- POST ${data.workerUrl}/register — body: { email, password, name? } — returns { token, user }
-- POST ${data.workerUrl}/login — body: { email, password } — returns { token, user }
-- GET ${data.workerUrl}/me — header: Authorization: Bearer <token> — returns { user }
-- DELETE ${data.workerUrl}/logout — client-side: remove token from localStorage
+        text: `Auth is now enabled for this project. The auth API base is ${apiBase} with these endpoints:
+- POST ${apiBase}/signup — body: { email, password } — returns { token, user }
+- POST ${apiBase}/login — body: { email, password } — returns { token, user }
+- GET ${apiBase}/me — header: Authorization: Bearer <token> — returns { user }
+Logout is client-side: remove the token from localStorage.
 
-Please add login and signup functionality to the app using these endpoints. Store the JWT token in localStorage. Add a login/signup page or modal, protect any relevant routes or data, and show the logged-in user's name/email in the UI where appropriate.`,
+Please add login and signup functionality to the app using these exact endpoints. Store the JWT token in localStorage, send it as "Authorization: Bearer <token>", add a login/signup page or modal, protect relevant routes/data, and show the logged-in user's email where appropriate.`,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Auth setup failed')
@@ -60,10 +60,11 @@ Please add login and signup functionality to the app using these endpoints. Stor
   }
 
   async function fetchUsers() {
-    if (!authWorkerUrl) return
+    if (!authAppId) return
     setLoadingUsers(true)
     try {
-      const res = await fetch(`${authWorkerUrl}/users`)
+      // Server-side, ownership-scoped users list (never a raw public endpoint).
+      const res = await fetch(`/api/auth/users?projectId=${authAppId}`)
       const data = await res.json() as { users?: typeof users }
       setUsers(data.users ?? [])
     } catch {
@@ -83,16 +84,6 @@ Please add login and signup functionality to the app using these endpoints. Stor
     )
   }
 
-  if (!databaseId) {
-    return (
-      <div className={cn('flex flex-col items-center justify-center h-full gap-3 p-6 text-center', className)}>
-        <ShieldIcon className="w-8 h-8 text-muted-foreground" />
-        <p className="text-sm font-medium">Authentication</p>
-        <p className="text-xs text-muted-foreground">Add a database first — auth stores users there</p>
-      </div>
-    )
-  }
-
   if (authEnabled && authWorkerUrl) {
     return (
       <div className={cn('flex flex-col h-full overflow-auto', className)}>
@@ -103,17 +94,17 @@ Please add login and signup functionality to the app using these endpoints. Stor
           </div>
 
           <div className="flex flex-col gap-1">
-            <p className="text-xs text-muted-foreground">Auth API endpoint</p>
-            <code className="text-xs font-mono bg-secondary px-2 py-1.5 rounded-sm break-all">{authWorkerUrl}</code>
+            <p className="text-xs text-muted-foreground">Auth API base</p>
+            <code className="text-xs font-mono bg-secondary px-2 py-1.5 rounded-sm break-all">{authWorkerUrl}/{authAppId}</code>
           </div>
 
           <div className="flex flex-col gap-1.5">
             <p className="text-xs text-muted-foreground">Endpoints</p>
             {[
-              ['POST /register', 'body: { email, password, name? }'],
+              ['POST /signup', 'body: { email, password }'],
               ['POST /login', 'body: { email, password }'],
               ['GET /me', 'header: Authorization: Bearer <token>'],
-              ['DELETE /logout', 'clear token from localStorage'],
+              ['logout', 'clear token from localStorage'],
             ].map(([ep, desc]) => (
               <div key={ep} className="flex flex-col bg-secondary rounded-sm px-2 py-1.5">
                 <code className="text-xs font-mono">{ep}</code>

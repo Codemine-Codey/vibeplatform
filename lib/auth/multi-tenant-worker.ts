@@ -81,10 +81,13 @@ export default {
     const action = parts[1];
     if (!appId || !action) return json({ error: 'Bad route' }, 400);
 
-    // GATE 1: app must be registered, else 404 before touching any data.
-    const cfgRaw = await env.KV.get('app:' + appId);
-    if (!cfgRaw) return json({ error: 'Unknown app' }, 404);
-    const cfg = JSON.parse(cfgRaw); // { secret, origins: string[] }
+    // GATE 1: app must be registered (in the auth_apps table), else 404 before
+    // touching any user data. Config lives in the shared D1 (not KV) — one binding.
+    const cfgRow = await env.DB.prepare('SELECT jwt_secret, origins FROM auth_apps WHERE app_id = ?').bind(appId).first();
+    if (!cfgRow) return json({ error: 'Unknown app' }, 404);
+    let cfg;
+    try { cfg = { secret: cfgRow.jwt_secret, origins: JSON.parse(cfgRow.origins || '["*"]') }; }
+    catch { cfg = { secret: cfgRow.jwt_secret, origins: ['*'] }; }
 
     const origin = request.headers.get('Origin') || '';
     const cors = corsFor(origin, cfg.origins || ['*']);
@@ -131,9 +134,16 @@ export default {
 };
 `
 
-// The shared users table — created once on the shared D1. UNIQUE(app_id, email)
-// guarantees no cross-app email collision and is the structural half of isolation.
-export const MULTI_TENANT_USERS_SCHEMA =
+// Shared D1 schema — created once. auth_apps holds per-app config (the gate +
+// per-app JWT secret); users is app_id-scoped with UNIQUE(app_id,email). Together
+// they are the structural half of isolation.
+export const MULTI_TENANT_SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS auth_apps (
+    app_id TEXT PRIMARY KEY,
+    jwt_secret TEXT NOT NULL,
+    origins TEXT NOT NULL DEFAULT '["*"]',
+    created_at TEXT NOT NULL
+  );`,
   `CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     app_id TEXT NOT NULL,
@@ -141,5 +151,6 @@ export const MULTI_TENANT_USERS_SCHEMA =
     password_hash TEXT NOT NULL,
     created_at TEXT NOT NULL,
     UNIQUE(app_id, email)
-  );
-  CREATE INDEX IF NOT EXISTS idx_users_app ON users(app_id);`
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_users_app ON users(app_id);`,
+]

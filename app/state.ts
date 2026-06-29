@@ -15,6 +15,7 @@ interface SandboxStore {
   addPaths: (paths: string[]) => void
   authEnabled?: boolean
   authWorkerUrl?: string
+  authAppId?: string
   chatStatus: ChatStatus
   clearGeneratedFiles: () => void
   commands: Command[]
@@ -31,7 +32,7 @@ interface SandboxStore {
   projectName?: string
   sandboxId?: string
   streamError: string | null
-  setAuthState: (s: Partial<Pick<SandboxStore, 'authEnabled' | 'authWorkerUrl'>>) => void
+  setAuthState: (s: Partial<Pick<SandboxStore, 'authEnabled' | 'authWorkerUrl' | 'authAppId'>>) => void
   setChatStatus: (status: ChatStatus) => void
   setStreamError: (msg: string | null) => void
   setDatabaseState: (s: Partial<Pick<SandboxStore, 'databaseId' | 'databaseName'>>) => void

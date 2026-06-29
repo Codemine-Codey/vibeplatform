@@ -320,6 +320,13 @@ export const SCAFFOLD_FILES: Array<{ path: string; content: string }> = [
     content: BLOCKS_TSX,
   },
   {
+    // SPA fallback for Cloudflare Pages — every path serves index.html so client
+    // routing + deep links work AND the user never sees Cloudflare's own 404 page
+    // (whitelabel). The app's own catch-all <Route path="*"> renders the 404.
+    path: 'public/_redirects',
+    content: '/*    /index.html    200\n',
+  },
+  {
     path: 'index.html',
     content: INDEX_HTML,
   },
@@ -953,6 +960,7 @@ export const SCAFFOLD_PATH_SET: ReadonlySet<string> = new Set([
   'src/main.tsx',
   'src/lib/utils.ts',
   'src/components/blocks/index.tsx',
+  'public/_redirects',
   'src/components/ui/button.tsx',
   'src/components/ui/card.tsx',
   'src/components/ui/input.tsx',

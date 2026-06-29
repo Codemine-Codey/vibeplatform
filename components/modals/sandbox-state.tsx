@@ -43,7 +43,7 @@ export function SandboxState() {
           // Restore persisted resource state so the Cloud panels (DB/auth/live URL)
           // show INSTANTLY — independent of the editing workspace.
           if (data.databaseId) setDatabaseState({ databaseId: data.databaseId, databaseName: data.databaseName })
-          if (data.authEnabled) setAuthState({ authEnabled: data.authEnabled, authWorkerUrl: data.authWorkerUrl })
+          if (data.authEnabled) setAuthState({ authEnabled: data.authEnabled, authWorkerUrl: data.authWorkerUrl, authAppId: data.authAppId })
           if (data.deployedUrl) setDeployState({ deployedUrl: data.deployedUrl, deployStatus: 'done' })
           setUrl(data.url, crypto.randomUUID())
           setStatus('running')

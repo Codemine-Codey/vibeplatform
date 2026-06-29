@@ -84,6 +84,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     databaseName: project.database_name ?? undefined,
     authEnabled: project.auth_enabled ?? undefined,
     authWorkerUrl: project.auth_worker_url ?? undefined,
+    authAppId: project.auth_enabled ? project.id : undefined, // appId == project id
     deployedUrl: project.deploy_url ?? undefined,
   })
 }
