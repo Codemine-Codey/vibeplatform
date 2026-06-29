@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  MonitorIcon, FolderOpenIcon, TerminalIcon, LoaderIcon, RocketIcon,
+  MonitorIcon, FolderOpenIcon, LoaderIcon, RocketIcon,
   DatabaseIcon, KeyRoundIcon, MaximizeIcon, SmartphoneIcon, ScanIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -17,10 +17,11 @@ import { AuthPanel } from '@/components/deploy/auth-panel'
 type Tab = 'preview' | 'files' | 'logs' | 'deploy' | 'database' | 'auth'
 type ViewMode = 'fit' | 'mobile' | 'fullscreen'
 
+// Logs tab is hidden from users (clutter) but the <Logs> panel + CommandLogsStream
+// stay mounted below so the AI/backend error-monitor keeps reading stderr.
 const TABS = [
   { id: 'preview' as Tab, label: 'Preview', icon: MonitorIcon },
   { id: 'files' as Tab, label: 'Code', icon: FolderOpenIcon },
-  { id: 'logs' as Tab, label: 'Logs', icon: TerminalIcon },
   { id: 'deploy' as Tab, label: 'Deploy', icon: RocketIcon },
   { id: 'database' as Tab, label: 'Database', icon: DatabaseIcon },
   { id: 'auth' as Tab, label: 'Auth', icon: KeyRoundIcon },
@@ -145,10 +146,10 @@ export function RightPanel({ className }: Props) {
         )}
         <div className={cn('absolute inset-0', activeTab !== 'preview' && 'hidden')}>
           {viewMode === 'mobile' ? (
-            <div className="flex items-center justify-center h-full bg-secondary/50 overflow-hidden p-3">
-              {/* Phone bezel — status bar holds the notch so it never covers content */}
-              <div className="relative flex flex-col rounded-[2.5rem] border-[10px] border-zinc-800 shadow-2xl bg-zinc-900 overflow-hidden"
-                style={{ width: 390, height: 'min(844px, 100%)', aspectRatio: '390 / 844' }}>
+            <div className="flex items-center justify-center h-full bg-secondary/50 overflow-hidden p-4">
+              {/* Phone bezel — scales to the container height while holding a true
+                  390/844 ratio (no fixed width vs min-height conflict = no distortion). */}
+              <div className="relative flex flex-col h-full max-h-[844px] aspect-[390/844] rounded-[2.5rem] border-[10px] border-zinc-800 shadow-2xl bg-zinc-900 overflow-hidden">
                 {/* Status bar with centered notch */}
                 <div className="relative h-6 shrink-0 bg-zinc-900 flex items-center justify-center">
                   <div className="w-20 h-4 bg-black rounded-full" />

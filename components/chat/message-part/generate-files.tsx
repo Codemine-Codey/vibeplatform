@@ -83,7 +83,7 @@ export function GenerateFiles(props: {
             ? `Built ${paths.length} file${paths.length === 1 ? '' : 's'}`
             : status === 'error'
               ? 'Generation failed'
-              : `Writing code… ${done.length}/${Math.max(paths.length, done.length + 1)}`}
+              : 'Writing code…'}
         </motion.span>
       </ToolHeader>
       <div className="relative min-h-5">

@@ -33,6 +33,7 @@ State the direction in one line ("premium spa: calm, editorial, restrained, warm
 
 ## 5. Layout — earn each section, vary every one
 - **Hero** fits the viewport (max ~`pt-24`), stack ≤ 4 elements. Prefer **asymmetric** over centered when VARIANCE > 4: split 50/50, left-text/right-asset, or full-bleed image with a graceful fade into the background color.
+- **The hero MUST have a strong background visual — never a flat/empty colour block.** Use ONE of: (a) a full-bleed image (Unsplash photo for real-world brands, or a generated image for bespoke/abstract art) with a dark-to-transparent gradient overlay so text stays legible, OR (b) a rich layered treatment (gradient + grain/noise texture + a subtle animated accent). A bare solid-colour hero with only text reads unfinished — always anchor it with a real visual.
 - **6-8 sections, EACH a different composition.** No two adjacent sections with identical structure/spacing. Rotate from the arsenal below.
 - CSS **Grid** for structure (`grid-cols-1 md:grid-cols-3`, fractional units `2fr 1fr`), never flex percentage math. `min-h-[100dvh]` not `h-screen`. Mobile-first: high-variance layouts collapse to a clean single column < 768px.
 - Implement **every SIGNATURE MOVE** from the brief — required, not optional.
