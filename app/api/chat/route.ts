@@ -542,7 +542,13 @@ async function headlessRuntimeCheck(
     })
 
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 20_000 }).catch(() => {})
-    await new Promise(r => setTimeout(r, 2500)) // let React mount + effects run
+    // Let React mount + effects + state settle. Longer than a single frame so async
+    // re-render loops (e.g. an unstable store selector → "maximum update depth") have
+    // time to actually throw before we declare the page healthy. A light scroll nudges
+    // scroll-triggered effects/animations to run too.
+    await new Promise(r => setTimeout(r, 4000))
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {})
+    await new Promise(r => setTimeout(r, 800))
 
     const rootChildren: number = await page
       .evaluate(() => {
@@ -779,12 +785,33 @@ function sanitizeMessages(messages: ChatUIMessage[]): ChatUIMessage[] {
   })
 }
 
+// Per-user generation rate limit — each call spins a Firecracker VM + burns model
+// tokens, so it's the most expensive endpoint. Best-effort sliding window (per
+// instance): 12 generations / 5 min. Bounds runaway/abusive spend.
+const genRate = new Map<string, number[]>()
+function genRateOk(userId: string): boolean {
+  const now = Date.now()
+  const arr = (genRate.get(userId) || []).filter((t) => now - t < 300_000)
+  if (arr.length >= 12) { genRate.set(userId, arr); return false }
+  arr.push(now)
+  genRate.set(userId, arr)
+  return true
+}
+
 export async function POST(req: Request) {
-  // BotID removed — its client-side challenge was silently intercepting the
-  // generation POST so the request never reached the server (0 hits in prod logs,
-  // empty console, workspace never started). Re-add proper protection post-launch.
   const { messages: rawMessages } = (await req.json()) as BodyData
   const messages = sanitizeMessages(rawMessages)
+
+  // AUTH GATE — generation creates a real sandbox VM and spends model tokens. Require a
+  // signed-in user (no anonymous cost-abuse) + a per-user rate cap. BotID was removed
+  // earlier (it silently blocked the POST); this is the real protection.
+  const authedUser = await getCurrentUser()
+  if (!authedUser) {
+    return new Response(JSON.stringify({ error: 'Please sign in to build.' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
+  }
+  if (!genRateOk(authedUser.id)) {
+    return new Response(JSON.stringify({ error: 'Too many builds in a short time — please wait a moment.' }), { status: 429, headers: { 'Content-Type': 'application/json' } })
+  }
 
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({

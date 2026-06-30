@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { Sandbox } from '@vercel/sandbox'
 import { logRepair } from '@/lib/telemetry'
-import { updateProjectBySandboxId } from '@/lib/projects-db'
+import { updateProjectBySandboxId, currentUserOwnsSandbox } from '@/lib/projects-db'
+import { getCurrentUser } from '@/lib/supabase/server'
 
 export const maxDuration = 180
 
@@ -59,6 +60,11 @@ async function ensurePagesProject(name: string): Promise<string | null> {
 export async function POST(req: Request) {
   const { sandboxId } = await req.json() as { sandboxId: string }
   if (!sandboxId) return NextResponse.json({ error: 'sandboxId required' }, { status: 400 })
+  // AUTH + OWNERSHIP — only the owner may deploy their own workspace.
+  const user = await getCurrentUser()
+  if (!user || !(await currentUserOwnsSandbox(sandboxId))) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
   if (!CF_API_TOKEN || !CF_ACCOUNT_ID) {
     return NextResponse.json({ error: 'Deployment not configured' }, { status: 500 })
   }

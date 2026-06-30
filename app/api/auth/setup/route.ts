@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getProjectBySandboxId, updateProjectBySandboxId } from '@/lib/projects-db'
+import { getProjectBySandboxId, updateProjectBySandboxId, currentUserOwnsSandbox } from '@/lib/projects-db'
+import { getCurrentUser } from '@/lib/supabase/server'
 
 export const maxDuration = 30
 
@@ -17,6 +18,11 @@ const AUTH_WORKER_URL = process.env.CM_AUTH_WORKER_URL ?? ''
 export async function POST(req: Request) {
   const { sandboxId } = (await req.json()) as { sandboxId?: string }
   if (!sandboxId) return NextResponse.json({ error: 'sandboxId required' }, { status: 400 })
+  // AUTH + OWNERSHIP — only the owner may enable auth on their own project.
+  const caller = await getCurrentUser()
+  if (!caller || !(await currentUserOwnsSandbox(sandboxId))) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
   if (!CF_API_TOKEN || !AUTH_D1_ID || !AUTH_WORKER_URL) {
     return NextResponse.json({ error: 'Auth service not configured' }, { status: 500 })
   }
