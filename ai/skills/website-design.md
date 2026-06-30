@@ -47,6 +47,7 @@ Choose what fits the brand; don't use all. **Layout:** Bento grid · Masonry · 
 
 ## 8. Structure & a11y
 Semantic HTML, single H1, alt text on every image, WCAG-AA contrast both modes, keyboard-navigable, lazy-load heavy media, labels above inputs.
+- **Resilient images.** Every `<img>` from a remote/Unsplash source has an `onError` handler that hides it or swaps to a token-colored block, and an explicit `width`/`height` or `aspect-[]` so a slow/failed image never collapses the layout. A broken-image glyph in a hero/grid reads as a broken site.
 
 ## 9. Pre-ship self-check (fix before finishing)
 No purple gradient · no default beige-brass · no 3-identical-cards · display font is the brief's (not Inter) · every section composition distinct · ≥1 arsenal move used · real copy + specific names + organic numbers · one accent, one theme, tokens only · headlines have contrast · hero is asymmetric (if VARIANCE>4) · every signature move implemented · reduced-motion respected.

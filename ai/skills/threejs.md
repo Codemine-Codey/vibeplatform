@@ -9,6 +9,8 @@ description: 3D and three.js animation — keyframe, skeletal, morph targets, GL
 
 # Three.js Animation
 
+> **PLATFORM OVERRIDE:** this is React Three Fiber, NOT vanilla three. Do NOT create a `WebGLRenderer`, a manual `requestAnimationFrame` loop, or call `renderer.render` — drive per-frame logic with `useFrame((state, delta) => …)` inside a component under `<Canvas>`, and load assets with drei's `useGLTF`/`useAnimations`. The `<Canvas>` parent MUST have an explicit height (e.g. `min-h-[100dvh]`) or it collapses to 0px and renders nothing. R3F handles cleanup on unmount — don't hand-roll dispose. The vanilla examples below are reference for the underlying API; translate them into the R3F idiom.
+
 ## Quick Start
 
 ```javascript

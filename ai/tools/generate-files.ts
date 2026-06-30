@@ -5,6 +5,7 @@ import { getContents, type File } from './generate-files/get-contents'
 import { getRichError } from './get-rich-error'
 import { getWriteFiles } from './generate-files/get-write-files'
 import { computeMissingKnownPackages } from './generate-files/import-gate'
+import { scanFootguns } from './generate-files/footgun-scan'
 import { SCAFFOLD_PATH_SET } from './scaffold'
 import { tool } from 'ai'
 import description from './generate-files.md'
@@ -249,6 +250,34 @@ export const generateFiles = ({ writer, modelId, designContext }: Params) =>
         }
       } catch (e) {
         console.warn('[closure] pass failed (non-fatal):', e instanceof Error ? e.message : e)
+      }
+
+      // ── Footgun scan + repair ────────────────────────────────────────────────
+      // Catch the runtime bug classes that compile cleanly (Zustand selectors that loop,
+      // purged dynamic Tailwind classes, index keys, keyless AnimatePresence) and rewrite
+      // the offending files ONCE — so they never reach the preview. Deterministic catcher.
+      try {
+        const violations = scanFootguns(uploaded)
+        if (violations.length > 0) {
+          const byPath = new Map<string, string[]>()
+          for (const v of violations) { const a = byPath.get(v.path) ?? []; a.push(v.issue); byPath.set(v.path, a) }
+          const paths = [...byPath.keys()].slice(0, 8)
+          const issueText = paths.map(p => `// ${p}\n` + (byPath.get(p) ?? []).map(i => '- ' + i).join('\n')).join('\n\n')
+          console.warn(`[footgun] repairing ${paths.length} file(s): ${paths.join(', ')}`)
+          const fixMessages = [
+            ...messages,
+            { role: 'user' as const, content: 'These files COMPILE but contain runtime footguns that will break or hang the app. Rewrite each listed file COMPLETELY — fix the issue, keep every feature, change nothing unrelated.\n\n' + issueText },
+          ]
+          const it = getContents({ messages: fixMessages, modelId, paths, designContext })
+          for await (const chunk of it) {
+            if (chunk.files.length > 0) {
+              const err = await writeFiles({ ...chunk, written: uploaded.map(f => f.path) })
+              if (!err) for (const nf of chunk.files) { const i = uploaded.findIndex(u => u.path === nf.path); if (i >= 0) uploaded[i] = nf; else uploaded.push(nf) }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[footgun] pass failed (non-fatal):', e instanceof Error ? e.message : e)
       }
 
       // ── Package pre-declare gate ─────────────────────────────────────────────

@@ -71,3 +71,5 @@ Use `useMotionValue` + `useTransform` outside the render cycle (`useSpring` to s
 - Reduced-motion: gate scroll/parallax/continuous motion behind `prefers-reduced-motion`; keep essential feedback (hover/tap) only.
 - Don't mix GSAP/Three with framer-motion in the same component tree. Default to framer-motion for UI.
 - Don't animate everything — deliberate stillness makes the motion that exists feel premium.
+- **AnimatePresence children need a stable key + must be direct children.** Every direct child of `<AnimatePresence>` MUST have a unique stable key and be a DIRECT child (no wrapper element between), or exit animations never fire. Single conditional: `{open && <motion.div key="x" exit={...} />}`; lists key by item id, never array index.
+- **Reveal animations must NEVER permanently hide content.** Pair every `initial={{opacity:0}}` with `viewport={{ once: true }}` and a reduced-motion branch that renders fully visible. Content visibility must not depend on an animation firing.

@@ -21,6 +21,10 @@ const SUBSTITUTIONS: Array<[RegExp, string]> = [
   [/(import\s*\(\s*['"])motion\/react(['"]\s*\))/g, '$1framer-motion$2'],
   // Deep icon imports → the package root (lucide re-exports everything from root).
   [/(from\s*['"])lucide-react\/(?:dist\/)?(?:esm\/)?icons\/[^'"]+(['"])/g, '$1lucide-react$2'],
+  // process.env crashes a Vite SPA ("process is not defined"). import.meta.env is the
+  // Vite equivalent — VITE_* vars resolve, anything else is undefined (no crash). Always
+  // a safe rewrite, and it deterministically kills the blank-screen-from-process.env class.
+  [/\bprocess\.env\b/g, 'import.meta.env'],
 ]
 
 export function applySubstitutions(content: string): string {

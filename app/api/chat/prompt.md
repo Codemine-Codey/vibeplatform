@@ -73,6 +73,9 @@ Every file MUST conform to this exact stack. A deterministic post-generation fix
 - CSS-in-JS, styled-components, inline `<style>` tags
 - Lock files (pnpm-lock.yaml, package-lock.json) — created automatically
 - `@apply` in any CSS file — it crashes PostCSS. Use raw CSS properties.
+- `process.env` of any kind — this is Vite, not Node; `process` is undefined at runtime and crashes the page. Use `import.meta.env.VITE_*` only.
+- Tailwind classes built by string interpolation (`bg-${x}-500`, `text-${size}`) — Tailwind only ships classes it sees as complete literals, so interpolated ones are purged and render unstyled. Map each variant to a full static class string (`{ ok: 'bg-emerald-500' }[status]`) or use a CSS variable / inline style for dynamic colors.
+- A layout/parent route WITHOUT an `<Outlet/>` where child routes render — child content is invisible without it. Any `useParams()` value is possibly `undefined` — guard it and render NotFound/empty state when the record doesn't exist; never index data with an unchecked param.
 
 ### 3.5 The import law (4 stacked defenses — you own the first two)
 1. **Only import what's installed** (§3.1) or what you add to `package.json` in the same generation (§3.2). Never assume a package exists.
@@ -145,11 +148,13 @@ Before scaffolding a website/app/game, the relevant **design skill is already ac
 
 The bundled shadcn/ui components are pre-installed (`@/components/ui/<name>`). Check this list before hand-writing any UI element. It's a smart per-element decision: **reuse for standard controls (the plumbing), build custom for signature design (the craft).**
 
-**Pre-installed (websites/apps) — import from `@/components/ui/<name>`, no setup:**
-`button` (variants default/destructive/outline/secondary/ghost/link; sizes sm/default/lg/icon), `card`, `input`, `textarea`, `label`, `badge`, `select`, `dialog`, `separator`, `accordion`, `alert`, `alert-dialog`, `aspect-ratio`, `avatar`, `breadcrumb`, `calendar`, `carousel`, `checkbox`, `collapsible`, `command`, `context-menu`, `dropdown-menu`, `drawer`, `hover-card`, `menubar`, `navigation-menu`, `pagination`, `popover`, `progress`, `radio-group`, `resizable`, `scroll-area`, `sheet`, `skeleton`, `slider`, `sonner` (toasts), `switch`, `table`, `tabs`, `toggle`, `toggle-group`, `tooltip`, `form` (react-hook-form + zod). Plus `cn` from `@/lib/utils`. **Reach for these before hand-building anything.**
+**Pre-installed (websites/apps) — ONLY these 9 exist at `@/components/ui/<name>`, no setup:**
+`button` (variants default/destructive/outline/secondary/ghost/link; sizes sm/default/lg/icon), `card`, `input`, `label`, `badge`, `textarea`, `separator`, `select`, `dialog`. Plus `cn` from `@/lib/utils`. **Reach for these before hand-building their kind of control.**
 
-- Reuse the bundled component for standard controls (forms, dialogs, dropdowns, tabs, toasts) — don't reinvent primitives. Customize via `cva` variants + tokens, never by forking to hardcode a color.
-- For a control NOT in the list, BUILD it as a real, accessible component (semantic HTML, keyboard, aria) in `src/components/` — you are not limited to the list. Don't ship a div pretending to be a dropdown.
+⛔ **These are the ONLY baked shadcn components. Do NOT import `@/components/ui/<name>` for ANYTHING outside those 9** (no `accordion`, `tabs`, `tooltip`, `dropdown-menu`, `popover`, `table`, `sonner`, `form`, `checkbox`, `switch`, etc. — none of them exist and the import will hard-fail). Any other component MUST be built as a real, accessible custom component in `src/components/`.
+
+- Reuse a bundled component for its standard control (buttons, cards, inputs, labels, badges, textareas, separators, selects, dialogs) — don't reinvent those primitives. Customize via `cva` variants + tokens, never by forking to hardcode a color.
+- For ANY control NOT in the 9, BUILD it as a real, accessible component (semantic HTML, keyboard, aria) in `src/components/` — you are not limited to the list, but you must write it yourself. Don't ship a div pretending to be a dropdown, and don't import a `@/components/ui/<name>` that isn't one of the 9.
 - Never let a stock component flatten a signature section — that's where you design.
 
 ---
