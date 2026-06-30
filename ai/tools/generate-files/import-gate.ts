@@ -33,47 +33,162 @@ export function applySubstitutions(content: string): string {
 // versions. Auto-adding any of these to package.json can NEVER add a non-existent
 // package or an incompatible major — that's the whole point of curating it.
 export const KNOWN_PACKAGES: Record<string, string> = {
-  // In the website/app scaffold by default, but NOT in the game package.json — so if a
-  // game imports them (e.g. a menu animation or routing) the pre-declare adds them
-  // instead of erroring.
+  // ── In the website/app scaffold but NOT games — so a game importing them auto-gets
+  //    them (versions aligned with the scaffold so a reconcile never conflicts) ──
   'framer-motion': '^11.18.2',
   'react-router-dom': '^6.28.0',
-  'react-icons': '^5.4.0',
-  '@phosphor-icons/react': '^2.1.7',
-  'react-intersection-observer': '^9.13.1',
-  'react-hot-toast': '^2.4.1',
-  'react-toastify': '^10.0.6',
+  'react-hook-form': '^7.54.0',
+  '@hookform/resolvers': '^3.9.1',
+  zod: '^3.24.1',
+  '@tanstack/react-query': '^5.62.0',
+  'date-fns': '^4.4.0',
+  sonner: '^2.0.7',
+  'embla-carousel-react': '^8.6.0',
+  'embla-carousel-autoplay': '^8.5.1',
+  'next-themes': '^0.4.6',
+  'react-day-picker': '^10.0.1',
+
+  // ── 3D / WebGL — a website 3D hero OR any game (React-18-safe majors: fiber v8/drei v9) ──
+  three: '^0.169.0',
+  '@react-three/fiber': '^8.17.10',
+  '@react-three/drei': '^9.114.0',
+  '@react-three/postprocessing': '^2.16.3',
+  postprocessing: '^6.36.4',
+  'three-stdlib': '^2.35.6',
+  maath: '^0.10.8',
+  leva: '^0.9.35',
+
+  // ── Game: physics / sprites / audio / state ──
+  'matter-js': '^0.20.0',
+  '@dimforge/rapier3d-compat': '^0.14.0',
+  'pixi.js': '^8.6.6',
+  howler: '^2.2.4',
+  tone: '^15.0.4',
+  zustand: '^5.0.2',
+  jotai: '^2.10.3',
+  valtio: '^2.1.2',
+  immer: '^10.1.1',
+  nanoid: '^5.0.9',
+
+  // ── Animation / motion / gesture ──
+  gsap: '^3.12.5',
+  '@react-spring/web': '^9.7.5',
+  'lottie-react': '^2.4.1',
+  '@use-gesture/react': '^10.3.1',
+
+  // ── Carousels / sliders / marquee ──
   swiper: '^11.1.15',
   'keen-slider': '^6.8.6',
   'react-fast-marquee': '^1.6.5',
+
+  // ── Charts / data-viz ──
   recharts: '^2.13.3',
   'chart.js': '^4.4.7',
   'react-chartjs-2': '^5.2.0',
+
+  // ── Data / fetch / tables / cache ──
   axios: '^1.7.9',
+  swr: '^2.2.5',
+  ky: '^1.7.4',
+  '@tanstack/react-table': '^8.20.5',
+
+  // ── Forms (extra) ──
+  yup: '^1.6.1',
+  formik: '^2.4.6',
+
+  // ── Dates / utils ──
   dayjs: '^1.11.13',
   'lodash-es': '^4.17.21',
-  nanoid: '^5.0.9',
   uuid: '^11.0.3',
-  jotai: '^2.10.3',
-  zustand: '^5.0.2',
-  immer: '^10.1.1',
-  '@tanstack/react-table': '^8.20.5',
-  swr: '^2.2.5',
+  clsx: '^2.1.1',
+  classnames: '^2.5.1',
+  'tailwind-merge': '^2.6.0',
+
+  // ── Content / markdown ──
   'react-markdown': '^9.0.1',
+  'remark-gfm': '^4.0.0',
+  'react-syntax-highlighter': '^15.6.1',
+
+  // ── Toasts / overlays / UI extras ──
+  'react-hot-toast': '^2.4.1',
+  'react-toastify': '^10.0.6',
+  'react-tooltip': '^5.28.0',
+  '@headlessui/react': '^2.2.0',
+  'react-modal': '^3.16.1',
+  'react-dropzone': '^14.3.5',
+
+  // ── Icons ──
+  'react-icons': '^5.4.0',
+  '@phosphor-icons/react': '^2.1.7',
+  '@heroicons/react': '^2.2.0',
+
+  // ── Viewport / scroll / misc ──
+  'react-intersection-observer': '^9.13.1',
+  'react-use': '^17.6.0',
   'react-countup': '^6.5.3',
   'react-confetti': '^6.1.0',
-  'embla-carousel-autoplay': '^8.5.1',
-  '@use-gesture/react': '^10.3.1',
-  '@react-spring/web': '^9.7.5',
-  gsap: '^3.12.5',
   'qrcode.react': '^4.2.0',
-  'react-use': '^17.6.0',
-  clsx: '^2.1.1',
-  'tailwind-merge': '^2.6.0',
+  'react-helmet-async': '^2.0.5',
+
+  // ── 2D game engines (canvas/webgl, framework-agnostic) ──
+  phaser: '^3.87.0',
+  kaplay: '^3001.0.0',
+  p5: '^1.11.0',
+
+  // ── 3D worlds: physics + ECS + character control (fiber-v8 / React-18 majors) ──
+  '@react-three/rapier': '^1.5.0',
+  '@react-three/cannon': '^6.6.0',
+  'cannon-es': '^0.20.0',
+  ecctrl: '^1.0.93',
+  miniplex: '^2.0.0',
+
+  // ── Drag & drop ──
+  '@dnd-kit/core': '^6.3.1',
+  '@dnd-kit/sortable': '^10.0.0',
+  '@dnd-kit/utilities': '^3.2.2',
+
+  // ── Virtualization (big lists/tables) ──
+  '@tanstack/react-virtual': '^3.11.0',
+  'react-window': '^1.8.11',
+
+  // ── Global state (Redux path) ──
+  '@reduxjs/toolkit': '^2.5.0',
+  'react-redux': '^9.2.0',
+
+  // ── Rich text / code editors ──
+  '@tiptap/react': '^2.10.3',
+  '@tiptap/starter-kit': '^2.10.3',
+  '@tiptap/pm': '^2.10.3',
+  '@monaco-editor/react': '^4.6.0',
+
+  // ── Maps (v4 react-leaflet = React 18; v5 needs React 19) ──
+  'react-leaflet': '^4.2.1',
+  leaflet: '^1.9.4',
+  'mapbox-gl': '^3.9.0',
+
+  // ── More charts / media / scroll ──
+  victory: '^37.3.0',
+  'react-player': '^2.16.0',
+  lenis: '^1.3.0',
+  'react-parallax': '^3.5.1',
+  'react-awesome-reveal': '^4.3.1',
+  animejs: '^3.2.2',
+  '@formkit/auto-animate': '^0.8.2',
+
+  // ── Storage / cookies / clipboard / hooks / slugs ──
+  localforage: '^1.10.0',
+  'js-cookie': '^3.0.5',
+  'copy-to-clipboard': '^3.3.3',
+  'react-hotkeys-hook': '^4.6.0',
+  'usehooks-ts': '^3.1.0',
+  slugify: '^1.6.6',
 }
 
+// Always present in every scaffold (react itself) — skip from pre-declare. NOT
+// react-router-dom: it's absent from games, so it must stay eligible for the
+// KNOWN_PACKAGES pre-declare when a game imports it.
 const NODE_BUILTINS = new Set([
-  'react', 'react-dom', 'react/jsx-runtime', 'react-router-dom',
+  'react', 'react-dom', 'react/jsx-runtime',
 ])
 
 // Pull every BARE package specifier (not relative, not @/ alias) from a file and

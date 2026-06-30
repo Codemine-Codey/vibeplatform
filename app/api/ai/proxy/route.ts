@@ -3,7 +3,7 @@ import { getAdminSupabase } from '@/lib/supabase/server'
 
 export const maxDuration = 60
 
-// ── Codemine-AI-Support — the ONLY AI a generated app may use ─────────────────
+// ── Codemine Codey AI — the ONLY AI a generated app may use ──────────────────
 // User apps call this with their per-project AI token (never a raw provider key).
 // We forward to OpenRouter pinned to DeepSeek V4 Flash (whitelabeled — the app/user
 // never sees the provider), meter the usage, and (later) deduct credits. User-supplied
@@ -62,11 +62,11 @@ export async function POST(req: Request) {
   const inTok = data.usage?.prompt_tokens ?? 0
   const outTok = data.usage?.completion_tokens ?? 0
   sb.from('ai_usage').insert({
-    user_id: project.user_id, project_id: project.id, model: 'codemine-ai-support',
+    user_id: project.user_id, project_id: project.id, model: 'codemine-codey-ai',
     tokens_in: inTok, tokens_out: outTok, credits_used: 0,
   }).then(() => {}, () => {})
 
   // Whitelabel: never expose the underlying model/provider name to the app.
-  if (data.model) data.model = 'codemine-ai-support'
+  if (data.model) data.model = 'codemine-codey-ai'
   return NextResponse.json(data, { status: upstream.status, headers: CORS })
 }

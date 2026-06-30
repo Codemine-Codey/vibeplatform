@@ -24,7 +24,7 @@ const SUBS: { id: Sub; label: string; icon: typeof RocketIcon; desc: string }[] 
   { id: 'auth', label: 'Auth', icon: KeyRoundIcon, desc: 'Let people sign up and log in. Accounts are encrypted and isolated to your app.' },
   { id: 'secrets', label: 'Secrets', icon: LockIcon, desc: 'Store third-party API keys (Stripe, Maps, etc.) securely — encrypted, never in your code.' },
   { id: 'storage', label: 'Storage', icon: HardDriveIcon, desc: 'Store files and uploads — images, documents, user avatars.' },
-  { id: 'ai', label: 'AI', icon: SparklesIcon, desc: 'Your app\'s AI runs on Codemine-AI-Support — a managed model, billed as credits. No key needed.' },
+  { id: 'ai', label: 'AI', icon: SparklesIcon, desc: 'Your app\'s AI runs on Codemine Codey AI — a managed model, billed as credits. No key needed.' },
   { id: 'connectors', label: 'Connectors', icon: PlugIcon, desc: 'Connect to Stripe, Slack, and Google. Coming soon.' },
 ]
 
@@ -114,12 +114,11 @@ function AiInfo() {
     <div className="p-4 space-y-3 text-sm">
       <div className="flex items-center gap-2">
         <CheckCircle2Icon className="w-4 h-4 text-emerald-500" />
-        <span className="font-medium">Codemine-AI-Support is built in</span>
+        <span className="font-medium">Codemine Codey AI is built in</span>
       </div>
       <p className="text-xs text-muted-foreground leading-relaxed">
-        Any AI feature in your app (chatbots, summaries, generators) runs on Codemine-AI-Support — a managed model on par with industry leaders. No API key to fetch, no provider to set up. Usage is billed as credits. Just ask the builder to add an AI feature and it works.
+        Supercharge your app's AI with Codemine Codey AI—a managed, industry-grade model. Skip the API setup and keys; simply ask the builder to add any feature (chatbots, summaries, generators). It works instantly, with credit tracking visible right here.
       </p>
-      <p className="text-xs text-muted-foreground">Credit usage will appear here.</p>
     </div>
   )
 }

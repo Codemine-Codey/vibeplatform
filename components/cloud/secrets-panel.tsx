@@ -63,8 +63,8 @@ export function SecretsPanel({ className }: { className?: string }) {
       </div>
 
       <div className="flex flex-col gap-2 border-t border-primary/10 pt-3">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="STRIPE_SECRET_KEY" className="text-xs font-mono bg-secondary rounded-sm px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30" />
-        <input value={value} onChange={(e) => setValue(e.target.value)} type="password" placeholder="value (hidden, write-only)" className="text-xs font-mono bg-secondary rounded-sm px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30" />
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="SECRET_KEY" className="text-xs font-mono bg-secondary rounded-sm px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30" />
+        <input value={value} onChange={(e) => setValue(e.target.value)} type="password" placeholder="value (hidden)" className="text-xs font-mono bg-secondary rounded-sm px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30" />
         {error && <p className="text-xs text-destructive">{error}</p>}
         <button type="button" onClick={add} disabled={saving || !name.trim() || !value.trim()} className="flex items-center gap-1.5 self-start px-3 py-1.5 rounded-md bg-foreground text-background text-xs font-medium hover:opacity-90 disabled:opacity-50">
           <PlusIcon className="w-3 h-3" />{saving ? 'Saving…' : 'Add secret'}

@@ -6,7 +6,7 @@ import { encryptSecret } from '@/lib/crypto/secrets'
 // Per-project secrets — AES-256 encrypted at rest. Ownership-gated (RLS via getProject).
 // The client only ever sees secret NAMES; values are write-only and decrypted only at
 // deploy time (server-side) for injection. AI keys do NOT belong here — those use the
-// Codemine-AI-Support proxy.
+// Codemine Codey AI proxy.
 
 async function owns(projectId: string): Promise<boolean> {
   const p = await getProject(projectId) // RLS-scoped to the caller
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
   const { projectId, name, value } = (await req.json()) as { projectId?: string; name?: string; value?: string }
   if (!projectId || !name || !value) return NextResponse.json({ error: 'projectId, name, value required' }, { status: 400 })
   if (/(^|_)(OPENAI|ANTHROPIC|CLAUDE|GEMINI|GOOGLE_AI|OPENROUTER)(_|$)/i.test(name)) {
-    return NextResponse.json({ error: 'AI keys are not stored here — your app uses Codemine-AI-Support automatically.' }, { status: 400 })
+    return NextResponse.json({ error: 'AI keys are not stored here — your app uses Codemine Codey AI automatically.' }, { status: 400 })
   }
   if (!(await owns(projectId))) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const sb = getAdminSupabase()
