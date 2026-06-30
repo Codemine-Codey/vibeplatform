@@ -111,13 +111,11 @@ export function SandboxState() {
             </div>
           ) : (
             <>
-              <p className="text-sm font-medium">Your workspace went to sleep</p>
+              <p className="text-sm font-medium">Your workspace went to sleep due to inactivity</p>
               <p className="text-sm text-muted-foreground">
                 {phase === 'failed'
                   ? "We couldn't restore this project automatically. Start a new project to keep building."
-                  : projectId
-                    ? "It timed out from inactivity. Resume and we'll bring your project right back — rebuilding from your saved files if needed."
-                    : "Your workspace timed out. Try resuming — if it's still available, your project will reload."}
+                  : "Just hit resume, and we'll bring your project right back!"}
               </p>
               <div className="flex gap-2 flex-wrap">
                 {phase !== 'failed' && (

@@ -23,6 +23,19 @@ export function OPTIONS() {
   return new Response(null, { headers: CORS })
 }
 
+// Best-effort per-token rate limit (per serverless instance): 20 requests / 60s.
+// A hard backstop against a leaked public token hammering the platform key; proper
+// global limiting + credit enforcement layer on top once pricing is live.
+const rateMap = new Map<string, number[]>()
+function rateOk(token: string): boolean {
+  const now = Date.now()
+  const arr = (rateMap.get(token) || []).filter((t) => now - t < 60_000)
+  if (arr.length >= 20) { rateMap.set(token, arr); return false }
+  arr.push(now)
+  rateMap.set(token, arr)
+  return true
+}
+
 export async function POST(req: Request) {
   const token = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim()
   if (!token) return NextResponse.json({ error: 'Missing Codemine AI token' }, { status: 401, headers: CORS })
@@ -39,18 +52,33 @@ export async function POST(req: Request) {
   const balance = Number(credits?.balance ?? 0)
   // if (balance <= 0) return NextResponse.json({ error: 'Out of AI credits' }, { status: 402, headers: CORS })
 
+  // Per-token rate limit (best-effort, in-memory) — the token is public (compiled into
+  // the app's client JS), so treat it as a low-trust, capped capability. Bounds abuse
+  // even before credit enforcement is on.
+  if (!rateOk(token)) return NextResponse.json({ error: 'Rate limit exceeded — try again shortly' }, { status: 429, headers: CORS })
+
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid request body' }, { status: 400, headers: CORS }) }
 
-  // Force the model + provider — user apps ONLY get DeepSeek V4 Flash, whitelabeled.
+  // WHITELIST the forwarded params — never spread the caller's body (they could set n,
+  // max_tokens huge, logprobs, etc. = cost amplification). Force the model + provider so
+  // user apps ONLY get DeepSeek V4 Flash, whitelabeled, with a hard output cap.
+  const messages = Array.isArray((body as { messages?: unknown }).messages) ? (body as { messages: unknown[] }).messages : []
+  if (messages.length === 0) return NextResponse.json({ error: 'messages required' }, { status: 400, headers: CORS })
+  const rawTemp = (body as { temperature?: unknown }).temperature
+  const rawMax = (body as { max_tokens?: unknown }).max_tokens
+  const safeBody = {
+    model: AI_MODEL,
+    messages,
+    temperature: typeof rawTemp === 'number' ? Math.min(Math.max(rawTemp, 0), 2) : 0.7,
+    max_tokens: Math.min(typeof rawMax === 'number' && rawMax > 0 ? rawMax : 1024, 2000),
+    stream: (body as { stream?: unknown }).stream === true,
+    provider: { order: ['DeepSeek'], allow_fallbacks: true },
+  }
   const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${PLATFORM_AI_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...body,
-      model: AI_MODEL,
-      provider: { order: ['DeepSeek'], allow_fallbacks: true },
-    }),
+    body: JSON.stringify(safeBody),
     signal: AbortSignal.timeout(55_000),
   }).catch(() => null)
 

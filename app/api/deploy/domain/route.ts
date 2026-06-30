@@ -1,14 +1,29 @@
 import { NextResponse } from 'next/server'
+import { getCurrentUser } from '@/lib/supabase/server'
+import { currentUserOwnsSandbox } from '@/lib/projects-db'
 
-const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID ?? '77da4568eb934dee94fa9fc54faec977'
+const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID
 const CF_API_TOKEN = process.env.CF_API_TOKEN ?? ''
+function deployProjectName(sandboxId: string) {
+  return 'cm-' + sandboxId.replace(/[^a-z0-9]/gi, '').toLowerCase().slice(0, 20)
+}
 
 export async function POST(req: Request) {
-  const body = await req.json() as { projectName?: string; domain?: string }
-  const { projectName, domain } = body
+  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) {
+    return NextResponse.json({ error: 'Deploy service not configured' }, { status: 500 })
+  }
+  const body = await req.json() as { sandboxId?: string; domain?: string }
+  const { sandboxId, domain } = body
 
-  if (!projectName || !domain) {
-    return NextResponse.json({ error: 'projectName and domain required' }, { status: 400 })
+  // AUTH + OWNERSHIP — derive the Pages project from an owned sandboxId, not a client name.
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!sandboxId || !(await currentUserOwnsSandbox(sandboxId))) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  const projectName = deployProjectName(sandboxId)
+  if (!domain) {
+    return NextResponse.json({ error: 'domain required' }, { status: 400 })
   }
 
   const res = await fetch(

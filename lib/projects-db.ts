@@ -39,6 +39,22 @@ async function readSandboxBinary(sandbox: Sandbox, path: string): Promise<Buffer
   }
 }
 
+// ── Ownership checks (RLS-scoped) — return true ONLY if the signed-in user owns the
+// project carrying this sandbox_id / database_id. Used to gate the Cloudflare-facing
+// API routes so sandboxId / databaseId / projectName can't be used as bearer secrets.
+export async function currentUserOwnsSandbox(sandboxId: string): Promise<boolean> {
+  if (!sandboxId) return false
+  const sb = await getServerSupabase()
+  const { data } = await sb.from('projects').select('id').eq('sandbox_id', sandboxId).limit(1)
+  return !!(data && data.length > 0)
+}
+export async function currentUserOwnsDatabase(databaseId: string): Promise<boolean> {
+  if (!databaseId) return false
+  const sb = await getServerSupabase()
+  const { data } = await sb.from('projects').select('id').eq('database_id', databaseId).limit(1)
+  return !!(data && data.length > 0)
+}
+
 // ── Project rows (RLS — each call is scoped to the signed-in user) ────────────
 export async function createProjectRow(input: {
   name: string

@@ -149,7 +149,7 @@ export function DeployPanel({ className }: Props) {
       const res = await fetch('/api/deploy/domain', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectName: deployProjectName, domain: domain.trim() }),
+        body: JSON.stringify({ sandboxId, domain: domain.trim() }),
       })
       const data = await res.json() as { success?: boolean; error?: string }
       if (!res.ok || data.error) throw new Error(data.error ?? 'Failed to add domain')
@@ -174,7 +174,7 @@ export function DeployPanel({ className }: Props) {
       const res = await fetch('/api/deploy/envvars', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectName: deployProjectName, vars }),
+        body: JSON.stringify({ sandboxId, vars }),
       })
       const data = await res.json() as { success?: boolean; error?: string }
       if (!res.ok || data.error) throw new Error(data.error ?? 'Failed to save')

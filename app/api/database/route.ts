@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { updateProjectBySandboxId } from '@/lib/projects-db'
+import { updateProjectBySandboxId, currentUserOwnsDatabase, currentUserOwnsSandbox } from '@/lib/projects-db'
+import { getCurrentUser } from '@/lib/supabase/server'
 
 const CF_API_TOKEN = process.env.CF_API_TOKEN
 const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID
@@ -16,6 +17,20 @@ export async function POST(req: Request) {
 
   const CF_BASE = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}`
   const body = await req.json() as { action: string; databaseName?: string; databaseId?: string; sql?: string; projectName?: string; sandboxId?: string }
+
+  // AUTH GATE — every action requires a signed-in user, and any databaseId/sandboxId
+  // must belong to a project THIS user owns (RLS-scoped). Without this, the route ran
+  // arbitrary SQL on any tenant's D1 for anyone on the internet.
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if ((body.action === 'query' || body.action === 'tables')) {
+    if (!body.databaseId || !(await currentUserOwnsDatabase(body.databaseId))) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+  }
+  if (body.action === 'create' && body.sandboxId && !(await currentUserOwnsSandbox(body.sandboxId))) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
 
   if (body.action === 'create') {
     const res = await fetch(`${CF_BASE}/d1/database`, {

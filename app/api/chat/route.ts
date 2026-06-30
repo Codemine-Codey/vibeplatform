@@ -876,10 +876,16 @@ export async function POST(req: Request) {
             // AI with no provider key. Vite auto-restarts on `.env` change, so this is
             // picked up even after the dev server is already running.
             const aiBase = process.env.CM_PUBLIC_BASE_URL || 'https://vibeplatform-rho.vercel.app'
+            const createdId = created.id
             sandboxPromise
-              .then((sb) =>
-                sb.writeFiles([{ path: '.env', content: Buffer.from(`VITE_CODEMINE_AI_URL=${aiBase}/api/ai/proxy\nVITE_CODEMINE_AI_TOKEN=${created.aiToken}\n`, 'utf8') }])
-              )
+              .then(async (sb) => {
+                await sb.writeFiles([{ path: '.env', content: Buffer.from(`VITE_CODEMINE_AI_URL=${aiBase}/api/ai/proxy\nVITE_CODEMINE_AI_TOKEN=${created.aiToken}\n`, 'utf8') }])
+                // Persist sandbox_id EARLY (right after creation, minutes before the
+                // end-of-pipeline snapshot) so the project is resumable even if a long or
+                // interrupted generation never reaches the snapshot step. This alone makes
+                // the same-sandbox resume path work.
+                await updateProjectRow(createdId, { sandbox_id: sb.sandboxId })
+              })
               .catch(() => {})
           }
         }
@@ -1288,6 +1294,18 @@ async function runPipeline({
     // Non-fatal
   }
 
+  // ── EARLY durable snapshot (fire-and-forget) ──────────────────────────────────
+  // All files are written NOW, before the long verify → runtime-check → self-heal
+  // tail. Snapshot immediately so the project is saved even if the request is later
+  // killed (800s cap, connection drop, mid-iteration disruption). It runs during that
+  // tail (minutes of headroom) so it completes; the final snapshot refreshes it.
+  if (projectId && userId) {
+    const pid = projectId, uid = userId
+    snapshotProject(sandbox, uid, pid)
+      .then((p) => (p ? updateProjectRow(pid, { sandbox_id: sandboxId, snapshot_path: p }) : undefined))
+      .catch(() => {})
+  }
+
   // ── Step 4.7: BUILD VERIFICATION + AUTO-REPAIR (the blank-preview guarantee) ─
   // Run vite build as a deterministic compile oracle. If it fails, auto-repair
   // the offending files with Flash (≤3 rounds) BEFORE the dev server starts, so
@@ -1473,15 +1491,23 @@ async function runPipeline({
     // dashboard in a fresh sandbox. Runs after the URL is emitted, so it never
     // blocks what the user sees.
     if (projectId && userId) {
-      snapshotProject(sandbox, userId, projectId)
-        .then(snapshotPath =>
-          updateProjectRow(projectId, {
-            sandbox_id: sandboxId,
-            preview_url: url,
-            ...(snapshotPath ? { snapshot_path: snapshotPath } : {}),
-          })
-        )
-        .catch(() => {})
+      // AWAIT the snapshot (with a timeout) so it actually completes before the function
+      // can freeze. A fire-and-forget promise here was racing the serverless termination
+      // and silently losing the snapshot → resume failed with "no saved snapshot". The
+      // URL is already emitted above, so the user's preview is unaffected by this wait.
+      try {
+        const snapshotPath = await Promise.race([
+          snapshotProject(sandbox, userId, projectId),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 30_000)),
+        ])
+        await updateProjectRow(projectId, {
+          sandbox_id: sandboxId,
+          preview_url: url,
+          ...(snapshotPath ? { snapshot_path: snapshotPath } : {}),
+        })
+      } catch {
+        /* best-effort — early sandbox_id persistence already covers same-sandbox resume */
+      }
     }
   }
 }
