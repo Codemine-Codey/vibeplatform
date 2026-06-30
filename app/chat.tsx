@@ -111,6 +111,7 @@ export function Chat({ className }: Props) {
   const sandboxId = useSandboxStore((s) => s.sandboxId)
   const pendingChatMessage = useSandboxStore((s) => s.pendingChatMessage)
   const setPendingChatMessage = useSandboxStore((s) => s.setPendingChatMessage)
+  const deployStatus = useSandboxStore((s) => s.deployStatus)
 
   // Extract project name from AI's first message: "Building [Name] —..."
   useEffect(() => {
@@ -131,6 +132,9 @@ export function Chat({ className }: Props) {
   }, [messages, sandboxId, setProjectName])
 
   const isWorking = status === 'streaming' || status === 'submitted'
+  // Lock the chat while ANY long operation runs (generation OR a deploy/build) so a new
+  // message can't clash with or interrupt an in-flight Cloud action.
+  const busy = isWorking || deployStatus === 'building' || deployStatus === 'deploying'
 
   const validateAndSubmitMessage = useCallback(
     (text: string) => {
@@ -230,11 +234,12 @@ export function Chat({ className }: Props) {
         )}
         onSubmit={async (event) => {
           event.preventDefault()
+          if (busy) return
           validateAndSubmitMessage(input)
         }}
       >
         {/* Shimmer progress bar at the top of the form when working */}
-        {isWorking && (
+        {busy && (
           <div className="absolute top-0 left-0 right-0 h-px overflow-hidden">
             <div className="chat-shimmer absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-foreground/40 to-transparent" />
           </div>
@@ -242,12 +247,18 @@ export function Chat({ className }: Props) {
 
         <Input
           className="w-full font-mono text-sm rounded-sm border-0 bg-background"
-          disabled={isWorking}
+          disabled={busy}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={isWorking ? 'Codemine is building...' : 'Type your message...'}
+          placeholder={
+            deployStatus === 'building' || deployStatus === 'deploying'
+              ? 'Publishing your project…'
+              : isWorking
+                ? 'Codemine is building...'
+                : 'Type your message...'
+          }
           value={input}
         />
-        <Button type="submit" disabled={status !== 'ready' || !input.trim()}>
+        <Button type="submit" disabled={busy || status !== 'ready' || !input.trim()}>
           <SendIcon className="w-4 h-4" />
         </Button>
       </form>

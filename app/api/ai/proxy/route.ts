@@ -94,7 +94,23 @@ export async function POST(req: Request) {
     tokens_in: inTok, tokens_out: outTok, credits_used: 0,
   }).then(() => {}, () => {})
 
-  // Whitelabel: never expose the underlying model/provider name to the app.
-  if (data.model) data.model = 'codemine-codey-ai'
-  return NextResponse.json(data, { status: upstream.status, headers: CORS })
+  // Whitelabel HARD: strip everything that reveals the underlying model/provider —
+  // the model name, the upstream provider, and the model's reasoning/chain-of-thought.
+  const d = data as Record<string, unknown>
+  d.model = 'codemine-codey-ai'
+  delete d.provider
+  delete d.system_fingerprint
+  const choices = d.choices
+  if (Array.isArray(choices)) {
+    for (const ch of choices as Array<Record<string, unknown>>) {
+      delete ch.reasoning
+      delete ch.reasoning_details
+      const msg = ch.message as Record<string, unknown> | undefined
+      if (msg) {
+        delete msg.reasoning
+        delete msg.reasoning_details
+      }
+    }
+  }
+  return NextResponse.json(d, { status: upstream.status, headers: CORS })
 }
