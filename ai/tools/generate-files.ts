@@ -157,6 +157,18 @@ if (!done) {
 }
 `.trim()
 
+// Foundation = the files that DEFINE shared contracts others import (types, store,
+// hooks, lib, context, data, constants, schema). We generate these FIRST, then feed
+// their real content to the components — so a component can't misname an export it's
+// looking right at. This is the read-first / "prevent" layer (Lovable's approach).
+function isFoundation(path: string): boolean {
+  return (
+    /(^|\/)(types?|store|stores|state|lib|utils?|context|providers?|constants?|data|services|schema|models?|config|api)(\/|\.)/i.test(path) ||
+    /\/hooks?\//i.test(path) ||
+    /\/use[A-Z]\w*\.(ts|tsx)$/.test(path) // custom hooks like useDreams.ts
+  )
+}
+
 interface Params {
   modelId: string
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
@@ -206,16 +218,43 @@ export const generateFiles = ({ writer, modelId, designContext }: Params) =>
 
       // Streaming writeFile tool calls — each file is yielded as soon as Flash
       // finishes writing it. No heartbeat needed; tokens flow continuously.
-      const iterator = getContents({ messages, modelId, paths, designContext })
-      try {
-        for await (const chunk of iterator) {
+      // ── Two-phase (read-first) generation ────────────────────────────────────
+      // Generate FOUNDATION files (types / store / hooks / lib) FIRST, then the
+      // PRESENTATION files (components / pages / App) with the foundation's REAL content
+      // in context. So a component imports the exact exports + object shapes that exist,
+      // instead of guessing and drifting (the useHabitStore-vs-useStore class). This
+      // PREVENTS the contract bugs at the source — Lovable's read-first approach. Falls
+      // back to a single pass when there's no clear foundation/presentation split.
+      const runPass = async (passPaths: string[], context: File[]) => {
+        if (passPaths.length === 0) return
+        const passMessages = context.length === 0
+          ? messages
+          : [
+              ...messages,
+              {
+                role: 'user' as const,
+                content:
+                  'These files ALREADY EXIST in this project. When you import from them, use their EXACT exported names, types, and object shapes — never rename, redefine, or guess. Match them precisely:\n\n' +
+                  context.map((f) => `// ${f.path}\n${f.content.slice(0, 4500)}`).join('\n\n'),
+              },
+            ]
+        const it = getContents({ messages: passMessages, modelId, paths: passPaths, designContext })
+        for await (const chunk of it) {
           if (chunk.files.length > 0) {
-            const error = await writeFiles({
-              ...chunk,
-              written: uploaded.map((f) => f.path),
-            })
+            const error = await writeFiles({ ...chunk, written: uploaded.map((f) => f.path) })
             if (!error) uploaded.push(...chunk.files)
           }
+        }
+      }
+
+      const foundationPaths = paths.filter(isFoundation)
+      const presentationPaths = paths.filter((p) => !isFoundation(p))
+      try {
+        if (foundationPaths.length > 0 && presentationPaths.length > 0) {
+          await runPass(foundationPaths, []) // phase 1: contracts
+          await runPass(presentationPaths, uploaded.slice()) // phase 2: sees phase 1
+        } else {
+          await runPass(paths, [])
         }
       } catch (error) {
         const richError = getRichError({

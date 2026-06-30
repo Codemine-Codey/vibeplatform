@@ -86,11 +86,12 @@ export const FileExplorer = memo(function FileExplorer({
       </PanelHeader>
 
       <div className="flex text-sm h-[calc(100%-2rem-1px)]">
-        <ScrollArea className="w-1/4 border-r border-primary/18 flex-shrink-0">
-          <div>{renderFileTree(fs)}</div>
+        <ScrollArea className="w-1/3 min-w-[220px] border-r border-primary/18 flex-shrink-0">
+          <div className="min-w-max">{renderFileTree(fs)}</div>
+          <ScrollBar orientation="horizontal" />
         </ScrollArea>
         {selected && sandboxId && !disabled && (
-          <ScrollArea className="w-3/4 flex-shrink-0">
+          <ScrollArea className="w-2/3 flex-shrink-0">
             <FileContent
               sandboxId={sandboxId}
               path={selected.path.substring(1)}
@@ -131,7 +132,7 @@ const FileTreeNode = memo(function FileTreeNode({
     <div>
       <div
         className={cn(
-          `flex items-center py-0.5 px-1 hover:bg-gray-100 cursor-pointer`,
+          `flex items-center py-0.5 px-1 whitespace-nowrap hover:bg-gray-100 cursor-pointer`,
           { 'bg-gray-200/80': selected?.path === node.path }
         )}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}

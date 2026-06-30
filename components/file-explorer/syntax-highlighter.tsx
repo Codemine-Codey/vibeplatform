@@ -3,26 +3,35 @@ import grayscale from 'react-syntax-highlighter/dist/esm/styles/hljs/grayscale'
 
 export function SyntaxHighlighter(props: { path: string; code: string }) {
   const lang = detectLanguageFromFilename(props.path)
+  // Read-only viewer — code is not copyable/selectable (no copy, cut, or right-click).
   return (
-    <Prism
-      language={lang ?? 'javascript'}
-      style={grayscale}
-      showLineNumbers
-      showInlineLineNumbers
-      customStyle={{
-        fontSize: '0.875rem',
-        margin: 0,
-        background: 'transparent',
-      }}
-      codeTagProps={{
-        style: {
-          whiteSpace: 'pre',
-          overflowX: 'auto',
-        },
-      }}
+    <div
+      className="select-none"
+      onCopy={(e) => e.preventDefault()}
+      onCut={(e) => e.preventDefault()}
+      onContextMenu={(e) => e.preventDefault()}
     >
-      {props.code}
-    </Prism>
+      <Prism
+        language={lang ?? 'javascript'}
+        style={grayscale}
+        showLineNumbers
+        showInlineLineNumbers
+        customStyle={{
+          fontSize: '0.875rem',
+          margin: 0,
+          background: 'transparent',
+        }}
+        codeTagProps={{
+          style: {
+            whiteSpace: 'pre',
+            overflowX: 'auto',
+            userSelect: 'none',
+          },
+        }}
+      >
+        {props.code}
+      </Prism>
+    </div>
   )
 }
 
