@@ -44,7 +44,7 @@ export async function createProjectRow(input: {
   name: string
   prompt: string
   skill: string
-}): Promise<string | null> {
+}): Promise<{ id: string; aiToken: string } | null> {
   const sb = await getServerSupabase()
   const {
     data: { user },
@@ -63,7 +63,7 @@ export async function createProjectRow(input: {
     console.warn('[projects] createProjectRow failed:', error.message)
     return null
   }
-  return data.id as string
+  return { id: data.id as string, aiToken }
 }
 
 // Background update (snapshot path, preview url, token count). Runs post-response,

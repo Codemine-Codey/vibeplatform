@@ -790,11 +790,25 @@ export async function POST(req: Request) {
         const user = await getCurrentUser()
         let projectId: string | null = null
         if (user) {
-          projectId = await createProjectRow({
+          const created = await createProjectRow({
             name: brief.brandName || 'Untitled project',
             prompt: userText,
             skill,
           })
+          if (created) {
+            projectId = created.id
+            // Inject the Codemine Codey AI proxy creds into the workspace as `.env`
+            // (separate from the DB tool's `.env.local`, so Vite loads BOTH — no clobber).
+            // The generated app reads import.meta.env.VITE_CODEMINE_AI_URL/_TOKEN to call
+            // AI with no provider key. Vite auto-restarts on `.env` change, so this is
+            // picked up even after the dev server is already running.
+            const aiBase = process.env.CM_PUBLIC_BASE_URL || 'https://vibeplatform-rho.vercel.app'
+            sandboxPromise
+              .then((sb) =>
+                sb.writeFiles([{ path: '.env', content: Buffer.from(`VITE_CODEMINE_AI_URL=${aiBase}/api/ai/proxy\nVITE_CODEMINE_AI_TOKEN=${created.aiToken}\n`, 'utf8') }])
+              )
+              .catch(() => {})
+          }
         }
 
         // The design contract the FILE-WRITER must follow (brief tokens + fonts +
