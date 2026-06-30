@@ -96,9 +96,9 @@ export function SandboxState() {
               >
                 <SparklesIcon className="w-10 h-10 text-primary" />
               </motion.div>
-              <p className="text-sm font-medium">Spinning up a fresh workspace…</p>
+              <p className="text-sm font-medium">Spinning up a fresh workspace...</p>
               <p className="text-sm text-muted-foreground mt-1 max-w-xs">
-                Your previous workspace expired, so we&apos;re rebuilding it from your saved files. This can take up to 60 seconds — hang tight ✨
+                Your previous session timed out. We are restoring your environment now so you can pick up right where you left off. This usually takes less than a minute. ✨
               </p>
               <div className="mt-5 h-1 w-48 rounded-full bg-muted overflow-hidden relative">
                 <motion.div
