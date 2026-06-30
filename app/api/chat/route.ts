@@ -27,7 +27,7 @@ import { getSkillCatalog, loadSkillBody, designSkillFor } from '@/ai/skills'
 import { loadSkill } from '@/ai/tools/load-skill'
 import type { Skill } from '@/ai/types/project-brief'
 import { Sandbox } from '@vercel/sandbox'
-import { SCAFFOLD_FILES, getScaffoldFiles } from '@/ai/tools/scaffold'
+import { SCAFFOLD_FILES, SCAFFOLD_PATH_SET, getScaffoldFiles } from '@/ai/tools/scaffold'
 import { saveCheckpoint } from '@/ai/tools/checkpoint'
 import { getWarmEntry } from '@/ai/warm-pool'
 import { restoreBakedDeps } from '@/lib/baked-deps'
@@ -331,7 +331,14 @@ async function verifyAndRepair({
       log = (await readSandboxFile(sandbox, '/tmp/cm-verify.log')) ?? ''
       const exitMatch = log.match(/##EXIT:(\d+)/)
       const ok = exitMatch ? exitMatch[1] === '0' : !/error/i.test(log)
-      if (ok) return // compiles cleanly — preview WILL render
+      if (ok) {
+        // vite build passes (no CSS/import/syntax crash). NOW run a filtered type-check
+        // to catch the contract class vite-build can't see — wrong props, missing
+        // exports, undefined names, wrong arity (the KanbanBoardWrapper bug) — and repair
+        // them BEFORE the preview, not at runtime.
+        await typeCheckGate({ sandbox, sandboxId })
+        return
+      }
 
       const errorBlock = extractBuildError(log)
 
@@ -377,6 +384,72 @@ async function verifyAndRepair({
       type: 'data-run-command',
       data: { sandboxId, command: 'Finalizing your project', args: [], status: 'done', exitCode: 0 },
     })
+  }
+}
+
+// Contract-level TS error codes — wrong/missing props, missing exports, undefined
+// names, wrong arity, no-overload-match. These are REAL bugs (the KanbanBoardWrapper
+// class). We deliberately EXCLUDE strict-null / implicit-any noise (2531/2532/18047/
+// 18048/7006/7053) so the gate fixes contracts without looping on harmless nits.
+const CONTRACT_TS_CODES = new Set([
+  '2304', '2305', '2307', '2322', '2339', '2345', '2551', '2554', '2555',
+  '2613', '2614', '2739', '2740', '2741', '2769',
+])
+function contractTypeErrors(log: string): { files: string[]; block: string } {
+  const hits = log.split('\n').filter((l) => {
+    const m = l.match(/error TS(\d+):/)
+    return m && CONTRACT_TS_CODES.has(m[1])
+  })
+  const files = [
+    ...new Set(
+      hits
+        .map((l) => {
+          const m = l.match(/^([^()]+\.(?:tsx|ts|jsx|js))\(/)
+          return m ? m[1].trim() : ''
+        })
+        .filter(Boolean)
+        // Only repair AI-written files — never the baked, type-clean scaffold.
+        .filter((p) => !SCAFFOLD_PATH_SET.has(p))
+    ),
+  ]
+  return { files, block: hits.slice(0, 20).join('\n') }
+}
+
+// Type-check gate — runs AFTER vite build passes. Catches the contract class vite's
+// esbuild ignores (it strips types). Repairs the offending AI files for up to 2 rounds,
+// then proceeds (the runtime monitor is the final backstop). This is the deterministic
+// rail that turns "wrong props slip to runtime" into "wrong props fixed before preview".
+async function typeCheckGate({ sandbox, sandboxId }: { sandbox: Sandbox; sandboxId: string }): Promise<void> {
+  for (let round = 1; round <= 2; round++) {
+    let log = ''
+    try {
+      const cmd = await sandbox.runCommand({
+        detached: true,
+        cmd: 'bash',
+        args: ['-c', '(./node_modules/.bin/tsc --noEmit --skipLibCheck 2>&1; echo "##DONE") | tee /tmp/cm-tsc.log >/dev/null'],
+      })
+      await Promise.race([
+        cmd.wait(),
+        new Promise<void>((_, rej) => setTimeout(() => rej(new Error('tsc timeout')), 60_000)),
+      ])
+    } catch {
+      /* timeout — read whatever was logged */
+    }
+    log = (await readSandboxFile(sandbox, '/tmp/cm-tsc.log')) ?? ''
+    const { files, block } = contractTypeErrors(log)
+    if (files.length === 0) return // no contract-level type errors — clean
+    logRepair({ layer: 'type-check', action: `round-${round}`, detail: block.slice(0, 200), sandboxId })
+    let repairedAny = false
+    for (const path of files.slice(0, 5)) {
+      const content = await readSandboxFile(sandbox, path)
+      if (!content) continue
+      const fixed = await repairFile(path, content, 'TypeScript contract errors — fix the props/exports/types so they match the real signatures (do NOT change unrelated code):\n' + block)
+      if (fixed && fixed !== content) {
+        await sandbox.writeFiles([{ path, content: Buffer.from(fixed, 'utf8') }])
+        repairedAny = true
+      }
+    }
+    if (!repairedAny) return
   }
 }
 

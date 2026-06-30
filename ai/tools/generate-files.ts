@@ -208,6 +208,19 @@ export const generateFiles = ({ writer, modelId, designContext }: Params) =>
             .filter(Boolean)
             .join('\n\n')
 
+          // The EXACT export signatures of EVERY already-generated file — so a missing
+          // file (e.g. a wrapper) matches the real contracts of the components it
+          // IMPORTS, not just how its consumers use it. This is the fix for closure-
+          // generated files inventing a wrong prop/contract for an existing component.
+          const apiSurface = uploaded
+            .filter(f => /\.(tsx|ts|jsx|js)$/.test(f.path) && !SCAFFOLD_PATH_SET.has(f.path) && !missingPaths.includes(f.path))
+            .map(f => {
+              const lines = f.content.split('\n').filter(l => /^\s*export\s/.test(l)).map(l => l.trim().slice(0, 200))
+              return lines.length ? `// ${f.path}\n${lines.join('\n')}` : ''
+            })
+            .filter(Boolean)
+            .join('\n\n')
+
           const closureMessages = [
             ...messages,
             {
@@ -216,6 +229,8 @@ export const generateFiles = ({ writer, modelId, designContext }: Params) =>
                 'These files are imported but do not exist yet. Create each one COMPLETELY so every import resolves. ' +
                 'Infer the EXACT exports, types, interfaces, props, and function signatures from how they are used in the importing files shown below. ' +
                 'Match the import style (default vs named) exactly. Use real, production-quality code — no stubs.\n\n' +
+                'CRITICAL — match these EXISTING file signatures exactly when you import or render any of them (do NOT invent different props or a different default/named export):\n' +
+                apiSurface + '\n\n' +
                 'Importing files for context:\n' + importerSnippets,
             },
           ]
