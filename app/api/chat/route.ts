@@ -1085,6 +1085,28 @@ async function runPipeline({
 
   const sandboxId = sandbox.sandboxId
 
+  // ── Incremental snapshot loop ─────────────────────────────────────────────
+  // Save the project to storage every ~45s through the WHOLE pipeline, so an
+  // interruption at ANY point (mid-write, verify, dev-start, the 800s cap, a dropped
+  // connection) loses at most ~45s of work — never the project. Each run replaces the
+  // prior snapshot. Self-limits (≤25 fires) so it can't run unbounded; cleared at the end.
+  let snapTimer: ReturnType<typeof setInterval> | null = null
+  if (projectId && userId) {
+    const pid = projectId, uid = userId
+    let fires = 0
+    let snapping = false
+    snapTimer = setInterval(() => {
+      if (fires >= 25) { if (snapTimer) { clearInterval(snapTimer); snapTimer = null } return }
+      if (snapping) return
+      fires++
+      snapping = true
+      snapshotProject(sandbox, uid, pid)
+        .then((p) => (p ? updateProjectRow(pid, { sandbox_id: sandboxId, snapshot_path: p }) : undefined))
+        .catch(() => {})
+        .finally(() => { snapping = false })
+    }, 45_000)
+  }
+
   // Write scaffold files for cold sandboxes (warm pool already has them)
   try {
     if (!hadWarmSandbox) {
@@ -1507,6 +1529,9 @@ async function runPipeline({
     type: 'data-get-sandbox-url',
     data: { url, status: 'done' },
   })
+
+  // Stop the incremental snapshot loop — the final awaited snapshot below supersedes it.
+  if (snapTimer) { clearInterval(snapTimer); snapTimer = null }
 
   // Save a last-known-good checkpoint when the pipeline ends healthy. If a later
   // edit breaks the project beyond repair, the AI's restoreCheckpoint tool brings
