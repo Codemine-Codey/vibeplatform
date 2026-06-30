@@ -56,6 +56,79 @@ function targetPathFor(spec: string, importerPath: string): string | null {
   return /^[A-Z]/.test(last) ? base + '.tsx' : base + '.ts'
 }
 
+// ── Deterministic export-checker ──────────────────────────────────────────────
+// The contract-bug class: file A does `import { useHabitStore } from './store'` but
+// store.ts only exports `useStore`. tsc-in-the-sandbox is unreliable for this; here we
+// have every file in memory, so we resolve each local import against the target's ACTUAL
+// exports and flag any name it doesn't export — with the real export list, so the repair
+// fixes it correctly. Kills the whole class (any idea, any wrong name) before preview.
+
+// Named + default imports per LOCAL module spec, capturing the SOURCE (imported) name.
+function extractNamedImports(content: string): { spec: string; names: string[]; hasDefault: boolean }[] {
+  const out: { spec: string; names: string[]; hasDefault: boolean }[] = []
+  const re = /import\s+([^'";]+?)\s+from\s*['"]([^'"]+)['"]/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(content)) !== null) {
+    const clause = m[1].trim()
+    const spec = m[2]
+    if (!(spec.startsWith('./') || spec.startsWith('../') || spec.startsWith('@/'))) continue
+    const braceIdx = clause.indexOf('{')
+    const head = (braceIdx === -1 ? clause : clause.slice(0, braceIdx)).replace(/\*\s+as\s+[A-Za-z0-9_$]+/, '').replace(/,\s*$/, '').trim()
+    const hasDefault = /^[A-Za-z0-9_$]+$/.test(head)
+    const names: string[] = []
+    if (braceIdx !== -1) {
+      const close = clause.indexOf('}', braceIdx)
+      const inside = clause.slice(braceIdx + 1, close === -1 ? undefined : close)
+      for (const part of inside.split(',')) {
+        const seg = part.trim()
+        if (!seg || seg.startsWith('type ')) continue
+        const asM = seg.match(/^([A-Za-z0-9_$]+)\s+as\s+/)
+        names.push(asM ? asM[1] : seg.split(/\s+/)[0])
+      }
+    }
+    out.push({ spec, names, hasDefault })
+  }
+  return out
+}
+
+// The names a module exports.
+function extractExportNames(content: string): { names: Set<string>; hasDefault: boolean; wildcard: boolean } {
+  const names = new Set<string>()
+  for (const m of content.matchAll(/export\s+(?:async\s+)?(?:function|const|let|var|class|abstract\s+class|type|interface|enum)\s+([A-Za-z0-9_$]+)/g)) names.add(m[1])
+  for (const m of content.matchAll(/export\s*\{([^}]*)\}/g)) {
+    for (const part of m[1].split(',')) {
+      const seg = part.trim()
+      if (!seg) continue
+      const asM = seg.match(/\bas\s+([A-Za-z0-9_$]+)\s*$/)
+      names.add(asM ? asM[1] : seg.split(/\s+/)[0])
+    }
+  }
+  return { names, hasDefault: /export\s+default\b/.test(content), wildcard: /export\s+\*/.test(content) }
+}
+
+export function findExportMismatches(files: { path: string; content: string }[]): { path: string; issue: string }[] {
+  const byPath = new Map(files.map(f => [f.path, f.content]))
+  const out: { path: string; issue: string }[] = []
+  for (const f of files) {
+    if (!/\.(tsx|ts|jsx|js)$/.test(f.path)) continue
+    for (const imp of extractNamedImports(f.content)) {
+      const cand = importCandidates(imp.spec, f.path).find(c => byPath.has(c))
+      if (!cand) continue // external / scaffold / not one of our generated files — skip
+      const tgt = extractExportNames(byPath.get(cand)!)
+      if (tgt.wildcard) continue // re-exports everything; can't verify
+      const missing = imp.names.filter(n => n && !tgt.names.has(n))
+      const missingDefault = imp.hasDefault && !tgt.hasDefault
+      if (missing.length === 0 && !missingDefault) continue
+      const available = [...tgt.names].join(', ') + (tgt.hasDefault ? (tgt.names.size ? ', default' : 'default') : '')
+      const parts: string[] = []
+      if (missing.length) parts.push(`imports { ${missing.join(', ')} } from "${imp.spec}" but that module does NOT export ${missing.length > 1 ? 'them' : 'it'}`)
+      if (missingDefault) parts.push(`imports a default from "${imp.spec}" but it has no default export`)
+      out.push({ path: f.path, issue: `This file ${parts.join(' and ')}. "${imp.spec}" actually exports: ${available || '(nothing)'}. Fix the import to use the correct exported name(s) — and update every usage in this file to match.` })
+    }
+  }
+  return out
+}
+
 // Runs inside the sandbox after file generation to guarantee Vite allowedHosts.
 const VITE_PATCH_SCRIPT = `
 const fs = require('fs');
@@ -257,7 +330,7 @@ export const generateFiles = ({ writer, modelId, designContext }: Params) =>
       // purged dynamic Tailwind classes, index keys, keyless AnimatePresence) and rewrite
       // the offending files ONCE — so they never reach the preview. Deterministic catcher.
       try {
-        const violations = scanFootguns(uploaded)
+        const violations = [...scanFootguns(uploaded), ...findExportMismatches(uploaded)]
         if (violations.length > 0) {
           const byPath = new Map<string, string[]>()
           for (const v of violations) { const a = byPath.get(v.path) ?? []; a.push(v.issue); byPath.set(v.path, a) }
