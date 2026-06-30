@@ -7,6 +7,16 @@ description: Web-game design + logic law — the loop, a rigorous state machine,
 
 > Canvas-first for simple games; three + @react-three/fiber + drei (pre-installed) for 3D; howler for audio; zustand for game state. NO <svg> (Lucide for HUD icons). Keyboard AND touch. localStorage high score.
 
+## 0. CORRECTNESS — the silent bugs that make a game look broken (READ FIRST)
+A polished, correct game beats a juicy broken one. These are the exact failures that read as "amateur" — each is non-negotiable:
+- **The canvas is NEVER blank or black.** Every state (Start, Playing, GameOver) must paint a full frame. The #1 bug: the rAF loop stops on death and nothing repaints → black screen. FIX: keep the loop running in GameOver and draw the overlay every frame, OR draw the final scene + overlay once and stop clearing. On every frame, in every state, something is visible.
+- **GameOver draws the overlay ON TOP of the last frame** — score, best, and an obvious "press/tap to retry" — never over a cleared/void canvas. Mentally test: player dies → overlay appears over the frozen scene, not a black void.
+- **Restart fully resets ALL state** — entity positions and arrays, score, speed, spawn timers, difficulty, shake, particles — and **cancels the old rAF before starting a new loop** (null-check so two loops never run at once; a second loop = double-speed / "broken" feel).
+- **Obstacles spawn cleanly and NEVER overlap or merge.** Fixed horizontal spacing derived from speed (not random positions that can overlap); generate each obstacle/pair ONCE, move it left each frame, remove it when off-screen (no leaks). Gap *position* random within safe bounds; gap *size* constant (or eased with difficulty). Two pipes touching = a bug.
+- **Collision matches the visible sprite** (tight AABB or circle), not an invisible oversized box. Near-misses must not register as hits, and overlaps must.
+- **One source of truth**: a single `state` variable drives both update and draw — never two flags that can disagree.
+- **Effect cleanup**: `cancelAnimationFrame` + `removeEventListener` in the cleanup, so a re-render / StrictMode double-mount never spawns a second loop. Store rAF id in a ref.
+
 ## 1. The contract — decide before coding
 - **Core loop**: the ONE action the player repeats (flap, dodge, match, place, shoot). Make it tight + responsive — input latency is death. The whole game is this loop made juicy.
 - **State machine**: ONE explicit state variable — `Start → Playing → Paused → GameOver → (replay)`. Every transition explicit; never ambiguous. Pause actually freezes the loop (cancel/resume rAF).
