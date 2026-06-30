@@ -96,6 +96,11 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
   // self-heals fast. Dedup + 15s cooldown prevent fix loops.
   const browserSeen = useRef<Set<string>>(new Set())
   const lastBrowserFix = useRef<number>(0)
+  // HARD session cap — total auto-fix attempts across BOTH paths. Without this, each fix
+  // that spawns a NEW error key reports again forever (the 12-minute self-heal loop). After
+  // this many, we stop auto-fixing so an iteration can never outrun a generation.
+  const sessionFixCount = useRef<number>(0)
+  const MAX_SESSION_FIXES = 3
   useEffect(() => {
     return useSandboxStore.subscribe((state) => {
       if (fixErrors === false) return
@@ -105,10 +110,12 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
       if (!latest) return
       const key = latest.data.slice(0, 160)
       if (browserSeen.current.has(key)) return
+      if (sessionFixCount.current >= MAX_SESSION_FIXES) return // hard cap — stop looping
       const now = Date.now()
       if (now - lastBrowserFix.current < 15000) return
       browserSeen.current.add(key)
       lastBrowserFix.current = now
+      sessionFixCount.current += 1
       setTimeout(() => {
         try {
           // data-report-errors renders as a clean "Polishing your preview" message
@@ -157,6 +164,7 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
 
   const handleErrors = (errors: Line[], prev: Line[]) => {
     const now = Date.now()
+    if (sessionFixCount.current >= MAX_SESSION_FIXES) return // hard cap — stop looping
     if (now - lastErrorReportTime.current < 20000) return
 
     const errorKeys = errors.map(getErrorKey)
@@ -173,6 +181,7 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
           newErrors.forEach((key) => errorReportCount.current.set(key, 1))
           lastReportedErrors.current = newErrors
           lastErrorReportTime.current = Date.now()
+          sessionFixCount.current += 1
           sendMessage({
             role: 'user',
             parts: [{ type: 'data-report-errors', data: summary }],
@@ -190,6 +199,8 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
       lastReportedErrors.current = []
       lastErrorReportTime.current = 0
       errorsRef.current = []
+      sessionFixCount.current = 0
+      browserSeen.current.clear()
     }
   }, [hasMessages])
 

@@ -109,9 +109,9 @@ function FileRow({
           >
             <pre
               {...noCopy}
-              className="mt-1 mb-1.5 ml-5 max-h-44 select-none overflow-auto rounded-md border border-zinc-200 bg-white p-2.5 font-mono text-[10px] leading-relaxed text-emerald-700"
+              className="mt-1 mb-1.5 ml-5 max-h-44 select-none overflow-auto rounded-md border border-zinc-200 !bg-white p-2.5 font-mono text-[10px] leading-relaxed !text-emerald-700"
             >
-              <code>{loading ? 'Loading…' : code}</code>
+              <code className="!text-emerald-700 !bg-transparent">{loading ? 'Loading…' : code}</code>
             </pre>
           </motion.div>
         )}

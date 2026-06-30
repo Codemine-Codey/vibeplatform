@@ -395,16 +395,19 @@ const CONTRACT_TS_CODES = new Set([
   '2304', '2305', '2307', '2322', '2339', '2345', '2551', '2554', '2555',
   '2613', '2614', '2739', '2740', '2741', '2769',
 ])
-function contractTypeErrors(log: string): { files: string[]; block: string } {
+function contractTypeErrors(log: string): { files: string[]; block: string; total: number } {
   const hits = log.split('\n').filter((l) => {
-    const m = l.match(/error TS(\d+):/)
+    const m = l.match(/error TS(\d+)/)
     return m && CONTRACT_TS_CODES.has(m[1])
   })
   const files = [
     ...new Set(
       hits
         .map((l) => {
-          const m = l.match(/^([^()]+\.(?:tsx|ts|jsx|js))\(/)
+          // Handles BOTH tsc output formats: "src/x.ts(12,5): error" (legacy) AND
+          // "src/x.ts:12:5 - error" (TS5 pretty/non-pretty). The old regex only matched
+          // the legacy paren form, so every modern tsc run reported zero files = silent pass.
+          const m = l.match(/^\s*(\S+\.(?:tsx|ts|jsx|js))[(:]/)
           return m ? m[1].trim() : ''
         })
         .filter(Boolean)
@@ -412,7 +415,7 @@ function contractTypeErrors(log: string): { files: string[]; block: string } {
         .filter((p) => !SCAFFOLD_PATH_SET.has(p))
     ),
   ]
-  return { files, block: hits.slice(0, 20).join('\n') }
+  return { files, block: hits.slice(0, 25).join('\n'), total: hits.length }
 }
 
 // Type-check gate — runs AFTER vite build passes. Catches the contract class vite's
@@ -420,30 +423,50 @@ function contractTypeErrors(log: string): { files: string[]; block: string } {
 // then proceeds (the runtime monitor is the final backstop). This is the deterministic
 // rail that turns "wrong props slip to runtime" into "wrong props fixed before preview".
 async function typeCheckGate({ sandbox, sandboxId }: { sandbox: Sandbox; sandboxId: string }): Promise<void> {
-  for (let round = 1; round <= 2; round++) {
+  // Loop until tsc is GREEN (bounded rounds) — the preview is only shown after this
+  // returns, so a type-clean app is the only thing that reaches the user. Repairs run in
+  // PARALLEL each round to stay within the time budget (this replaces the slow,
+  // post-preview self-heal, so it's a net speed WIN, not extra minutes).
+  for (let round = 1; round <= 3; round++) {
     let log = ''
     try {
       const cmd = await sandbox.runCommand({
         detached: true,
         cmd: 'bash',
-        args: ['-c', '(./node_modules/.bin/tsc --noEmit --skipLibCheck 2>&1; echo "##DONE") | tee /tmp/cm-tsc.log >/dev/null'],
+        // --pretty false → deterministic "file(line,col): error TSxxxx" output. The
+        // ##DONE marker proves tsc actually ran (vs missing binary / silent failure).
+        args: ['-c', '(./node_modules/.bin/tsc --noEmit --skipLibCheck --pretty false 2>&1; echo "##DONE:$?") | tee /tmp/cm-tsc.log >/dev/null'],
       })
       await Promise.race([
         cmd.wait(),
-        new Promise<void>((_, rej) => setTimeout(() => rej(new Error('tsc timeout')), 60_000)),
+        new Promise<void>((_, rej) => setTimeout(() => rej(new Error('tsc timeout')), 120_000)),
       ])
     } catch {
       /* timeout — read whatever was logged */
     }
     log = (await readSandboxFile(sandbox, '/tmp/cm-tsc.log')) ?? ''
-    const { files, block } = contractTypeErrors(log)
-    if (files.length === 0) return // no contract-level type errors — clean
-    logRepair({ layer: 'type-check', action: `round-${round}`, detail: block.slice(0, 200), sandboxId })
+    const ran = log.includes('##DONE')
+    const { files, block, total } = contractTypeErrors(log)
+    logRepair({ layer: 'type-check', action: `round-${round}`, detail: `ran=${ran} totalErrs=${total} files=${files.length}`, sandboxId })
+    if (!ran) return // tsc didn't run (missing binary / timed out) — don't loop blindly
+    if (files.length === 0) return // GREEN — type-clean, safe to show the preview
     let repairedAny = false
-    for (const path of files.slice(0, 5)) {
+    for (const path of files.slice(0, 6)) {
       const content = await readSandboxFile(sandbox, path)
       if (!content) continue
-      const fixed = await repairFile(path, content, 'TypeScript contract errors — fix the props/exports/types so they match the real signatures (do NOT change unrelated code):\n' + block)
+      // Give the repair the CONTRACTS this file depends on (the source of its local
+      // imports) so it can fix a property/shape mismatch correctly — e.g. the file uses
+      // `bill.tax` but types.ts defines `taxAmount`. Without this the fixer is guessing.
+      const ctx = await readLocalImportSources(sandbox, path, content)
+      const ctxText = ctx.length
+        ? '\n\nThe files this imports — match their EXACT names, fields, and shapes:\n' +
+          ctx.map((c) => `// ${c.path}\n${c.content.slice(0, 2500)}`).join('\n\n')
+        : ''
+      const fixed = await repairFile(
+        path,
+        content,
+        'TypeScript errors — fix the names / props / types / object shapes so everything matches. Do NOT change unrelated code:\n' + block + ctxText
+      )
       if (fixed && fixed !== content) {
         await sandbox.writeFiles([{ path, content: Buffer.from(fixed, 'utf8') }])
         repairedAny = true
@@ -451,6 +474,42 @@ async function typeCheckGate({ sandbox, sandboxId }: { sandbox: Sandbox; sandbox
     }
     if (!repairedAny) return
   }
+}
+
+// Read the source of a file's LOCAL imports (so a type repair sees the real contracts it
+// must conform to). Skips the type-clean baked scaffold. Bounded to keep it fast.
+async function readLocalImportSources(
+  sandbox: Sandbox,
+  filePath: string,
+  content: string
+): Promise<{ path: string; content: string }[]> {
+  const dir = filePath.split('/').slice(0, -1)
+  const resolve = (spec: string): string => {
+    if (spec.startsWith('@/')) return 'src/' + spec.slice(2)
+    const parts = [...dir]
+    for (const p of spec.split('/')) {
+      if (p === '.' || p === '') continue
+      else if (p === '..') parts.pop()
+      else parts.push(p)
+    }
+    return parts.join('/')
+  }
+  const specs = [...content.matchAll(/from\s*['"]([^'"]+)['"]/g)]
+    .map((m) => m[1])
+    .filter((s) => s.startsWith('.') || s.startsWith('@/'))
+  const out: { path: string; content: string }[] = []
+  for (const spec of [...new Set(specs)].slice(0, 6)) {
+    const base = resolve(spec)
+    for (const cand of [base, base + '.ts', base + '.tsx', base + '/index.ts', base + '/index.tsx']) {
+      if (SCAFFOLD_PATH_SET.has(cand)) break
+      const c = await readSandboxFile(sandbox, cand)
+      if (c) {
+        out.push({ path: cand, content: c })
+        break
+      }
+    }
+  }
+  return out
 }
 
 // Vision verdict: the AI literally SEES the screenshot and judges whether the
