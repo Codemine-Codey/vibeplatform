@@ -24,7 +24,8 @@ A polished, correct game beats a juicy broken one. These are the exact failures 
 - **Difficulty curve**: starts easy, ramps. Speed / spawn-rate / complexity scales with score or time. The player should feel themselves getting better as it gets harder.
 
 ## 2. The loop — do it right
-- `requestAnimationFrame` with a **fixed timestep** for physics (accumulate dt, step at 1/60s) so behavior is frame-rate independent; interpolate the render. Never tie game speed to frame rate.
+- **USE THE BAKED ENGINE — don't hand-roll the loop.** `import { useGameLoop, useHighScore, playTone } from '@/components/game/engine'`. `useGameLoop({ update, draw, running })` already does the fixed-timestep, the interpolation, and the correct cleanup (cancels rAF, never double-runs) — the exact things that break hand-written loops. You write only `update(stepMs)` and `draw(alpha)`; set `running` from your state machine (true only while Playing). `useHighScore('mygame')` persists the best; `playTone(freq)` makes a gated blip. This is the reliable foundation — use it.
+- If you must hand-write it: `requestAnimationFrame` with a **fixed timestep** for physics (accumulate dt, step at 1/60s) so behavior is frame-rate independent; interpolate the render. Never tie game speed to frame rate. Store the rAF id in a ref and cancel it in cleanup.
 - Separate **update()** from **draw()**. Constants (speeds, gravity, sizes, colors, spawn rates) at the TOP of the file — easy to tune.
 - Clear the canvas each frame; draw back-to-front (background → entities → particles → HUD).
 - Object-pool particles/bullets — never allocate per frame (GC stutter kills feel).

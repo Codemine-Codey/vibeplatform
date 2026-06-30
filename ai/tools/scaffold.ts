@@ -318,7 +318,7 @@ export function CountUp({ to, duration = 2, suffix = '', prefix = '', className 
 // locked tokens, so structure is reused (fast, fixes truncation) while every project
 // stays unique. The AI PICKS the variant that fits the brand — the same Hero/Footer
 // never repeats verbatim. import { Hero, Footer } from '@/components/blocks/sections'.
-const BLOCKS_SECTIONS_TSX = `import { type ReactNode } from 'react'
+const BLOCKS_SECTIONS_TSX = `import { type ReactNode, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 
@@ -428,6 +428,90 @@ export function Footer(props: { brand: ReactNode; tagline?: string; columns?: Fo
         <div className="mt-12 border-t border-border pt-6 text-xs text-muted-foreground">© {year} {name}. All rights reserved.</div>
       </div>
     </footer>
+  )
+}
+
+// ── APP blocks — common dashboard / web-app patterns (compose with the shadcn ui set) ──
+export function PageHeader(props: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
+  return (
+    <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">{props.title}</h1>
+        {props.subtitle && <p className="mt-1 text-sm text-muted-foreground">{props.subtitle}</p>}
+      </div>
+      {props.actions && <div className="flex items-center gap-2">{props.actions}</div>}
+    </div>
+  )
+}
+
+export function StatCard(props: { label: ReactNode; value: ReactNode; hint?: ReactNode; icon?: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">{props.label}</p>
+        {props.icon}
+      </div>
+      <p className="mt-2 text-3xl font-semibold tracking-tight text-foreground">{props.value}</p>
+      {props.hint && <p className="mt-1 text-xs text-muted-foreground">{props.hint}</p>}
+    </div>
+  )
+}
+
+export function EmptyState(props: { icon?: ReactNode; title: ReactNode; description?: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border px-6 py-16 text-center">
+      {props.icon && <div className="mb-4 text-muted-foreground">{props.icon}</div>}
+      <h3 className="text-base font-medium text-foreground">{props.title}</h3>
+      {props.description && <p className="mt-1 max-w-sm text-sm text-muted-foreground">{props.description}</p>}
+      {props.action && <div className="mt-5">{props.action}</div>}
+    </div>
+  )
+}
+
+// ── More website sections — FeatureGrid, CTA, FAQ (token-driven, content via props) ──
+export function FeatureGrid(props: { items: { icon?: ReactNode; title: ReactNode; description: ReactNode }[]; columns?: 2 | 3 | 4 }) {
+  const cols = props.columns ?? 3
+  const cls = cols === 4 ? 'md:grid-cols-4' : cols === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'
+  return (
+    <div className={'grid grid-cols-1 gap-6 ' + cls}>
+      {props.items.map((it, i) => (
+        <div key={i} className="rounded-xl border border-border bg-card p-6">
+          {it.icon && <div className="mb-4 text-primary">{it.icon}</div>}
+          <h3 className="text-lg font-semibold text-foreground">{it.title}</h3>
+          <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{it.description}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function CTASection(props: { title: ReactNode; subtitle?: ReactNode; primary?: { label: string; href: string }; secondary?: { label: string; href: string } }) {
+  return (
+    <section className="mx-auto w-full max-w-5xl px-6 py-20 text-center">
+      <h2 className="font-display text-4xl md:text-5xl font-bold tracking-tight text-foreground">{props.title}</h2>
+      {props.subtitle && <p className="mx-auto mt-4 max-w-2xl text-lg text-muted-foreground">{props.subtitle}</p>}
+      <div className="mt-8 flex flex-wrap justify-center gap-3">
+        {props.primary && <Link to={props.primary.href} className="inline-flex items-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity">{props.primary.label}</Link>}
+        {props.secondary && <Link to={props.secondary.href} className="inline-flex items-center rounded-md border border-border px-6 py-3 text-sm font-medium hover:bg-accent transition-colors">{props.secondary.label}</Link>}
+      </div>
+    </section>
+  )
+}
+
+export function FAQ(props: { items: { q: ReactNode; a: ReactNode }[] }) {
+  const [open, setOpen] = useState<number | null>(0)
+  return (
+    <div className="mx-auto w-full max-w-3xl divide-y divide-border">
+      {props.items.map((it, i) => (
+        <div key={i} className="py-4">
+          <button type="button" onClick={() => setOpen(open === i ? null : i)} className="flex w-full items-center justify-between text-left">
+            <span className="text-base font-medium text-foreground">{it.q}</span>
+            <span className="ml-4 text-muted-foreground">{open === i ? '−' : '+'}</span>
+          </button>
+          {open === i && <p className="mt-3 text-sm text-muted-foreground leading-relaxed">{it.a}</p>}
+        </div>
+      ))}
+    </div>
   )
 }
 `
@@ -1056,6 +1140,104 @@ const GAME_EXCLUDED_UI = new Set([
   'src/components/blocks/sections.tsx',
 ])
 
+// Game primitives — baked ONLY into game scaffolds. The game LIFECYCLE (the rAF loop,
+// fixed timestep, cleanup, high score, sound) is the #1 source of canvas-game bugs
+// (double loops, blank screens, frame-dependent speed). Bake it once, correctly, so the
+// AI only writes the game-specific update()/draw() — not the error-prone plumbing.
+const GAME_ENGINE_TS = `import { useEffect, useRef, useState, useCallback } from 'react'
+
+// Fixed-timestep game loop with a correct lifecycle. update(stepMs) runs at a fixed
+// 1/60s step (frame-rate INDEPENDENT — no double-speed on fast monitors); draw(alpha)
+// renders with interpolation. Pass running=false to stop (e.g. GameOver/Paused). The
+// rAF is always cancelled on unmount or when running flips — TWO loops can never run.
+export function useGameLoop(opts: { update: (stepMs: number) => void; draw: (alpha: number) => void; running: boolean; step?: number }) {
+  const { update, draw, running, step = 1000 / 60 } = opts
+  const rafRef = useRef<number | null>(null)
+  const updRef = useRef(update); updRef.current = update
+  const drawRef = useRef(draw); drawRef.current = draw
+  useEffect(() => {
+    if (!running) return
+    let last = performance.now()
+    let acc = 0
+    const frame = (now: number) => {
+      acc += Math.min(now - last, 250) // clamp big gaps (tab switch) so physics never explodes
+      last = now
+      while (acc >= step) { updRef.current(step); acc -= step }
+      drawRef.current(acc / step)
+      rafRef.current = requestAnimationFrame(frame)
+    }
+    rafRef.current = requestAnimationFrame(frame)
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); rafRef.current = null }
+  }, [running, step])
+}
+
+// Persistent high score (localStorage). Returns [high, submit].
+export function useHighScore(key: string) {
+  const [high, setHigh] = useState(0)
+  useEffect(() => { setHigh(Number(localStorage.getItem(key) || 0)) }, [key])
+  const submit = useCallback((score: number) => {
+    setHigh((h) => { const n = Math.max(h, score); if (n !== h) localStorage.setItem(key, String(n)); return n })
+  }, [key])
+  return [high, submit] as const
+}
+
+// Tiny Web Audio blip — gated behind the first user gesture (autoplay policy). Call
+// playTone(440) for jump, etc. Never throws if audio is not yet unlocked.
+let _ctx: AudioContext | null = null
+function audioCtx(): AudioContext {
+  if (!_ctx) _ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+  return _ctx
+}
+export function playTone(freq: number, ms = 90, type: OscillatorType = 'square', vol = 0.07) {
+  try {
+    const c = audioCtx(); const o = c.createOscillator(); const g = c.createGain()
+    o.type = type; o.frequency.value = freq; g.gain.value = vol
+    o.connect(g); g.connect(c.destination); o.start()
+    g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + ms / 1000)
+    o.stop(c.currentTime + ms / 1000)
+  } catch { /* audio not unlocked yet */ }
+}
+
+// ── Collision — precise, sprite-tight (use these, don't eyeball boxes) ──
+export function rectsOverlap(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+}
+export function circlesHit(ax: number, ay: number, ar: number, bx: number, by: number, br: number) {
+  const dx = ax - bx, dy = ay - by
+  return dx * dx + dy * dy <= (ar + br) * (ar + br)
+}
+
+// ── Screen shake — add(n) on impact, offset ctx by tick() each frame (decays) ──
+export function useShake() {
+  const v = useRef(0)
+  return {
+    add: (n: number) => { v.current = Math.max(v.current, n) },
+    tick: () => { v.current *= 0.9; if (v.current < 0.1) v.current = 0; return v.current },
+    get value() { return v.current },
+  }
+}
+
+// ── Pooled particle burst (score/death juice) — no per-frame alloc after warmup ──
+export type Particle = { x: number; y: number; vx: number; vy: number; life: number; color: string; size: number }
+export function burst(out: Particle[], x: number, y: number, n: number, color: string) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, s = 1 + Math.random() * 4
+    out.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 1, color, size: 2 + Math.random() * 3 })
+  }
+}
+export function stepParticles(ps: Particle[], gravity = 0.15) {
+  for (let i = ps.length - 1; i >= 0; i--) {
+    const p = ps[i]; p.vy += gravity; p.x += p.vx; p.y += p.vy; p.life -= 0.02
+    if (p.life <= 0) ps.splice(i, 1)
+  }
+}
+`
+
+// Files baked ONLY into game scaffolds (the inverse of GAME_EXCLUDED_UI).
+const GAME_ONLY_FILES: Array<{ path: string; content: string }> = [
+  { path: 'src/components/game/engine.ts', content: GAME_ENGINE_TS },
+]
+
 export function getScaffoldFiles(skill: Skill): Array<{ path: string; content: string }> {
   const mainTsx = { path: 'src/main.tsx', content: makeMainTsx(skill === 'game') }
   if (skill === 'game') {
@@ -1065,6 +1247,7 @@ export function getScaffoldFiles(skill: Skill): Array<{ path: string; content: s
         .map(f =>
           f.path === 'package.json' ? { ...f, content: makePackageJson('game') } : f
         ),
+      ...GAME_ONLY_FILES,
       mainTsx,
     ]
   }
@@ -1088,6 +1271,7 @@ export const SCAFFOLD_PATH_SET: ReadonlySet<string> = new Set([
   'src/lib/utils.ts',
   'src/components/blocks/index.tsx',
   'src/components/blocks/sections.tsx',
+  'src/components/game/engine.ts',
   'public/_redirects',
   'src/components/ui/button.tsx',
   'src/components/ui/card.tsx',
