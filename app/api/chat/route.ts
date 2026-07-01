@@ -677,6 +677,53 @@ async function headlessRuntimeCheck(
       await new Promise(r => setTimeout(r, 800))
     } catch { /* per-route check is best-effort — never blocks the preview */ }
 
+    // ── Game smoke test: a canvas game must ANIMATE + RESPOND to input ──────────
+    // Only fires for a large (game-sized) canvas so a small decorative canvas on a website
+    // is never flagged. Grab the canvas pixels, drive real input (Space/arrows/click), wait,
+    // and grab again — if nothing changed, the game loop isn't running or the start action does
+    // nothing (a frozen/dead game that still "compiles"). This is the deterministic catcher for
+    // the turtle-ball's worse cousin: a game that doesn't move at all.
+    try {
+      const bigCanvas: boolean = await page
+        .evaluate(() => {
+          const c = document.querySelector('canvas') as HTMLCanvasElement | null
+          if (!c) return false
+          const r = c.getBoundingClientRect()
+          return r.width > window.innerWidth * 0.5 && r.height > window.innerHeight * 0.4
+        })
+        .catch(() => false)
+      if (bigCanvas) {
+        const grab = (): Promise<string> =>
+          page
+            .evaluate(() => {
+              const c = document.querySelector('canvas') as HTMLCanvasElement | null
+              if (!c) return ''
+              try {
+                return c.toDataURL().slice(-3000)
+              } catch {
+                return 'tainted'
+              }
+            })
+            .catch(() => '')
+        const before = await grab()
+        await page.evaluate(() => (document.querySelector('canvas') as HTMLElement | null)?.focus?.()).catch(() => {})
+        for (const key of ['Space', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Enter']) {
+          await page.keyboard.press(key).catch(() => {})
+          await new Promise((r) => setTimeout(r, 120))
+        }
+        await page.mouse.click(320, 300).catch(() => {})
+        await new Promise((r) => setTimeout(r, 1600))
+        const after = await grab()
+        if (before && after && before !== 'tainted' && before === after) {
+          return {
+            status: 'broken',
+            detail:
+              'The game canvas is not animating or responding to input — after pressing Space/arrows/Enter and clicking, the canvas did not change at all. The game loop is likely not running (requestAnimationFrame never starts, or `running` stays false) or the start/tap action does nothing. Make the loop run and the primary input start + drive the game.',
+          }
+        }
+      }
+    } catch { /* game smoke test is best-effort — never blocks the preview */ }
+
     // DOM looks populated and no console errors — now the AI LOOKS at it.
     // Catches visually-broken-but-not-erroring pages (white-on-white, off-screen).
     try {
@@ -1613,31 +1660,34 @@ async function runPipeline({
   // Save a last-known-good checkpoint when the pipeline ends healthy. If a later
   // edit breaks the project beyond repair, the AI's restoreCheckpoint tool brings
   // this version back — a working preview always beats a broken one.
+  // Last-known-GOOD checkpoint only when the pipeline ended healthy (restoreCheckpoint target).
   if (!devError) {
     saveCheckpoint(sandbox).catch(() => {})
+  }
 
-    // Durable snapshot → Supabase Storage so the project can be reopened from the
-    // dashboard in a fresh sandbox. Runs after the URL is emitted, so it never
-    // blocks what the user sees.
-    if (projectId && userId) {
-      // AWAIT the snapshot (with a timeout) so it actually completes before the function
-      // can freeze. A fire-and-forget promise here was racing the serverless termination
-      // and silently losing the snapshot → resume failed with "no saved snapshot". The
-      // URL is already emitted above, so the user's preview is unaffected by this wait.
+  // Durable snapshot → Supabase Storage so the project can be reopened in a fresh sandbox.
+  // Runs REGARDLESS of devError — a project that ended with an error must STILL be reopenable
+  // so the user can come back and fix it (never a dead "no saved snapshot"). AWAITED (the URL is
+  // already emitted, so the user's preview is unaffected) and RETRIED with a generous timeout so
+  // snapshot_path is never left NULL for a large project.
+  if (projectId && userId) {
+    let snapshotPath: string | null = null
+    for (let attempt = 0; attempt < 2 && !snapshotPath; attempt++) {
       try {
-        const snapshotPath = await Promise.race([
+        snapshotPath = await Promise.race([
           snapshotProject(sandbox, userId, projectId),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 30_000)),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 60_000)),
         ])
-        await updateProjectRow(projectId, {
-          sandbox_id: sandboxId,
-          preview_url: url,
-          ...(snapshotPath ? { snapshot_path: snapshotPath } : {}),
-        })
       } catch {
-        /* best-effort — early sandbox_id persistence already covers same-sandbox resume */
+        /* retry once */
       }
     }
+    await updateProjectRow(projectId, {
+      sandbox_id: sandboxId,
+      preview_url: url,
+      ...(snapshotPath ? { snapshot_path: snapshotPath } : {}),
+    }).catch(() => {})
+    if (!snapshotPath) console.warn(`[snapshot] final snapshot still NULL after retry for project ${projectId} (sandbox ${sandboxId})`)
   }
 }
 
