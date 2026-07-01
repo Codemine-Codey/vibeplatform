@@ -93,12 +93,12 @@ function PublishingAnimation() {
 
 export function DeployPanel({ className }: Props) {
   const sandboxId = useSandboxStore((s) => s.sandboxId)
+  const projectId = useSandboxStore((s) => s.projectId)
   const deployStatus = useSandboxStore((s) => s.deployStatus)
   const deployedUrl = useSandboxStore((s) => s.deployedUrl)
   const deployError = useSandboxStore((s) => s.deployError)
   const deployProjectName = useSandboxStore((s) => s.deployProjectName)
   const setDeployState = useSandboxStore((s) => s.setDeployState)
-  const setPendingChatMessage = useSandboxStore((s) => s.setPendingChatMessage)
   const chatStatus = useSandboxStore((s) => s.chatStatus)
   const paths = useSandboxStore((s) => s.paths)
 
@@ -122,7 +122,7 @@ export function DeployPanel({ className }: Props) {
       const res = await fetch('/api/deploy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sandboxId }),
+        body: JSON.stringify({ sandboxId, projectId }),
       })
       const data = await res.json() as { url?: string; projectName?: string; error?: string }
       if (!res.ok || data.error) throw new Error(data.error ?? 'Deployment failed')
@@ -132,11 +132,10 @@ export function DeployPanel({ className }: Props) {
       setDeployState({ deployStatus: 'done', deployedUrl: data.url, deployProjectName: data.projectName })
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Something went wrong. Please try again.'
+      // Publishing is a PLATFORM action (our deploy API + Cloudflare) — a failure here is
+      // NEVER something the AI can fix by editing the project. Show it in the panel; do NOT
+      // route it into the chat (that caused the AI to rebuild the project in an endless loop).
       setDeployState({ deployStatus: 'error', deployError: errMsg })
-      // Send error to AI so it can diagnose and fix
-      setPendingChatMessage(
-        `Deployment failed with this error:\n\n${errMsg}\n\nCan you fix the issue so I can publish the project?`
-      )
     }
   }
 

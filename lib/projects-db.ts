@@ -48,6 +48,14 @@ export async function currentUserOwnsSandbox(sandboxId: string): Promise<boolean
   const { data } = await sb.from('projects').select('id').eq('sandbox_id', sandboxId).limit(1)
   return !!(data && data.length > 0)
 }
+// Ownership by the STABLE projectId (the sandbox_id drifts on resume/rehydrate — a
+// project's live workspace changes, its id never does). Scoped to the given user.
+export async function currentUserOwnsProject(projectId: string, userId: string): Promise<boolean> {
+  if (!projectId || !userId) return false
+  const sb = await getServerSupabase()
+  const { data } = await sb.from('projects').select('id').eq('id', projectId).eq('user_id', userId).limit(1)
+  return !!(data && data.length > 0)
+}
 export async function currentUserOwnsDatabase(databaseId: string): Promise<boolean> {
   if (!databaseId) return false
   const sb = await getServerSupabase()

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { Sandbox } from '@vercel/sandbox'
 import { logRepair } from '@/lib/telemetry'
-import { updateProjectBySandboxId, currentUserOwnsSandbox } from '@/lib/projects-db'
+import { updateProjectBySandboxId, updateProjectRow, currentUserOwnsSandbox, currentUserOwnsProject } from '@/lib/projects-db'
 import { getCurrentUser } from '@/lib/supabase/server'
 
 export const maxDuration = 180
@@ -58,13 +58,22 @@ async function ensurePagesProject(name: string): Promise<string | null> {
 }
 
 export async function POST(req: Request) {
-  const { sandboxId } = await req.json() as { sandboxId: string }
+  const { sandboxId, projectId } = await req.json() as { sandboxId: string; projectId?: string }
   if (!sandboxId) return NextResponse.json({ error: 'sandboxId required' }, { status: 400 })
-  // AUTH + OWNERSHIP — only the owner may deploy their own workspace.
+  // AUTH + OWNERSHIP. Authorize by the STABLE projectId when the client has it (the
+  // sandbox_id drifts every time a workspace sleeps + rehydrates, which made deploy fail
+  // with "Not found" even for the real owner). When it matches, re-link the current
+  // sandbox to the project so the DB self-heals. Fall back to the sandbox check otherwise.
   const user = await getCurrentUser()
-  if (!user || !(await currentUserOwnsSandbox(sandboxId))) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  let owns = false
+  if (projectId && (await currentUserOwnsProject(projectId, user.id))) {
+    owns = true
+    await updateProjectRow(projectId, { sandbox_id: sandboxId }).catch(() => {})
+  } else if (await currentUserOwnsSandbox(sandboxId)) {
+    owns = true
   }
+  if (!owns) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!CF_API_TOKEN || !CF_ACCOUNT_ID) {
     return NextResponse.json({ error: 'Deployment not configured' }, { status: 500 })
   }
