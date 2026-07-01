@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server'
-import { classifyPrompt } from '@/ai/classifier'
 import { generateClarifyQuestions } from '@/ai/clarify-questions'
 import { getCurrentUser } from '@/lib/supabase/server'
 
 export const maxDuration = 30
 
-// Personalization questions for a NEW project's first prompt. Returns [] when the prompt is too
-// vague to classify (the normal flow handles that) or on any failure — the build then proceeds
-// with no questions. Fast (Flash), auth-gated.
+// Personalization questions for a NEW project's first prompt. ONE model call (the generator infers
+// the project type itself) so it stays fast — the previous classify+generate pair timed out (504).
+// Returns [] on any failure so the build proceeds with no questions. Auth-gated.
 export async function POST(req: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ questions: [] })
@@ -20,8 +19,6 @@ export async function POST(req: Request) {
   }
   if (!prompt) return NextResponse.json({ questions: [] })
 
-  const cls = await classifyPrompt(prompt)
-  if (cls.clarify || !cls.skill) return NextResponse.json({ questions: [] })
-  const questions = await generateClarifyQuestions(prompt, cls.skill)
+  const questions = await generateClarifyQuestions(prompt)
   return NextResponse.json({ questions })
 }

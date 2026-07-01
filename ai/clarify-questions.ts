@@ -10,22 +10,25 @@ export interface ClarifyQuestion {
 
 // Generate 2-3 SHORT personalization questions for a new project, each with 3 concrete options.
 // Asked once on the first build request so the result matches the user's taste — never about tech.
-export async function generateClarifyQuestions(userPrompt: string, skill: string): Promise<ClarifyQuestion[]> {
+// ONE fast model call (it infers the project type itself — no separate classify step, which made
+// the endpoint time out).
+export async function generateClarifyQuestions(userPrompt: string): Promise<ClarifyQuestion[]> {
   let output: ClarifyQuestion[] | null = null
   try {
     await generateText({
       ...getModelOptions(ORCHESTRATION_MODEL),
-      maxOutputTokens: 1500,
+      maxOutputTokens: 1200,
       stopWhen: stepCountIs(2),
       system:
-        `You personalize a ${skill} BEFORE it is built. Ask 2-3 short, plain-language questions whose ` +
-        `answers meaningfully change the result — visual style/mood, audience/purpose, or the core focus. ` +
-        `Each question has EXACTLY 3 concrete, distinct options (the user can also type their own or skip).\n\n` +
+        `You personalize a web project (website, app, or game) BEFORE it is built. From the user's request, ` +
+        `infer what they want, then ask 2-3 short, plain-language questions whose answers meaningfully change ` +
+        `the result — visual style/mood, audience/purpose, or the core focus. Each question has EXACTLY 3 ` +
+        `concrete, distinct options (the user can also type their own or skip).\n\n` +
         `Rules:\n` +
         `- NEVER ask about tech, stack, hosting, database, or framework — those are decided.\n` +
         `- Keep questions non-technical and specific to what they asked for.\n` +
         `- Options must be concrete and different from each other (e.g. "Warm & minimal", "Bold & playful", "Dark & sleek").\n` +
-        `- For a ${skill === 'game' ? 'game: ask about art style, difficulty/vibe, or core challenge' : skill === 'website' ? 'website: ask about visual style, tone, or the main goal' : 'app: ask about the core use, style, or who it is for'}.\n` +
+        `- Website → visual style, tone, main goal. App → core use, style, who it's for. Game → art style, vibe, core challenge.\n` +
         `Use the ask tool.`,
       messages: [{ role: 'user', content: userPrompt }],
       tools: {

@@ -172,6 +172,7 @@ export function Chat({ className }: Props) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prompt: text }),
+            signal: AbortSignal.timeout(15_000), // snappy — if questions aren't ready fast, just build
           })
           const data = (await res.json()) as { questions?: ClarifyQuestion[] }
           if (Array.isArray(data.questions) && data.questions.length > 0) {
