@@ -1062,6 +1062,24 @@ async function runAgenticLoop({
     }
   })
 
+  // ── EDIT-STAGE GATE ───────────────────────────────────────────────────────
+  // The initial generation runs the build+type gate, but EDITS didn't — so an edit that
+  // introduced a contract/type error (wrong import name, wrong prop, a missing file, the
+  // triggerConfetti-vs-Confetti class) reached the user and only the slow client self-heal
+  // caught it. Run the type-check gate HERE, awaited, so the edit is fixed before the turn
+  // ends — clean + fast, no post-preview loop. tsc is ~20s and catches the whole class.
+  if (isEdit) {
+    const { sandboxId } = getProjectContext(messages)
+    if (sandboxId) {
+      try {
+        const sandbox = await Sandbox.get({ sandboxId })
+        await typeCheckGate({ sandbox, sandboxId })
+      } catch {
+        /* non-fatal — the runtime monitor remains as the final backstop */
+      }
+    }
+  }
+
   // After an edit turn: re-snapshot the project (so the saved copy reflects the
   // latest edits — resume is lossless) and add this turn's tokens. Background;
   // the user already has the streamed response.
