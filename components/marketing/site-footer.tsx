@@ -3,17 +3,17 @@ import { Zap } from 'lucide-react'
 
 export function SiteFooter() {
   return (
-    <footer className="border-t border-black/[0.06] bg-background">
+    <footer className="border-t border-white/[0.08] bg-[#04060f]">
       <div className="mx-auto max-w-6xl px-5 py-14">
         <div className="flex flex-col gap-10 md:flex-row md:items-start md:justify-between">
           <div className="max-w-xs">
             <Link href="/home" className="flex items-center gap-2">
-              <span className="flex size-8 items-center justify-center rounded-lg bg-neutral-900 text-white">
+              <span className="flex size-8 items-center justify-center rounded-lg bg-blue-600 text-white shadow-md shadow-blue-900/40">
                 <Zap className="size-4" />
               </span>
-              <span className="text-lg font-semibold tracking-tight">Codemine</span>
+              <span className="text-lg font-semibold tracking-tight text-white">Codemine</span>
             </Link>
-            <p className="mt-3 text-sm text-muted-foreground">
+            <p className="mt-3 text-sm text-neutral-400">
               Describe it, and Codemine builds a real, deployed web app — no setup, no boilerplate.
             </p>
           </div>
@@ -45,7 +45,7 @@ export function SiteFooter() {
           </div>
         </div>
 
-        <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-black/[0.06] pt-6 text-sm text-muted-foreground sm:flex-row">
+        <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-white/[0.08] pt-6 text-sm text-neutral-500 sm:flex-row">
           <p>© {new Date().getFullYear()} Codemine. All rights reserved.</p>
           <p>Built with Codemine.</p>
         </div>
@@ -63,13 +63,13 @@ function FooterCol({
 }) {
   return (
     <div>
-      <h4 className="text-sm font-semibold">{title}</h4>
+      <h4 className="text-sm font-semibold text-white">{title}</h4>
       <ul className="mt-3 space-y-2">
         {links.map((l) => (
           <li key={l.label}>
             <Link
               href={l.href}
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="text-sm text-neutral-400 transition-colors hover:text-white"
             >
               {l.label}
             </Link>

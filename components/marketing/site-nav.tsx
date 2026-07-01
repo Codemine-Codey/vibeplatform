@@ -19,13 +19,13 @@ export function SiteNav() {
     // Floating, centered glass pill. `sticky` keeps it in normal flow so the
     // content below is never hidden behind it.
     <header className="sticky top-0 z-50 px-4 pt-4">
-      <div className="mx-auto flex max-w-fit items-center gap-2 rounded-full border border-black/[0.07] bg-background/70 px-2 py-2 shadow-[0_8px_30px_-12px_rgba(0,0,0,0.25)] backdrop-blur-md sm:gap-4">
+      <div className="mx-auto flex max-w-fit items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-2 py-2 text-neutral-100 shadow-[0_8px_30px_-12px_rgba(0,0,0,0.6)] backdrop-blur-xl sm:gap-4">
         {/* logo */}
         <Link href="/home" className="flex shrink-0 items-center gap-2 pl-2 pr-1">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-neutral-900 text-white">
+          <span className="flex size-8 items-center justify-center rounded-lg bg-blue-600 text-white shadow-md shadow-blue-900/40">
             <Zap className="size-4" />
           </span>
-          <span className="text-base font-semibold tracking-tight">Codemine</span>
+          <span className="text-base font-semibold tracking-tight text-white">Codemine</span>
         </Link>
 
         {/* centered links */}
@@ -34,7 +34,7 @@ export function SiteNav() {
             <Link
               key={l.label}
               href={l.href}
-              className="rounded-full px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground"
+              className="rounded-full px-3.5 py-1.5 text-sm text-neutral-300 transition-colors hover:bg-white/10 hover:text-white"
             >
               {l.label}
             </Link>
@@ -43,10 +43,19 @@ export function SiteNav() {
 
         {/* auth actions */}
         <div className="hidden items-center gap-1.5 pl-1 md:flex">
-          <Button asChild variant="ghost" size="sm" className="rounded-full">
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className="rounded-full text-neutral-200 hover:bg-white/10 hover:text-white"
+          >
             <Link href="/login">Sign in</Link>
           </Button>
-          <Button asChild size="sm" className="rounded-full">
+          <Button
+            asChild
+            size="sm"
+            className="rounded-full bg-blue-600 text-white hover:bg-blue-500"
+          >
             <Link href="/signup">Sign up</Link>
           </Button>
         </div>
@@ -56,7 +65,7 @@ export function SiteNav() {
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-label="Toggle menu"
-          className="flex size-9 items-center justify-center rounded-full text-foreground transition-colors hover:bg-black/[0.04] md:hidden"
+          className="flex size-9 items-center justify-center rounded-full text-white transition-colors hover:bg-white/10 md:hidden"
         >
           {open ? <X className="size-5" /> : <Menu className="size-5" />}
         </button>
@@ -65,9 +74,9 @@ export function SiteNav() {
       {/* mobile sheet — a compact card that drops under the pill */}
       <div
         className={cn(
-          'mx-auto mt-2 max-w-fit overflow-hidden rounded-3xl border bg-background/90 shadow-lg backdrop-blur-md transition-all md:hidden',
+          'mx-auto mt-2 max-w-fit overflow-hidden rounded-3xl border bg-[#0a0f22]/95 shadow-lg backdrop-blur-xl transition-all md:hidden',
           open
-            ? 'max-h-96 border-black/[0.07] opacity-100'
+            ? 'max-h-96 border-white/10 opacity-100'
             : 'pointer-events-none max-h-0 border-transparent opacity-0',
         )}
         style={{ transition: 'max-height 260ms ease, opacity 200ms ease' }}
@@ -78,16 +87,25 @@ export function SiteNav() {
               key={l.label}
               href={l.href}
               onClick={() => setOpen(false)}
-              className="rounded-xl px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="rounded-xl px-3 py-2.5 text-sm text-neutral-300 hover:bg-white/10 hover:text-white"
             >
               {l.label}
             </Link>
           ))}
           <div className="mt-2 flex flex-col gap-2">
-            <Button asChild variant="outline" onClick={() => setOpen(false)}>
+            <Button
+              asChild
+              variant="outline"
+              onClick={() => setOpen(false)}
+              className="border-white/15 bg-transparent text-neutral-100 hover:bg-white/10 hover:text-white"
+            >
               <Link href="/login">Sign in</Link>
             </Button>
-            <Button asChild onClick={() => setOpen(false)}>
+            <Button
+              asChild
+              onClick={() => setOpen(false)}
+              className="bg-blue-600 text-white hover:bg-blue-500"
+            >
               <Link href="/signup">Sign up</Link>
             </Button>
           </div>
