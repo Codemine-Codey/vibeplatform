@@ -1077,6 +1077,21 @@ async function runAgenticLoop({
     }
   }
 
+  // RESUME an interrupted build — the "Continue generation" button sends this exact phrase. In a
+  // normal edit generateFiles is banned, but a resume MUST be able to create the files the cut-off
+  // generation never wrote. Explicitly allow it here for the MISSING files only, and tell the AI to
+  // finish, not restart. (This is the stopgap; full event-log resume is the durable-runs workstream.)
+  if (isEdit && /continue from where you left off/i.test(getLastUserText(messages))) {
+    resolvedSystemPrompt +=
+      `\n\n## RESUMING AN INTERRUPTED BUILD (do NOT start over)\n` +
+      `The previous generation was cut off before finishing. FIRST use grepCode + readFiles to see what ` +
+      `already exists. Identify which expected files are MISSING or incomplete (a telltale sign: App.tsx ` +
+      `imports a page/component that does not exist yet, or a file is empty/short). CREATE those missing ` +
+      `files with generateFiles — allowed here for MISSING files ONLY — matching the existing files' ` +
+      `imports, design tokens, and style EXACTLY. Do NOT rewrite files that are already complete. Then ` +
+      `confirm the app builds and renders with no error.`
+  }
+
   const result = streamText({
     ...getModelOptions(isEdit ? EDIT_MODEL : DEFAULT_MODEL),
     system: resolvedSystemPrompt,
