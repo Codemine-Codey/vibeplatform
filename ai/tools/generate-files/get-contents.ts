@@ -97,6 +97,34 @@ function fixRouter(path: string, content: string): string {
 // separated by a comment header like `// src/pages/Contact.tsx`. The second file
 // then never exists → broken import → broken preview. Detect those boundary
 // markers and split the content back into the intended files deterministically.
+// ── Content-corruption guard (the root fix for the "true]}" bug) ──────────────
+// DeepSeek intermittently emits MALFORMED tool-call JSON for a large file body: a JSON fragment
+// (e.g. `true]}`) leaks into the START of the content, and sometimes the whole import block is
+// dropped. Writing that garbage to disk is what caused broken previews + multi-minute self-heals.
+// So before ANY file is written: (1) strip a leading JSON-artifact prefix, (2) if a code file is
+// STILL clearly corrupted (no import/export/declaration/comment near the top — i.e. it lost its
+// real head), REJECT it (return null) so the missing-file retry regenerates it cleanly. Garbage
+// never reaches the preview.
+function sanitizeContent(path: string, raw: string): string | null {
+  let content = raw
+  // Strip a leading JSON fragment: an optional bare literal (true/false/null) followed by closing
+  // brackets/braces and any stray '>' or whitespace the broken parse left behind. Only fires when
+  // the prefix actually contains a ] or } — real source never starts with those.
+  const junk = content.match(/^\s*(?:true|false|null)?\s*[\]}][\]}>\s]*/)
+  if (junk && /[\]}]/.test(junk[0])) content = content.slice(junk[0].length)
+  content = content.replace(/^[\s>]+/, '')
+  if (content.trim().length < 5) return null
+  if (/\.(tsx?|jsx?|mjs|cjs)$/.test(path)) {
+    const head = content.slice(0, 260)
+    const looksLikeCode =
+      /(^|\n)\s*(import|export|const|let|var|function|class|type|interface|enum|async|declare)\b/.test(head) ||
+      /(^|\n)\s*(\/\/|\/\*)/.test(head) ||
+      /^['"]use (client|strict)['"]/.test(content.trimStart())
+    if (!looksLikeCode) return null // corrupted beyond a prefix (e.g. lost its imports) → regenerate
+  }
+  return content
+}
+
 function splitConcatenated(path: string, content: string, requested: string[]): File[] {
   const markers: Array<{ idx: number; path: string }> = []
   for (const other of requested) {
@@ -225,8 +253,15 @@ export async function* getContents(
         }),
         execute: async ({ path, content }) => {
           if (!paths.includes(path)) return 'skipped: not in requested list'
-          if (content.trim().length < 5) return 'skipped: empty content'
-          for (const file of splitConcatenated(path, content, paths)) {
+          // INTEGRITY GATE — reject corrupted tool-call output (the `true]}` fragment / dropped
+          // imports) BEFORE it touches disk. A rejected file is left unwritten → the missing-file
+          // retry regenerates it cleanly. Garbage never reaches the preview.
+          const clean = sanitizeContent(path, content)
+          if (clean === null) {
+            console.warn(`[getContents] rejected corrupted content for ${path} — will regenerate`)
+            return 'The content for this file was corrupted/incomplete. Call writeFile again for this exact path with the COMPLETE, valid file (start with the imports).'
+          }
+          for (const file of splitConcatenated(path, clean, paths)) {
             enqueue({ path: file.path, content: fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content)))) })
           }
           return 'ok'
