@@ -20,16 +20,19 @@ export async function generateClarifyQuestions(userPrompt: string): Promise<Clar
       maxOutputTokens: 1200,
       stopWhen: stepCountIs(2),
       system:
-        `You personalize a web project (website, app, or game) BEFORE it is built. From the user's request, ` +
-        `infer what they want, then ask 2-3 short, plain-language questions whose answers meaningfully change ` +
-        `the result — visual style/mood, audience/purpose, or the core focus. Each question has EXACTLY 3 ` +
-        `concrete, distinct options (the user can also type their own or skip).\n\n` +
+        `You personalize a web project (website, app, or game) BEFORE it is built.\n\n` +
+        `STEP 1 — decide if this message is a real request to BUILD something (a website, app, or game). ` +
+        `If it is NOT — a greeting ("hi", "hello"), a question, chit-chat, thanks, a command to you, or too ` +
+        `vague to build ("make something") — call the ask tool with an EMPTY questions array. Ask NOTHING.\n\n` +
+        `STEP 2 — only if it IS a build request: infer what they want, then ask 2-3 short, plain-language ` +
+        `questions whose answers meaningfully change the result — visual style/mood, audience/purpose, or the ` +
+        `core focus. Each question has EXACTLY 3 concrete, distinct options (the user can also type their own).\n\n` +
         `Rules:\n` +
         `- NEVER ask about tech, stack, hosting, database, or framework — those are decided.\n` +
         `- Keep questions non-technical and specific to what they asked for.\n` +
         `- Options must be concrete and different from each other (e.g. "Warm & minimal", "Bold & playful", "Dark & sleek").\n` +
         `- Website → visual style, tone, main goal. App → core use, style, who it's for. Game → art style, vibe, core challenge.\n` +
-        `Use the ask tool.`,
+        `Return either 0 questions (not a build request) or 2-3 questions (a build request). Use the ask tool.`,
       messages: [{ role: 'user', content: userPrompt }],
       tools: {
         ask: tool({
@@ -42,8 +45,8 @@ export async function generateClarifyQuestions(userPrompt: string): Promise<Clar
                   options: z.array(z.string()).length(3).describe('Exactly 3 concrete, distinct choices'),
                 })
               )
-              .min(2)
-              .max(3),
+              .max(4)
+              .describe('EMPTY if this is not a build request; otherwise 2-3 questions'),
           }),
           execute: async (args) => {
             output = args.questions
