@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import type { ComponentType, ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import {
   ArrowRight,
@@ -19,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { SiteNav } from '@/components/marketing/site-nav'
 import { SiteFooter } from '@/components/marketing/site-footer'
 import { Reveal } from '@/components/marketing/reveal'
+import { cn } from '@/lib/utils'
 
 export function Landing() {
   return (
@@ -253,14 +255,52 @@ function HowItWorks() {
 }
 
 /* -------------------------------------------------------------- FEATURES */
-const FEATURES = [
-  { icon: Eye, title: 'Instant preview', body: 'Watch your app build and run live as it is generated.' },
-  { icon: Rocket, title: 'One-click deploy', body: 'Ship to a real URL the moment it is ready.' },
-  { icon: Database, title: 'Built-in database & auth', body: 'Sign-in and persistence wired up, no config.' },
-  { icon: ImageIcon, title: 'AI images', body: 'Beautiful, on-brand imagery placed automatically.' },
-  { icon: Globe, title: 'Custom domains', body: 'Point your own domain at your finished app.' },
-  { icon: Wand2, title: 'Live editing', body: 'Refine anything by chatting — no code required.' },
-]
+const bentoContainer = {
+  hidden: {},
+  show: {
+    transition: { staggerChildren: 0.1 },
+  },
+}
+
+const bentoItem = {
+  hidden: { opacity: 0, y: 20 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { type: 'spring' as const, stiffness: 100, damping: 10 },
+  },
+}
+
+function BentoCard({
+  icon: Icon,
+  title,
+  body,
+  className,
+  children,
+}: {
+  icon: ComponentType<{ className?: string }>
+  title: string
+  body: string
+  className?: string
+  children?: ReactNode
+}) {
+  return (
+    <motion.div
+      variants={bentoItem}
+      className={cn(
+        'group flex h-full flex-col rounded-2xl border border-black/[0.07] bg-card p-6 shadow-sm transition-all hover:-translate-y-1 hover:shadow-md',
+        className,
+      )}
+    >
+      <div className="flex size-11 items-center justify-center rounded-xl bg-neutral-900 text-white shadow-sm">
+        <Icon className="size-5" />
+      </div>
+      <h3 className="mt-4 text-lg font-semibold text-neutral-900">{title}</h3>
+      <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{body}</p>
+      {children}
+    </motion.div>
+  )
+}
 
 function Features() {
   return (
@@ -276,80 +316,230 @@ function Features() {
           </p>
         </Reveal>
 
-        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map((f, i) => (
-            <Reveal key={f.title} delay={(i % 3) * 0.08}>
-              <div className="group h-full rounded-2xl border border-black/[0.07] bg-card p-6 shadow-sm transition-all hover:-translate-y-1 hover:shadow-md">
-                <div className="flex size-11 items-center justify-center rounded-lg bg-neutral-900 text-white">
-                  <f.icon className="size-5" />
-                </div>
-                <h3 className="mt-4 text-base font-semibold text-neutral-900">{f.title}</h3>
-                <p className="mt-1.5 text-sm text-muted-foreground">{f.body}</p>
+        <motion.div
+          variants={bentoContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: '-80px' }}
+          className="mt-14 grid auto-rows-[minmax(180px,auto)] grid-cols-1 gap-6 md:grid-cols-3 md:grid-rows-3"
+        >
+          {/* TALL — Cloud, built in */}
+          <BentoCard
+            icon={Database}
+            title="Cloud, built in"
+            body="Database, auth, secrets, and file storage wired up the moment you need them — zero config, zero dashboards."
+            className="md:row-span-3"
+          >
+            <div className="mt-6 flex-1" />
+            <ul className="space-y-2.5">
+              {[
+                'Postgres database, ready to query',
+                'Email & social sign-in',
+                'Encrypted secrets & env vars',
+                'File & image storage',
+              ].map((point) => (
+                <li key={point} className="flex items-center gap-2.5 text-sm text-neutral-700">
+                  <Check className="size-4 shrink-0 text-orange-600" />
+                  {point}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-6 rounded-xl border border-black/[0.06] bg-secondary/60 p-3">
+              <div className="flex items-center gap-2 text-xs font-medium text-neutral-500">
+                <Database className="size-3.5" /> users
               </div>
-            </Reveal>
-          ))}
-        </div>
+              <div className="mt-2 space-y-1.5">
+                <div className="h-2 w-full rounded bg-muted" />
+                <div className="h-2 w-4/5 rounded bg-muted" />
+                <div className="h-2 w-2/3 rounded bg-muted" />
+              </div>
+            </div>
+          </BentoCard>
+
+          {/* 1x1 cards */}
+          <BentoCard
+            icon={Eye}
+            title="Instant live preview"
+            body="Watch your app build and run in real time as it is generated."
+          />
+          <BentoCard
+            icon={Rocket}
+            title="One-click deploy"
+            body="Ship to a real, shareable URL the moment it is ready."
+          />
+          <BentoCard
+            icon={ImageIcon}
+            title="AI images, on brand"
+            body="Beautiful, contextual imagery placed automatically — never a grey box."
+          />
+          <BentoCard
+            icon={Globe}
+            title="Custom domains"
+            body="Point your own domain at your finished app in a few clicks."
+          />
+
+          {/* WIDE — Chat to edit */}
+          <BentoCard
+            icon={Wand2}
+            title="Chat to edit"
+            body="Describe a change in plain English and watch it happen live — no code, no waiting."
+            className="md:col-span-2"
+          />
+        </motion.div>
       </div>
     </section>
   )
 }
 
 /* --------------------------------------------------------------- REVIEWS */
-const REVIEWS = [
+type Review = { name: string; handle: string; quote: string }
+
+const REVIEWS: Review[] = [
   {
-    name: 'Maya Chen',
-    role: 'Indie founder',
+    name: 'Ayesha Khan',
+    handle: '@ayeshabuilds',
     quote:
-      'I shipped my landing page and waitlist in an afternoon. It felt less like coding and more like describing what I wanted.',
-    color: 'bg-violet-500',
+      'I described a bakery site and watched it appear, section by section. Live in under ten minutes — I still can’t believe I wrote zero code.',
   },
   {
-    name: 'Dev Patel',
-    role: 'Product designer',
+    name: 'Bilal Ahmed',
+    handle: '@bilaldev',
     quote:
-      'The live preview sold me. I iterate on layout by just chatting, and it looks genuinely designed — not a template.',
-    color: 'bg-orange-500',
+      'Built and deployed my portfolio during a lunch break. Typed “make the hero warmer” and it just… happened, right in front of me.',
   },
   {
-    name: 'Sara Lindqvist',
-    role: 'Startup PM',
+    name: 'Fatima Riaz',
+    handle: '@fatimar',
     quote:
-      'We prototyped three internal tools in a week. Deploy is one click and the database was already there.',
-    color: 'bg-emerald-500',
+      'The database and login were already there. No config, no dashboards — I just asked for a waitlist and it saved signups instantly.',
+  },
+  {
+    name: 'Usman Malik',
+    handle: '@usmanm',
+    quote:
+      'Shipped a working invoice app for my shop in an afternoon. Editing by chatting feels like magic — describe it, it changes.',
+  },
+  {
+    name: 'David Park',
+    handle: '@davidpark',
+    quote:
+      'I made a little browser game with my kid on a Sunday. From idea to a real URL we could share, no setup at all.',
+  },
+  {
+    name: 'Zara Sheikh',
+    handle: '@zarasheikh',
+    quote:
+      'The live preview sold me. I iterate on layout just by talking to it, and the result looks designed — not a template.',
+  },
+  {
+    name: 'Hamza Iqbal',
+    handle: '@hamzaiqbal',
+    quote:
+      'One click and my app was live on a real domain. My co-founder thought we hired an agency.',
+  },
+  {
+    name: 'Sana Tariq',
+    handle: '@sanatariq',
+    quote:
+      'Prototyped three internal tools in a week. Deploy is one button and everything just works on the first try.',
+  },
+  {
+    name: 'Sofia Rodriguez',
+    handle: '@sofiacodes',
+    quote:
+      'I’m a designer, not an engineer. Codemine let me ship a real, working product without ever opening a code editor.',
+  },
+  {
+    name: 'Ali Raza',
+    handle: '@aliraza',
+    quote:
+      'Asked for a dashboard with charts and it built the whole thing — data, auth, deploy. Minutes, not weeks.',
+  },
+  {
+    name: 'Mahnoor Aslam',
+    handle: '@mahnooraslam',
+    quote:
+      'The AI edits live while I watch. I changed the entire color scheme by just saying so. Genuinely the fastest I’ve ever shipped.',
   },
 ]
 
-function Reviews() {
+function ReviewCard({ review }: { review: Review }) {
   return (
-    <section className="mx-auto max-w-6xl px-5 py-20 lg:py-28">
-      <Reveal className="mx-auto max-w-2xl text-center">
-        <p className="text-sm font-medium text-emerald-600">Loved by builders</p>
+    <figure className="flex w-[340px] shrink-0 flex-col rounded-2xl border border-black/[0.07] bg-card p-6 shadow-sm">
+      <blockquote className="flex-1 text-[15px] leading-relaxed text-neutral-700">
+        “{review.quote}”
+      </blockquote>
+      <figcaption className="mt-5">
+        <div className="text-sm font-semibold text-neutral-900">{review.name}</div>
+        <div className="text-xs text-orange-600">{review.handle}</div>
+      </figcaption>
+    </figure>
+  )
+}
+
+function MarqueeRow({
+  reviews,
+  reverse = false,
+}: {
+  reviews: Review[]
+  reverse?: boolean
+}) {
+  return (
+    <div className="group flex overflow-hidden [--gap:1.5rem] [--speed:60s]">
+      {[0, 1].map((dup) => (
+        <div
+          key={dup}
+          aria-hidden={dup === 1}
+          className={cn(
+            'flex shrink-0 gap-[var(--gap)] pr-[var(--gap)]',
+            reverse ? 'animate-cm-marquee-reverse' : 'animate-cm-marquee',
+            'group-hover:[animation-play-state:paused]',
+          )}
+        >
+          {reviews.map((r, i) => (
+            <ReviewCard key={`${r.handle}-${i}`} review={r} />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Reviews() {
+  const firstRow = REVIEWS.slice(0, Math.ceil(REVIEWS.length / 2))
+  const secondRow = REVIEWS.slice(Math.ceil(REVIEWS.length / 2))
+
+  return (
+    <section className="overflow-hidden py-20 lg:py-28">
+      <style>{`
+        @keyframes cm-marquee {
+          from { transform: translateX(0); }
+          to { transform: translateX(calc(-100% - var(--gap))); }
+        }
+        @keyframes cm-marquee-reverse {
+          from { transform: translateX(calc(-100% - var(--gap))); }
+          to { transform: translateX(0); }
+        }
+        .animate-cm-marquee { animation: cm-marquee var(--speed) linear infinite; }
+        .animate-cm-marquee-reverse { animation: cm-marquee-reverse var(--speed) linear infinite; }
+      `}</style>
+
+      <Reveal className="mx-auto max-w-2xl px-5 text-center">
+        <p className="text-sm font-medium text-emerald-600">Testimonials</p>
         <h2 className="mt-2 text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
-          People are shipping faster
+          Loved by builders everywhere
         </h2>
+        <p className="mt-3 text-muted-foreground">
+          From first-time makers to seasoned founders — people are shipping real apps in minutes.
+        </p>
       </Reveal>
 
-      <div className="mt-14 grid gap-6 md:grid-cols-3">
-        {REVIEWS.map((r, i) => (
-          <Reveal key={r.name} delay={i * 0.1}>
-            <figure className="flex h-full flex-col rounded-2xl border border-black/[0.07] bg-card p-6 shadow-sm">
-              <blockquote className="flex-1 text-[15px] leading-relaxed text-neutral-700">
-                “{r.quote}”
-              </blockquote>
-              <figcaption className="mt-6 flex items-center gap-3">
-                <span
-                  className={`flex size-10 items-center justify-center rounded-full ${r.color} text-sm font-semibold text-white`}
-                >
-                  {r.name.charAt(0)}
-                </span>
-                <div>
-                  <div className="text-sm font-semibold text-neutral-900">{r.name}</div>
-                  <div className="text-xs text-muted-foreground">{r.role}</div>
-                </div>
-              </figcaption>
-            </figure>
-          </Reveal>
-        ))}
+      <div className="relative mt-14 flex flex-col gap-6">
+        {/* edge fades */}
+        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-gradient-to-r from-background to-transparent" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-24 bg-gradient-to-l from-background to-transparent" />
+        <MarqueeRow reviews={firstRow} />
+        <MarqueeRow reviews={secondRow} reverse />
       </div>
     </section>
   )
