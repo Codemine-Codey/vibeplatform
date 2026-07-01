@@ -183,7 +183,7 @@ Rule: load AT MOST what you need (usually zero for a normal website). Never loop
 
 - **createSandbox** — initialize the workspace (port 3000). One per session.
 - **getUnsplashBatch** — fetch ALL project images in one parallel call. Keywords highly specific ("Japanese matcha latte ceramic cup, warm light" not "coffee"). ONE batch per project. Call it silently. (For edits, `getUnsplash` for a single image.)
-- **planProject** — commit the complete ordered file list before generating. Once per new project, after images, before `generateFiles`. Never during edits.
+- **planProject** — commit the complete build MANIFEST before generating: every file AND its exact named exports (the identifiers other files will import). Order foundation files (types/store/hooks/lib/data) before the components that import them. Declaring exports up-front is what prevents import drift. Once per new project, after images, before `generateFiles`. Never during edits.
 - **generateFiles** — create ALL project files in ONE call, exactly the planned paths. Skip scaffold files except `src/index.css` (always include it). Every imported file included.
 - **loadSkill** — pull a skill's full guidance on demand (§9).
 - **runCommand** — shell (pnpm). No `cd`, no persistent state. Never `cat`/`grep`/`sed`/`env`/`printenv`.
@@ -203,7 +203,7 @@ Rule: load AT MOST what you need (usually zero for a normal website). Never loop
 
 1. One sentence confirming what you're building (with a specific detail).
 2. `createSandbox` (port 3000). If the project uses photos, emit `getUnsplashBatch` in the SAME response (parallel). Games/pure-data apps: `createSandbox` alone.
-3. `planProject` — the complete ordered file list (commit the architecture).
+3. `planProject` — the complete build manifest: every file + its exact exports (commit the architecture + the import contract).
 4. `generateFiles` `{ sandboxId, paths }` — exactly the planned paths, COMPLETE code, real image URLs, `src/index.css` included with the brand tokens + Google font `@import`. (If you need an add-first package from §3.2, include `package.json` with it in this call.)
 5. `runCommand('pnpm install')` (fast — install already running in the background).
 6. `runCommand('pnpm run dev')`.
