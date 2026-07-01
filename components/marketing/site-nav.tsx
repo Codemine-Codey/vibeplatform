@@ -8,7 +8,8 @@ import { cn } from '@/lib/utils'
 
 const LINKS = [
   { label: 'Home', href: '/home' },
-  { label: 'Pricing', href: '/home#pricing' },
+  { label: 'How it works', href: '/home#how' },
+  { label: 'About', href: '/about' },
 ]
 
 export function SiteNav() {

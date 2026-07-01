@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import type { ComponentType, ReactNode } from 'react'
-import { motion } from 'framer-motion'
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
+import { motion, AnimatePresence, useInView, animate } from 'framer-motion'
 import {
   ArrowRight,
   Sparkles,
@@ -13,7 +13,6 @@ import {
   Image as ImageIcon,
   Globe,
   Wand2,
-  Zap,
   Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,8 +29,8 @@ export function Landing() {
         <Hero />
         <HowItWorks />
         <Features />
+        <Stats />
         <Reviews />
-        <Pricing />
         <ClosingCTA />
       </main>
       <SiteFooter />
@@ -48,161 +47,81 @@ function Hero() {
         className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage:
-            'radial-gradient(60% 50% at 15% 0%, rgba(139,92,246,0.10), transparent 60%), radial-gradient(50% 50% at 90% 10%, rgba(251,146,60,0.12), transparent 60%)',
+            'radial-gradient(55% 45% at 50% 0%, rgba(139,92,246,0.10), transparent 60%), radial-gradient(45% 45% at 85% 15%, rgba(251,146,60,0.12), transparent 60%)',
         }}
       />
-      <div className="relative mx-auto grid max-w-6xl items-center gap-14 px-5 py-20 lg:grid-cols-[1.05fr_1fr] lg:py-28">
-        <div>
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-            className="inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm"
-          >
-            <Sparkles className="size-3.5 text-violet-500" />
-            From prompt to production in minutes
-          </motion.div>
+      <div className="relative mx-auto flex max-w-3xl flex-col items-center px-5 py-24 text-center lg:py-32">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          className="inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm"
+        >
+          <Sparkles className="size-3.5 text-violet-500" />
+          From prompt to production in minutes
+        </motion.div>
 
-          <motion.h1
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.55, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
-            className="mt-5 text-4xl font-semibold leading-[1.05] tracking-tight text-neutral-900 sm:text-5xl lg:text-6xl"
-          >
-            Turn a sentence into a{' '}
-            <span className="relative whitespace-nowrap">
-              <span className="relative z-10 bg-gradient-to-r from-violet-600 to-orange-500 bg-clip-text text-transparent">
-                live web app
-              </span>
-            </span>
-          </motion.h1>
+        <motion.h1
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
+          className="mt-6 text-4xl font-semibold leading-[1.03] tracking-tight text-neutral-900 sm:text-6xl lg:text-7xl"
+        >
+          Turn a sentence into a{' '}
+          <span className="bg-gradient-to-r from-violet-600 to-orange-500 bg-clip-text text-transparent">
+            live web app
+          </span>
+        </motion.h1>
 
-          <motion.p
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.55, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
-            className="mt-5 max-w-lg text-lg text-neutral-600"
-          >
-            Describe what you want to build. Codemine writes the code, runs it, and
-            deploys a real, working app you can share — no setup, no boilerplate.
-          </motion.p>
-
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.55, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
-            className="mt-8 flex flex-col gap-3 sm:flex-row"
-          >
-            <Button asChild size="lg" className="h-12 px-6 text-base">
-              <Link href="/signup">
-                Start building
-                <ArrowRight className="size-4" />
-              </Link>
-            </Button>
-            <Button asChild variant="outline" size="lg" className="h-12 px-6 text-base">
-              <Link href="/home#how">See how it works</Link>
-            </Button>
-          </motion.div>
-
-          <p className="mt-4 text-sm text-muted-foreground">
-            No credit card required · Free to start
-          </p>
-        </div>
+        <motion.p
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
+          className="mt-6 max-w-xl text-lg leading-relaxed text-neutral-600"
+        >
+          Describe what you want. Codemine writes the code, runs it, and deploys a
+          real, working app you can share — no setup, no boilerplate.
+        </motion.p>
 
         <motion.div
-          initial={{ opacity: 0, y: 24, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.6, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          className="mt-9"
         >
-          <BuilderMock />
+          <Button asChild size="lg" className="h-12 px-7 text-base">
+            <Link href="/signup">
+              Start now
+              <ArrowRight className="size-4" />
+            </Link>
+          </Button>
         </motion.div>
+
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+          className="mt-4 text-sm text-muted-foreground"
+        >
+          No credit card required · Free to start
+        </motion.p>
       </div>
     </section>
   )
 }
 
-// Stylised mock of the Codemine builder window.
-function BuilderMock() {
-  return (
-    <div className="rounded-2xl border border-black/[0.08] bg-card shadow-[0_24px_60px_-20px_rgba(0,0,0,0.25)]">
-      {/* window chrome */}
-      <div className="flex items-center gap-2 border-b border-black/[0.06] px-4 py-3">
-        <span className="size-3 rounded-full bg-red-400" />
-        <span className="size-3 rounded-full bg-amber-400" />
-        <span className="size-3 rounded-full bg-green-400" />
-        <span className="ml-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Zap className="size-3" /> codemine.app
-        </span>
-      </div>
-
-      <div className="grid grid-cols-[1fr_1.2fr]">
-        {/* chat side */}
-        <div className="space-y-3 border-r border-black/[0.06] p-4">
-          <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-tr-sm bg-neutral-900 px-3 py-2 text-xs text-white">
-            Build a coffee shop landing page with a menu
-          </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Sparkles className="size-3.5 text-violet-500" />
-            Designing a warm, editorial layout…
-          </div>
-          <div className="space-y-1.5">
-            {['Writing Hero.tsx', 'Adding Menu section', 'Deploying preview'].map((t, i) => (
-              <motion.div
-                key={t}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.6 + i * 0.5, duration: 0.4 }}
-                className="flex items-center gap-2 rounded-md bg-secondary px-2.5 py-1.5 text-[11px] text-secondary-foreground"
-              >
-                <Check className="size-3 text-green-500" />
-                {t}
-              </motion.div>
-            ))}
-          </div>
-        </div>
-
-        {/* preview side */}
-        <div className="p-3">
-          <div className="h-full overflow-hidden rounded-lg border border-black/[0.06]">
-            <div className="relative h-28 bg-gradient-to-br from-amber-200 via-orange-200 to-rose-200">
-              <div className="absolute bottom-3 left-3">
-                <div className="text-sm font-semibold text-neutral-900">Roasted &amp; Co.</div>
-                <div className="text-[10px] text-neutral-700">Specialty coffee, slow mornings</div>
-              </div>
-            </div>
-            <div className="space-y-2 p-3">
-              <div className="h-2 w-2/3 rounded bg-muted" />
-              <div className="h-2 w-full rounded bg-muted" />
-              <div className="h-2 w-4/5 rounded bg-muted" />
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                {[0, 1, 2].map((i) => (
-                  <div key={i} className="space-y-1.5 rounded-md bg-secondary p-2">
-                    <div className="h-8 rounded bg-gradient-to-br from-amber-100 to-orange-100" />
-                    <div className="h-1.5 w-3/4 rounded bg-muted" />
-                    <div className="h-1.5 w-1/2 rounded bg-muted" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 /* ---------------------------------------------------------- HOW IT WORKS */
-const STEPS = [
+const HOW_STEPS = [
   {
     icon: Wand2,
     title: 'Prompt',
-    body: 'Describe your idea in plain English. A landing page, a dashboard, a game — whatever you have in mind.',
+    body: 'Describe your idea in plain English — a landing page, a dashboard, a game. Whatever you have in mind.',
     accent: 'from-violet-500 to-violet-400',
   },
   {
     icon: MessageSquare,
-    title: 'Iterate',
-    body: 'Chat to refine. Change the colors, add a page, wire up a form — Codemine edits and re-runs instantly.',
+    title: 'Build & iterate',
+    body: 'Codemine writes the code and runs it. Chat to refine — change colors, add a page, wire up a form.',
     accent: 'from-orange-500 to-amber-400',
   },
   {
@@ -211,9 +130,22 @@ const STEPS = [
     body: 'One click and your app is live on a real URL, ready to share with the world.',
     accent: 'from-emerald-500 to-teal-400',
   },
-]
+] as const
 
 function HowItWorks() {
+  const [active, setActive] = useState(0)
+  const sectionRef = useRef<HTMLDivElement>(null)
+  const inView = useInView(sectionRef, { margin: '-120px' })
+
+  // Auto-advance the active step while the section is on screen.
+  useEffect(() => {
+    if (!inView) return
+    const id = setInterval(() => {
+      setActive((a) => (a + 1) % HOW_STEPS.length)
+    }, 3400)
+    return () => clearInterval(id)
+  }, [inView])
+
   return (
     <section id="how" className="mx-auto max-w-6xl px-5 py-20 lg:py-28">
       <Reveal className="mx-auto max-w-2xl text-center">
@@ -223,34 +155,279 @@ function HowItWorks() {
         </h2>
       </Reveal>
 
-      <div className="relative mt-16">
-        {/* connecting line (desktop) */}
-        <div className="absolute left-0 right-0 top-8 hidden h-px bg-gradient-to-r from-transparent via-black/10 to-transparent lg:block" />
-        <div className="grid gap-8 lg:grid-cols-3">
-          {STEPS.map((step, i) => (
-            <Reveal key={step.title} delay={i * 0.1}>
-              <div className="relative flex h-full flex-col rounded-2xl border border-black/[0.07] bg-card p-6 shadow-sm">
-                <div className="flex items-center gap-4">
-                  <div
-                    className={`flex size-14 items-center justify-center rounded-xl bg-gradient-to-br ${step.accent} text-white shadow-md`}
-                  >
-                    <step.icon className="size-6" />
-                  </div>
-                  <span className="text-5xl font-semibold text-black/[0.08]">
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                </div>
-                <h3 className="mt-5 text-xl font-semibold text-neutral-900">{step.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{step.body}</p>
-                {i < STEPS.length - 1 && (
-                  <ArrowRight className="absolute -right-6 top-8 hidden size-5 text-black/20 lg:block" />
+      <div
+        ref={sectionRef}
+        className="mt-12 grid items-center gap-8 lg:mt-16 lg:grid-cols-2 lg:gap-16"
+      >
+        {/* left — the steps */}
+        <div className="flex flex-col gap-3">
+          {HOW_STEPS.map((step, i) => {
+            const isActive = i === active
+            return (
+              <button
+                key={step.title}
+                type="button"
+                onClick={() => setActive(i)}
+                className={cn(
+                  'group relative flex gap-4 rounded-2xl border p-5 text-left transition-all',
+                  isActive
+                    ? 'border-black/[0.09] bg-card shadow-md'
+                    : 'border-transparent hover:bg-card/60',
                 )}
-              </div>
-            </Reveal>
-          ))}
+              >
+                <div
+                  className={cn(
+                    'flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-md transition-opacity',
+                    step.accent,
+                    isActive ? 'opacity-100' : 'opacity-45',
+                  )}
+                >
+                  <step.icon className="size-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <h3 className="text-lg font-semibold text-neutral-900">{step.title}</h3>
+                  </div>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                    {step.body}
+                  </p>
+                  {isActive && (
+                    <motion.div
+                      layoutId="how-active-bar"
+                      className="mt-3 h-0.5 w-16 rounded-full bg-gradient-to-r from-violet-500 to-orange-500"
+                    />
+                  )}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* right — the visual that changes per step */}
+        <div className="relative overflow-hidden rounded-2xl border border-black/[0.08] bg-card shadow-[0_24px_60px_-20px_rgba(0,0,0,0.25)]">
+          {/* window chrome */}
+          <div className="flex items-center gap-2 border-b border-black/[0.06] px-4 py-3">
+            <span className="size-3 rounded-full bg-red-400" />
+            <span className="size-3 rounded-full bg-amber-400" />
+            <span className="size-3 rounded-full bg-green-400" />
+          </div>
+          <div className="relative h-[320px]">
+            <AnimatePresence mode="wait">
+              {active === 0 && <PromptVisual key="prompt" />}
+              {active === 1 && <CodeVisual key="code" />}
+              {active === 2 && <PreviewVisual key="preview" />}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
     </section>
+  )
+}
+
+function VisualShell({ children }: { children: ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -14 }}
+      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+      className="absolute inset-0 p-5"
+    >
+      {children}
+    </motion.div>
+  )
+}
+
+const PROMPT_TEXT = 'Build a coffee shop landing page with an online menu'
+
+// Step 1 — a prompt typing itself into a fake input.
+function PromptVisual() {
+  const [text, setText] = useState('')
+
+  useEffect(() => {
+    let i = 0
+    const id = setInterval(() => {
+      i += 1
+      setText(PROMPT_TEXT.slice(0, i))
+      if (i >= PROMPT_TEXT.length) clearInterval(id)
+    }, 45)
+    return () => clearInterval(id)
+  }, [])
+
+  return (
+    <VisualShell>
+      <div className="flex h-full flex-col justify-center">
+        <div className="text-xs font-medium text-muted-foreground">Your prompt</div>
+        <div className="mt-3 rounded-xl border border-black/[0.1] bg-secondary/50 p-4">
+          <p className="min-h-[3.5rem] text-[15px] leading-relaxed text-neutral-900">
+            {text}
+            <motion.span
+              aria-hidden
+              animate={{ opacity: [1, 0] }}
+              transition={{ duration: 0.6, repeat: Infinity, repeatType: 'reverse' }}
+              className="ml-0.5 inline-block h-4 w-0.5 translate-y-0.5 bg-neutral-900 align-middle"
+            />
+          </p>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-2 text-xs font-medium text-white">
+            <Sparkles className="size-3.5" /> Generate
+          </span>
+        </div>
+      </div>
+    </VisualShell>
+  )
+}
+
+type CodeSpan = { text: string; className?: string }
+
+const CODE_LINES: CodeSpan[][] = [
+  [
+    { text: 'export default function ', className: 'text-violet-400' },
+    { text: 'Hero', className: 'text-sky-300' },
+    { text: '() {' },
+  ],
+  [{ text: '  return (', className: 'text-neutral-500' }],
+  [
+    { text: '    <section ', className: 'text-orange-300' },
+    { text: 'className', className: 'text-sky-300' },
+    { text: '=', className: 'text-neutral-500' },
+    { text: '"hero"', className: 'text-emerald-300' },
+    { text: '>' },
+  ],
+  [
+    { text: '      <h1>', className: 'text-orange-300' },
+    { text: 'Roasted & Co.' },
+    { text: '</h1>', className: 'text-orange-300' },
+  ],
+  [
+    { text: '      <p>', className: 'text-orange-300' },
+    { text: 'Specialty coffee, slow mornings' },
+    { text: '</p>', className: 'text-orange-300' },
+  ],
+  [{ text: '    </section>', className: 'text-orange-300' }],
+  [{ text: '  )', className: 'text-neutral-500' }],
+  [{ text: '}' }],
+]
+
+// Step 2 — code appearing one line at a time.
+function CodeVisual() {
+  const [count, setCount] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCount((c) => {
+        if (c >= CODE_LINES.length) {
+          clearInterval(id)
+          return c
+        }
+        return c + 1
+      })
+    }, 240)
+    return () => clearInterval(id)
+  }, [])
+
+  return (
+    <VisualShell>
+      <div className="flex h-full flex-col">
+        <div className="text-xs font-medium text-muted-foreground">Writing Hero.tsx</div>
+        <div className="mt-3 flex-1 overflow-hidden rounded-xl bg-neutral-900 p-4 font-mono text-[12px] leading-6">
+          {CODE_LINES.slice(0, count).map((line, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.25 }}
+              className="whitespace-pre"
+            >
+              <span className="mr-3 select-none text-neutral-600">
+                {String(i + 1).padStart(2, '0')}
+              </span>
+              {line.map((span, j) => (
+                <span key={j} className={span.className ?? 'text-neutral-100'}>
+                  {span.text}
+                </span>
+              ))}
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </VisualShell>
+  )
+}
+
+// Step 3 — skeleton blocks assembling into a little app preview.
+function PreviewVisual() {
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    const id = setTimeout(() => setReady(true), 950)
+    return () => clearTimeout(id)
+  }, [])
+
+  return (
+    <VisualShell>
+      <div className="flex h-full flex-col">
+        <div className="flex items-center justify-between">
+          <div className="text-xs font-medium text-muted-foreground">Live preview</div>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+            <span className="size-1.5 rounded-full bg-emerald-500" /> Deployed
+          </span>
+        </div>
+        <div className="mt-3 flex-1 overflow-hidden rounded-xl border border-black/[0.08]">
+          <div className="relative h-24 overflow-hidden bg-gradient-to-br from-amber-200 via-orange-200 to-rose-200">
+            <AnimatePresence>
+              {ready && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4 }}
+                  className="absolute bottom-3 left-3"
+                >
+                  <div className="text-sm font-semibold text-neutral-900">Roasted &amp; Co.</div>
+                  <div className="text-[10px] text-neutral-700">Specialty coffee, slow mornings</div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          <div className="space-y-2 p-3">
+            {!ready ? (
+              <>
+                <div className="h-2 w-2/3 animate-pulse rounded bg-muted" />
+                <div className="h-2 w-full animate-pulse rounded bg-muted" />
+                <div className="h-2 w-4/5 animate-pulse rounded bg-muted" />
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="h-14 animate-pulse rounded-md bg-muted" />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.4 }}
+              >
+                <div className="h-2 w-2/3 rounded bg-neutral-300" />
+                <div className="mt-2 h-2 w-full rounded bg-muted" />
+                <div className="mt-2 h-2 w-4/5 rounded bg-muted" />
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="space-y-1.5 rounded-md bg-secondary p-2">
+                      <div className="h-8 rounded bg-gradient-to-br from-amber-100 to-orange-100" />
+                      <div className="h-1.5 w-3/4 rounded bg-muted" />
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </div>
+        </div>
+      </div>
+    </VisualShell>
   )
 }
 
@@ -386,6 +563,74 @@ function Features() {
             className="md:col-span-2"
           />
         </motion.div>
+      </div>
+    </section>
+  )
+}
+
+/* ----------------------------------------------------------------- STATS */
+type Stat = {
+  value: number
+  label: string
+  prefix?: string
+  suffix?: string
+  decimals?: number
+}
+
+const STATS: Stat[] = [
+  { value: 12000, suffix: '+', label: 'Apps built' },
+  { value: 60, prefix: '<', suffix: 's', label: 'To first preview' },
+  { value: 120, suffix: '+', label: 'Countries reached' },
+  { value: 99.9, suffix: '%', decimals: 1, label: 'Uptime' },
+]
+
+// Counts up from 0 to `value` once it scrolls into view.
+function CountUp({ value, decimals = 0 }: { value: number; decimals?: number }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const inView = useInView(ref, { once: true, margin: '-60px' })
+  const [display, setDisplay] = useState(() =>
+    (0).toLocaleString('en-US', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }),
+  )
+
+  useEffect(() => {
+    if (!inView) return
+    const controls = animate(0, value, {
+      duration: 1.4,
+      ease: [0.22, 1, 0.36, 1],
+      onUpdate: (latest) => {
+        setDisplay(
+          latest.toLocaleString('en-US', {
+            minimumFractionDigits: decimals,
+            maximumFractionDigits: decimals,
+          }),
+        )
+      },
+    })
+    return () => controls.stop()
+  }, [inView, value, decimals])
+
+  return <span ref={ref}>{display}</span>
+}
+
+function Stats() {
+  return (
+    <section className="border-y border-black/[0.06] bg-secondary/40">
+      <div className="mx-auto max-w-5xl px-5 py-16 lg:py-20">
+        <div className="grid grid-cols-2 gap-8 text-center sm:grid-cols-4">
+          {STATS.map((stat, i) => (
+            <Reveal key={stat.label} delay={i * 0.08}>
+              <div className="text-4xl font-semibold tracking-tight text-neutral-900 sm:text-5xl">
+                {stat.prefix ?? ''}
+                <CountUp value={stat.value} decimals={stat.decimals ?? 0} />
+                {stat.suffix ?? ''}
+              </div>
+              <div className="mt-2 text-sm text-muted-foreground">{stat.label}</div>
+            </Reveal>
+          ))}
+        </div>
       </div>
     </section>
   )
@@ -545,84 +790,6 @@ function Reviews() {
   )
 }
 
-/* --------------------------------------------------------------- PRICING */
-const PLANS = [
-  {
-    name: 'Free',
-    price: '$0',
-    note: 'To get started',
-    features: ['Unlimited previews', 'Live editing', '1 deployed app', 'Community support'],
-    cta: 'Start free',
-    highlight: false,
-  },
-  {
-    name: 'Pro',
-    price: '$20',
-    note: 'per month',
-    features: ['Everything in Free', 'Unlimited deployed apps', 'Custom domains', 'Database & auth', 'Priority builds'],
-    cta: 'Go Pro',
-    highlight: true,
-  },
-]
-
-function Pricing() {
-  return (
-    <section id="pricing" className="border-t border-black/[0.06] bg-secondary/40">
-      <div className="mx-auto max-w-5xl px-5 py-20 lg:py-28">
-        <Reveal className="mx-auto max-w-2xl text-center">
-          <p className="text-sm font-medium text-violet-600">Pricing</p>
-          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
-            Simple, honest pricing
-          </h2>
-          <p className="mt-3 text-muted-foreground">Start free. Upgrade when you ship.</p>
-        </Reveal>
-
-        <div className="mx-auto mt-14 grid max-w-3xl gap-6 sm:grid-cols-2">
-          {PLANS.map((plan, i) => (
-            <Reveal key={plan.name} delay={i * 0.1}>
-              <div
-                className={
-                  plan.highlight
-                    ? 'relative h-full rounded-2xl border-2 border-neutral-900 bg-card p-7 shadow-lg'
-                    : 'h-full rounded-2xl border border-black/[0.07] bg-card p-7 shadow-sm'
-                }
-              >
-                {plan.highlight && (
-                  <span className="absolute -top-3 left-7 rounded-full bg-neutral-900 px-3 py-1 text-xs font-medium text-white">
-                    Most popular
-                  </span>
-                )}
-                <h3 className="text-lg font-semibold text-neutral-900">{plan.name}</h3>
-                <div className="mt-3 flex items-baseline gap-1">
-                  <span className="text-4xl font-semibold tracking-tight text-neutral-900">
-                    {plan.price}
-                  </span>
-                  <span className="text-sm text-muted-foreground">{plan.note}</span>
-                </div>
-                <ul className="mt-6 space-y-3">
-                  {plan.features.map((f) => (
-                    <li key={f} className="flex items-center gap-2.5 text-sm text-neutral-700">
-                      <Check className="size-4 shrink-0 text-emerald-500" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <Button
-                  asChild
-                  variant={plan.highlight ? 'default' : 'outline'}
-                  className="mt-7 h-11 w-full"
-                >
-                  <Link href="/signup">{plan.cta}</Link>
-                </Button>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </div>
-    </section>
-  )
-}
-
 /* ----------------------------------------------------------- CLOSING CTA */
 function ClosingCTA() {
   return (
@@ -646,7 +813,7 @@ function ClosingCTA() {
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Button asChild size="lg" variant="secondary" className="h-12 px-7 text-base">
                 <Link href="/signup">
-                  Start building
+                  Start now
                   <ArrowRight className="size-4" />
                 </Link>
               </Button>

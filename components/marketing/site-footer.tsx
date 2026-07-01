@@ -23,13 +23,13 @@ export function SiteFooter() {
               title="Product"
               links={[
                 { label: 'Start building', href: '/signup' },
-                { label: 'Pricing', href: '/home#pricing' },
                 { label: 'How it works', href: '/home#how' },
               ]}
             />
             <FooterCol
               title="Company"
               links={[
+                { label: 'About', href: '/about' },
                 { label: 'Sign in', href: '/login' },
                 { label: 'Contact', href: 'mailto:hello@codemine.app' },
               ]}

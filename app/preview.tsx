@@ -78,7 +78,7 @@ export function Preview({ className }: Props) {
 
       {/* Full overlay: generation or error fix in progress */}
       {isWorking && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-white">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-background">
           <CubeLoader elapsed={elapsed} label={cubeLabel} />
         </div>
       )}
