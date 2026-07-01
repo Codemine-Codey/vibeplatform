@@ -1,5 +1,25 @@
 import { tool } from 'ai'
 import z from 'zod/v3'
+import { fetchOne as unsplashFetchOne } from './get-unsplash-batch'
+
+// fal.ai account concurrency is capped (10) — we self-limit BELOW it so we never overshoot
+// or 429 under load, even with several projects generating at once. Flux schnell is sub-second,
+// so an 8-wide pool drains a full project's images in ~1-2 waves.
+const FAL_CONCURRENCY = 8
+
+// Run tasks with a fixed concurrency ceiling, preserving input order in the result.
+async function pool<T, R>(items: T[], limit: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length)
+  let next = 0
+  async function worker() {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i], i)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
 
 // AI-generated bespoke images via Flux Schnell on fal.ai — the cheapest ($0.003/img)
 // and fastest (sub-second) production image model. Runs all prompts in parallel and
@@ -23,25 +43,37 @@ async function generateOne(
   orientation: string,
   key: string
 ): Promise<string | null> {
-  try {
-    const res = await fetch(FAL_ENDPOINT, {
-      method: 'POST',
-      headers: { Authorization: `Key ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt,
-        image_size: SIZE[orientation] ?? 'landscape_16_9',
-        num_inference_steps: 4, // schnell is tuned for 4 steps — fast + good
-        num_images: 1,
-        enable_safety_checker: true,
-      }),
-      signal: AbortSignal.timeout(30_000),
-    })
-    if (!res.ok) return null
-    const data = (await res.json()) as { images?: Array<{ url: string }> }
-    return data.images?.[0]?.url ?? null
-  } catch {
-    return null
+  // Up to 3 attempts, backing off on 429/5xx (transient saturation) so a brief overshoot of
+  // fal's concurrency never fails an image — it just waits a beat and retries.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(FAL_ENDPOINT, {
+        method: 'POST',
+        headers: { Authorization: `Key ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          image_size: SIZE[orientation] ?? 'landscape_16_9',
+          num_inference_steps: 4, // schnell is tuned for 4 steps — fast + good
+          num_images: 1,
+          enable_safety_checker: true,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      })
+      if (res.ok) {
+        const data = (await res.json()) as { images?: Array<{ url: string }> }
+        return data.images?.[0]?.url ?? null
+      }
+      // Retry only transient statuses; anything else is a real failure → give up (Unsplash covers it).
+      if (res.status === 429 || res.status >= 500) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
+        continue
+      }
+      return null
+    } catch {
+      await new Promise((r) => setTimeout(r, 300 * (attempt + 1)))
+    }
   }
+  return null
 }
 
 export const generateImageBatch = () =>
@@ -76,12 +108,15 @@ export const generateImageBatch = () =>
         return { note: 'AI image generation is not configured; use the stock-photo tool (getUnsplashBatch) instead.', images: [] }
       }
       const wanted = images.slice(0, 12)
-      const urls = await Promise.all(
-        wanted.map(({ prompt, orientation }) => generateOne(prompt, orientation ?? 'landscape', key))
-      )
-      // Drop any that failed so the model only gets usable URLs.
-      return wanted
-        .map((w, i) => ({ prompt: w.prompt, url: urls[i] }))
-        .filter((r): r is { prompt: string; url: string } => !!r.url)
+      const unsplashKey = process.env.UNSPLASH_ACCESS_KEY
+      // Generate through a concurrency pool (≤8) so we stay under fal's account cap even with
+      // several projects running at once. Any image fal can't deliver falls back to a real
+      // Unsplash photo (no placeholders) so every slot is filled with a usable image.
+      const urls = await pool(wanted, FAL_CONCURRENCY, async ({ prompt, orientation }) => {
+        const flux = await generateOne(prompt, orientation ?? 'landscape', key)
+        if (flux) return flux
+        return unsplashFetchOne(prompt, orientation === 'portrait' ? 'portrait' : 'landscape', unsplashKey)
+      })
+      return wanted.map((w, i) => ({ prompt: w.prompt, url: urls[i] }))
     },
   })

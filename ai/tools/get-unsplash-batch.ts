@@ -21,7 +21,7 @@ async function searchTop(query: string, orientation: string, accessKey: string):
 // SEARCH returns 0 results for — so: search full keyword → search the core 2
 // words → random (always returns a loosely-matching photo) → fallback URL. This
 // keeps images on-topic (search) without ever leaving an empty slot (random).
-async function fetchOne(keyword: string, orientation: string, accessKey: string | undefined): Promise<string> {
+export async function fetchOne(keyword: string, orientation: string, accessKey: string | undefined): Promise<string> {
   if (!accessKey) return FALLBACK_URL
   try {
     const full = await searchTop(keyword, orientation, accessKey)

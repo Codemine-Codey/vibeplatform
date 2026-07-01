@@ -17,6 +17,8 @@ import { useLocalStorageValue } from '@/lib/use-local-storage-value'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSharedChatContext } from '@/lib/chat-context'
 import { useSandboxStore } from './state'
+import { ClarifyForm } from '@/components/clarify-form'
+import type { ClarifyQuestion } from '@/ai/clarify-questions'
 import type { ChatStatus } from 'ai'
 
 interface Props {
@@ -151,16 +153,58 @@ export function Chat({ className }: Props) {
   // message can't clash with or interrupt an in-flight Cloud action.
   const busy = isWorking || deployStatus === 'building' || deployStatus === 'deploying'
 
+  // W4 — personalization questions before the FIRST build of a new project.
+  const [clarify, setClarify] = useState<{ questions: ClarifyQuestion[]; prompt: string } | null>(null)
+  const [clarifyLoading, setClarifyLoading] = useState(false)
+  const clarifyAskedRef = useRef(false)
+
   const validateAndSubmitMessage = useCallback(
-    (text: string) => {
-      if (text.trim()) {
-        setStreamError(null) // clear any previous error
-        sendMessage({ text })
+    async (text: string) => {
+      if (!text.trim()) return
+      setStreamError(null) // clear any previous error
+      // On the very first message of a NEW project, ask 2-3 quick personalization questions.
+      if (!sandboxId && messages.length === 0 && !clarifyAskedRef.current) {
+        clarifyAskedRef.current = true
         setInput('')
+        setClarifyLoading(true)
+        try {
+          const res = await fetch('/api/clarify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: text }),
+          })
+          const data = (await res.json()) as { questions?: ClarifyQuestion[] }
+          if (Array.isArray(data.questions) && data.questions.length > 0) {
+            setClarify({ questions: data.questions, prompt: text })
+            setClarifyLoading(false)
+            return
+          }
+        } catch {
+          /* fall through — build without questions */
+        }
+        setClarifyLoading(false)
+        sendMessage({ text })
+        return
       }
+      sendMessage({ text })
+      setInput('')
     },
-    [sendMessage, setInput, setStreamError]
+    [sendMessage, setInput, setStreamError, sandboxId, messages.length]
   )
+
+  const submitClarify = useCallback(
+    (answers: string) => {
+      const prompt = clarify?.prompt ?? ''
+      setClarify(null)
+      if (prompt) sendMessage({ text: `${prompt}\n\nMy preferences for this build:\n${answers}` })
+    },
+    [clarify, sendMessage]
+  )
+  const skipClarify = useCallback(() => {
+    const prompt = clarify?.prompt ?? ''
+    setClarify(null)
+    if (prompt) sendMessage({ text: prompt })
+  }, [clarify, sendMessage])
 
   useEffect(() => {
     setChatStatus(status)
@@ -189,7 +233,15 @@ export function Chat({ className }: Props) {
       </PanelHeader>
 
       {/* Messages Area */}
-      {messages.length === 0 ? (
+      {clarify ? (
+        <div className="flex-1 min-h-0 overflow-auto p-3">
+          <ClarifyForm questions={clarify.questions} onSubmit={submitClarify} onSkip={skipClarify} />
+        </div>
+      ) : clarifyLoading ? (
+        <div className="flex-1 min-h-0 flex items-center justify-center">
+          <p className="font-mono text-sm text-muted-foreground animate-pulse">Getting a couple quick questions ready…</p>
+        </div>
+      ) : messages.length === 0 ? (
         <div className="flex-1 min-h-0">
           <div className="flex flex-col justify-center items-center h-full font-mono text-sm text-muted-foreground">
             <p className="flex items-center font-semibold">
