@@ -1,7 +1,7 @@
-import { AuthForm } from '@/components/auth/auth-form'
+import { AnimatedAuth } from '@/components/auth/animated-auth'
 
 export const metadata = { title: 'Sign up — Codemine' }
 
 export default function SignupPage() {
-  return <AuthForm mode="signup" />
+  return <AnimatedAuth mode="signup" />
 }
