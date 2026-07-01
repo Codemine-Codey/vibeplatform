@@ -106,3 +106,35 @@ What works, what doesn't, and exactly where each problem lives. No spin.
 3. **Hard-cap the self-heal** — never run 12 min; surface after N rounds.
 4. **End-to-end retest:** resume, in-app AI, code-window, storage upload.
 5. Remaining security: H3b, M2.
+
+---
+
+## 8. Pre-launch DEEP TEST findings (2026-07-01)
+
+| Test | Result |
+|---|---|
+| **Web app** (water tracker "STILL", store+percentage) | ✅ Clean — no self-heal, %-computed (no NaN), 0 console errors, ~7 min |
+| **Web app edits** (dark-blue/%-fit, "add confetti") | ⚠️ Worked but the confetti edit hit `triggerConfetti`-vs-component contract bug → slow (2-3 min) self-heal. **ROOT CAUSE: edits ran NO gate.** → FIXED: edit-stage type-check gate added. |
+| **Game** (frog "Tongue Twitch", brick-breaker) | ❌ FAILED first pass: truncation + shadcn-CSS-in-games (`bg-background` invisible) + wrong engine usage + non-existent `./pages/*`. → FIXED: game skill mandates compact single-canvas (no separate screens/router → no truncation), explicit colors, exact engine API. |
+| **Backend** (agent-verified) | ✅ Codey AI proxy (metered, whitelabeled — hardened to strip provider/reasoning), Flux image gen (0.43s), R2 storage, Supabase RLS all PASS |
+| **Deploy** (CF Pages) | ✅ HTTP 200, 0.57s |
+| **Codey AI in-app** | ✅ works via proxy (per-project token, whitelabeled, metered) |
+
+### Edit-speed targets (user): tiny <30s · small <45s · medium 1m · hard 1.5m · complex 2m
+Current ~2-3 min. Causes + fixes:
+1. Edits triggered a self-heal round (contract bug) → **fixed by the edit-stage gate** (catches pre-preview).
+2. Dev-server restarts on edits → should rely on Vite HMR (avoid restart for simple edits). TODO.
+3. Many tool-call rounds (read→patch→read) → tighten the edit loop. TODO.
+
+## 9. Game architecture (by type) — the "shadcn for games"
+- Simple 2D arcade → canvas 2D + baked engine (compact).
+- Rich 2D (physics/tilemap) → Kaplay or matter.js.
+- 3D → React Three Fiber + drei + @react-three/rapier.
+- All libs already in the verified deps; the game skill routes per type. TODO: strengthen the routing section.
+
+## 10. Mobile builder design (planned — to build after tests pass)
+- **Desktop:** remove the phone-frame toggle; all preview adapts to the viewport (responsive) — projects must be responsive to the screen they're viewed on.
+- **Mobile builder:** two screens — Chat (full screen) ⇄ toggle to Preview (full screen). NO Code tab on mobile. **Cloud** opens as a full-screen popup/sheet with all features (Deploy/DB/Auth/Secrets/Storage/AI). Recommended: a bottom tab bar (Chat · Preview · Cloud) + Cloud as a sheet.
+
+## 11. Deploy-panel cleanup (last frontend change)
+Remove Env-Vars + Connectors from the Deploy tab (they have their own Secrets + Connectors tabs in the Cloud dashboard — currently duplicated).
