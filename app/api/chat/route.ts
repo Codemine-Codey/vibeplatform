@@ -17,6 +17,7 @@ import { generateFiles } from '@/ai/tools/generate-files'
 import { getUnsplashBatch } from '@/ai/tools/get-unsplash-batch'
 import { generateImageBatch } from '@/ai/tools/generate-image-batch'
 import { planProject } from '@/ai/tools/plan-project'
+import { lookupReference } from '@/ai/tools/lookup-reference'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
 import { formatBrief } from '@/ai/types/project-brief'
@@ -1304,7 +1305,18 @@ async function runPipeline({
     ? `TARGET FILE COUNT: 4-6 files maximum. Keep all game logic in one or two files.`
     : `TARGET FILE COUNT: 6-8 files maximum. Combine views and utilities where possible.`
 
-  const fullSystem = systemPrompt + pipelineAddendum + `\n\n${fileCountGuidance}`
+  // Per-type reference-lookup guidance — when (and only when) to call lookupReference.
+  const referenceGuidance =
+    '\n\n## REFERENCE LOOKUP (optional, do it BEFORE planProject if needed — max 2-3 calls)\n' +
+    'If this build needs REAL values/facts you should not guess, call lookupReference first:\n' +
+    (skill === 'game'
+      ? '- This is a GAME: look up realistic physics/mechanics parameters (e.g. "flappy bird gravity, pipe gap, and scroll speed typical values") so the game PLAYS correctly — not a turtle-slow guess. Pin the returned numbers into your constants.'
+      : skill === 'webapp'
+        ? '- This is an APP: if it computes anything real (tax, finance, mortgage, unit conversions, a known algorithm), look up the correct FORMULA/values so the logic is right.'
+        : '- This is a WEBSITE: if it is for a specific real business/domain, look up factual CONTENT (the real services/sections that business has) so the copy is accurate. NEVER use it for visual design or inspiration.') +
+    '\nSkip it entirely for simple builds with nothing to look up. If it returns empty, just proceed on your own knowledge — never block on it.'
+
+  const fullSystem = systemPrompt + pipelineAddendum + referenceGuidance + `\n\n${fileCountGuidance}`
 
   // ── Step 3: AI generates directly — no planning round-trip ───────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1315,11 +1327,13 @@ async function runPipeline({
         getUnsplashBatch: getUnsplashBatch(),
         generateImageBatch: generateImageBatch(),
         planProject: planProject(),
+        lookupReference: lookupReference(),
       }
     : {
         loadSkill: loadSkill(),
         generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
         planProject: planProject(),
+        lookupReference: lookupReference(),
       }
 
   // Generous step headroom so an optional loadSkill + a stray retry can NEVER
@@ -1327,7 +1341,7 @@ async function runPipeline({
   // where the AI burned its budget before generating). generateFiles is the goal.
   // website: text + (loadSkill?) + getUnsplashBatch + planProject + generateFiles + slack
   // app/game: text + (loadSkill?) + planProject + generateFiles + slack
-  const maxSteps = skill === 'website' ? 8 : 7
+  const maxSteps = skill === 'website' ? 10 : 9 // +2 headroom for optional reference lookups
 
   const aiResult = streamText({
     ...getModelOptions(DEFAULT_MODEL),
