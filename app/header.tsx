@@ -2,6 +2,7 @@ import { cn } from '@/lib/utils'
 import { ZapIcon, LayoutDashboardIcon, LogOutIcon } from 'lucide-react'
 import Link from 'next/link'
 import { getCurrentUser } from '@/lib/supabase/server'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 interface Props {
   className?: string
@@ -38,6 +39,9 @@ export async function Header({ className, page = 'builder' }: Props) {
             New Project
           </Link>
         )}
+
+        {/* Light ⇄ dark theme toggle (builder) */}
+        <ThemeToggle />
 
         {/* User avatar + sign out */}
         <div

@@ -20,6 +20,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
+        {/* Apply the saved theme before paint so there's no flash of the wrong theme. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem('cm-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}`,
+          }}
+        />
         <Suspense fallback={null}>
           <NuqsAdapter>
             <ChatProvider>
