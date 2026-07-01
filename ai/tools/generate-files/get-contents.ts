@@ -76,6 +76,11 @@ function fixFonts(path: string, content: string): string {
 // this, the "Missing <BrowserRouter>" AND the double-router bugs are both impossible.
 function fixRouter(path: string, content: string): string {
   if (!/\.(tsx|jsx)$/.test(path)) return content
+  // main.tsx is the ONE place <BrowserRouter> MUST live (the scaffold mounts it there).
+  // NEVER strip it here — doing so removed the router context and crashed useLocation()/
+  // <Routes> (the recurring "Missing <BrowserRouter>" bug + the self-heal loop). Only
+  // strip from other files (App/pages) to prevent a double-router.
+  if (/(^|\/)main\.(tsx|jsx)$/.test(path)) return content
   let out = content
   // Drop BrowserRouter/HashRouter from react-router-dom imports (keep Routes/Route/Link/etc.)
   out = out.replace(/import\s*\{([^}]*)\}\s*from\s*['"]react-router-dom['"]\s*;?/g, (m, names: string) => {

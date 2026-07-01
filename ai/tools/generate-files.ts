@@ -157,6 +157,35 @@ if (!done) {
 }
 `.trim()
 
+// Deterministic router guarantee — if any generated file uses react-router (Routes /
+// useLocation / Link / etc.) but the AI REGENERATED main.tsx without a Router wrapper,
+// inject <BrowserRouter> around <App/>. Pairs with fixRouter (which now leaves main.tsx
+// alone) to make "Missing <BrowserRouter>" structurally impossible. Returns the corrected
+// main.tsx, or null if nothing to do (incl. the common case where main.tsx wasn't
+// regenerated — the scaffold's already wraps it).
+function ensureRouterMounted(files: { path: string; content: string }[]): { path: string; content: string } | null {
+  const main = files.find((f) => /(^|\/)main\.(tsx|jsx)$/.test(f.path))
+  if (!main) return null // scaffold main.tsx untouched → already has BrowserRouter
+  if (/\b(BrowserRouter|HashRouter|MemoryRouter|RouterProvider)\b/.test(main.content)) return null // already mounted
+  const routes = files.some(
+    (f) =>
+      /\.(tsx|jsx)$/.test(f.path) &&
+      !/(^|\/)main\.(tsx|jsx)$/.test(f.path) &&
+      /react-router-dom/.test(f.content) &&
+      /\b(useLocation|useNavigate|useParams|useSearchParams|<Routes\b|<Route\b|<Link\b|<NavLink\b|<Outlet\b)/.test(f.content)
+  )
+  if (!routes) return null // no routing → a game or single-view app; no router needed
+  let c = main.content
+  if (/from\s*['"]react-router-dom['"]/.test(c)) {
+    c = c.replace(/import\s*\{([^}]*)\}\s*from\s*['"]react-router-dom['"]/, (_m, n: string) => `import { BrowserRouter, ${n.trim()} } from 'react-router-dom'`)
+  } else {
+    c = `import { BrowserRouter } from 'react-router-dom'\n` + c
+  }
+  // Wrap the rendered <App .../> in <BrowserRouter> (handles <App/> and <App />).
+  c = c.replace(/<App(\s[^>]*)?\/>/, (m) => `<BrowserRouter>${m}</BrowserRouter>`)
+  return { path: main.path, content: c }
+}
+
 // Foundation = the files that DEFINE shared contracts others import (types, store,
 // hooks, lib, context, data, constants, schema). We generate these FIRST, then feed
 // their real content to the components — so a component can't misname an export it's
@@ -390,6 +419,21 @@ export const generateFiles = ({ writer, modelId, designContext }: Params) =>
         }
       } catch (e) {
         console.warn('[footgun] pass failed (non-fatal):', e instanceof Error ? e.message : e)
+      }
+
+      // ── Router mount guarantee (deterministic) ───────────────────────────────
+      // If the app routes but a regenerated main.tsx lost its <BrowserRouter>, inject it
+      // now so useLocation()/<Routes> always have context. Kills the "Missing <BrowserRouter>"
+      // crash + the self-heal loop it caused, before the preview is ever shown.
+      try {
+        const routerFix = ensureRouterMounted(uploaded)
+        if (routerFix) {
+          console.warn('[router] re-mounting <BrowserRouter> in', routerFix.path)
+          const err = await writeFiles({ written: uploaded.map(f => f.path), files: [routerFix], paths: [routerFix.path] })
+          if (!err) { const i = uploaded.findIndex(u => u.path === routerFix.path); if (i >= 0) uploaded[i] = routerFix }
+        }
+      } catch (e) {
+        console.warn('[router] guarantee failed (non-fatal):', e instanceof Error ? e.message : e)
       }
 
       // ── Package pre-declare gate ─────────────────────────────────────────────
