@@ -6,7 +6,7 @@ const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
 
 // Pages reachable without being signed in. Marketing + legal pages live here so
 // logged-out visitors can browse them; the auth pages are also public.
-const PUBLIC_PATHS = ['/login', '/signup', '/auth', '/home', '/about', '/terms', '/privacy']
+const PUBLIC_PATHS = ['/login', '/signup', '/auth', '/home', '/about', '/pricing', '/terms', '/privacy']
 // Auth pages a signed-in user has no reason to see — they get bounced to the builder.
 const AUTH_PATHS = ['/login', '/signup']
 

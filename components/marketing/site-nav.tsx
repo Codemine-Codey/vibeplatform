@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 
 const LINKS = [
   { label: 'Home', href: '/home' },
-  { label: 'How it works', href: '/home#how' },
+  { label: 'Pricing', href: '/pricing' },
   { label: 'About', href: '/about' },
 ]
 
@@ -16,60 +16,69 @@ export function SiteNav() {
   const [open, setOpen] = useState(false)
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-black/[0.06] bg-background/70 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
-        <Link href="/home" className="flex items-center gap-2">
+    // Floating, centered glass pill. `sticky` keeps it in normal flow so the
+    // content below is never hidden behind it.
+    <header className="sticky top-0 z-50 px-4 pt-4">
+      <div className="mx-auto flex max-w-fit items-center gap-2 rounded-full border border-black/[0.07] bg-background/70 px-2 py-2 shadow-[0_8px_30px_-12px_rgba(0,0,0,0.25)] backdrop-blur-md sm:gap-4">
+        {/* logo */}
+        <Link href="/home" className="flex shrink-0 items-center gap-2 pl-2 pr-1">
           <span className="flex size-8 items-center justify-center rounded-lg bg-neutral-900 text-white">
             <Zap className="size-4" />
           </span>
-          <span className="text-lg font-semibold tracking-tight">Codemine</span>
+          <span className="text-base font-semibold tracking-tight">Codemine</span>
         </Link>
 
-        <nav className="hidden items-center gap-1 md:flex">
+        {/* centered links */}
+        <nav className="hidden items-center md:flex">
           {LINKS.map((l) => (
             <Link
               key={l.label}
               href={l.href}
-              className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="rounded-full px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground"
             >
               {l.label}
             </Link>
           ))}
         </nav>
 
-        <div className="hidden items-center gap-2 md:flex">
-          <Button asChild variant="ghost" size="sm">
+        {/* auth actions */}
+        <div className="hidden items-center gap-1.5 pl-1 md:flex">
+          <Button asChild variant="ghost" size="sm" className="rounded-full">
             <Link href="/login">Sign in</Link>
           </Button>
-          <Button asChild size="sm">
+          <Button asChild size="sm" className="rounded-full">
             <Link href="/signup">Sign up</Link>
           </Button>
         </div>
 
+        {/* mobile trigger */}
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-label="Toggle menu"
-          className="flex size-9 items-center justify-center rounded-md text-foreground md:hidden"
+          className="flex size-9 items-center justify-center rounded-full text-foreground transition-colors hover:bg-black/[0.04] md:hidden"
         >
           {open ? <X className="size-5" /> : <Menu className="size-5" />}
         </button>
       </div>
 
+      {/* mobile sheet — a compact card that drops under the pill */}
       <div
         className={cn(
-          'overflow-hidden border-t border-black/[0.06] md:hidden',
-          open ? 'max-h-72' : 'max-h-0 border-transparent'
+          'mx-auto mt-2 max-w-fit overflow-hidden rounded-3xl border bg-background/90 shadow-lg backdrop-blur-md transition-all md:hidden',
+          open
+            ? 'max-h-96 border-black/[0.07] opacity-100'
+            : 'pointer-events-none max-h-0 border-transparent opacity-0',
         )}
-        style={{ transition: 'max-height 260ms ease' }}
+        style={{ transition: 'max-height 260ms ease, opacity 200ms ease' }}
       >
-        <div className="mx-auto flex max-w-6xl flex-col gap-1 px-5 py-3">
+        <div className="flex w-64 flex-col gap-1 p-3">
           {LINKS.map((l) => (
             <Link
               key={l.label}
               href={l.href}
               onClick={() => setOpen(false)}
-              className="rounded-md px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="rounded-xl px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               {l.label}
             </Link>

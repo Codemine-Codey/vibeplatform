@@ -74,9 +74,11 @@ function EyeBall({
       tx = window.innerWidth * 0.25
       ty = cy
     } else if (mode === 'password') {
-      // Peek across at the form, roughly where the password input sits.
-      tx = window.innerWidth * 0.72
-      ty = window.innerHeight * 0.58
+      // Password is revealed → the crew politely averts its gaze and glances the
+      // OTHER way (mirrored across the viewport centre from the form), rather than
+      // peeking at what you just made visible.
+      tx = window.innerWidth * 0.28
+      ty = window.innerHeight * 0.42
     }
 
     const vx = tx - cx

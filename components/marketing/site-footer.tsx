@@ -24,6 +24,7 @@ export function SiteFooter() {
               links={[
                 { label: 'Start building', href: '/signup' },
                 { label: 'How it works', href: '/home#how' },
+                { label: 'Pricing', href: '/pricing' },
               ]}
             />
             <FooterCol

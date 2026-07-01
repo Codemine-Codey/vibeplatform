@@ -51,16 +51,6 @@ function Hero() {
         }}
       />
       <div className="relative mx-auto flex max-w-3xl flex-col items-center px-5 py-24 text-center lg:py-32">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-          className="inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm"
-        >
-          <Sparkles className="size-3.5 text-violet-500" />
-          From prompt to production in minutes
-        </motion.div>
-
         <motion.h1
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
@@ -448,33 +438,41 @@ const bentoItem = {
   },
 }
 
-function BentoCard({
+// A compact, index-numbered feature — used in the editorial bottom strip.
+function FeatureLine({
+  index,
   icon: Icon,
   title,
   body,
-  className,
-  children,
+  accent,
 }: {
+  index: number
   icon: ComponentType<{ className?: string }>
   title: string
   body: string
-  className?: string
-  children?: ReactNode
+  accent: string
 }) {
   return (
     <motion.div
       variants={bentoItem}
-      className={cn(
-        'group flex h-full flex-col rounded-2xl border border-black/[0.07] bg-card p-6 shadow-sm transition-all hover:-translate-y-1 hover:shadow-md',
-        className,
-      )}
+      className="group relative flex flex-col rounded-2xl border border-black/[0.07] bg-card p-6 shadow-sm transition-all hover:-translate-y-1 hover:shadow-md"
     >
-      <div className="flex size-11 items-center justify-center rounded-xl bg-neutral-900 text-white shadow-sm">
-        <Icon className="size-5" />
+      <span
+        className={cn(
+          'absolute left-0 top-6 h-9 w-1 rounded-r-full bg-gradient-to-b',
+          accent,
+        )}
+      />
+      <div className="flex items-center justify-between">
+        <div className="flex size-10 items-center justify-center rounded-xl bg-neutral-900 text-white shadow-sm">
+          <Icon className="size-5" />
+        </div>
+        <span className="text-sm font-semibold tabular-nums text-neutral-300">
+          {String(index).padStart(2, '0')}
+        </span>
       </div>
-      <h3 className="mt-4 text-lg font-semibold text-neutral-900">{title}</h3>
+      <h3 className="mt-4 text-base font-semibold text-neutral-900">{title}</h3>
       <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{body}</p>
-      {children}
     </motion.div>
   )
 }
@@ -483,13 +481,13 @@ function Features() {
   return (
     <section className="border-y border-black/[0.06] bg-secondary/40">
       <div className="mx-auto max-w-6xl px-5 py-20 lg:py-28">
-        <Reveal className="mx-auto max-w-2xl text-center">
+        <Reveal className="max-w-2xl">
           <p className="text-sm font-medium text-orange-600">Everything included</p>
           <h2 className="mt-2 text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
             A full stack, handled for you
           </h2>
-          <p className="mt-3 text-muted-foreground">
-            The pieces you would normally wire together yourself — already connected.
+          <p className="mt-3 max-w-lg text-muted-foreground">
+            The pieces you would normally wire together yourself — already connected, from the very first prompt.
           </p>
         </Reveal>
 
@@ -498,70 +496,111 @@ function Features() {
           initial="hidden"
           whileInView="show"
           viewport={{ once: true, margin: '-80px' }}
-          className="mt-14 grid auto-rows-[minmax(180px,auto)] grid-cols-1 gap-6 md:grid-cols-3 md:grid-rows-3"
+          className="mt-14 grid gap-5 lg:grid-cols-12"
         >
-          {/* TALL — Cloud, built in */}
-          <BentoCard
-            icon={Database}
-            title="Cloud, built in"
-            body="Database, auth, secrets, and file storage wired up the moment you need them — zero config, zero dashboards."
-            className="md:row-span-3"
+          {/* SPOTLIGHT — dark, tall, high-contrast anchor */}
+          <motion.div
+            variants={bentoItem}
+            className="group relative flex flex-col overflow-hidden rounded-3xl bg-neutral-900 p-8 text-white shadow-xl lg:col-span-7 lg:row-span-2"
           >
-            <div className="mt-6 flex-1" />
-            <ul className="space-y-2.5">
-              {[
-                'Postgres database, ready to query',
-                'Email & social sign-in',
-                'Encrypted secrets & env vars',
-                'File & image storage',
-              ].map((point) => (
-                <li key={point} className="flex items-center gap-2.5 text-sm text-neutral-700">
-                  <Check className="size-4 shrink-0 text-orange-600" />
-                  {point}
-                </li>
-              ))}
-            </ul>
-            <div className="mt-6 rounded-xl border border-black/[0.06] bg-secondary/60 p-3">
-              <div className="flex items-center gap-2 text-xs font-medium text-neutral-500">
-                <Database className="size-3.5" /> users
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{
+                backgroundImage:
+                  'radial-gradient(60% 60% at 12% 0%, rgba(139,92,246,0.35), transparent 60%), radial-gradient(55% 65% at 100% 100%, rgba(251,146,60,0.28), transparent 60%)',
+              }}
+            />
+            <div className="relative flex flex-1 flex-col">
+              <div className="flex size-12 items-center justify-center rounded-2xl bg-white/10 text-white ring-1 ring-white/15 backdrop-blur">
+                <Database className="size-6" />
               </div>
-              <div className="mt-2 space-y-1.5">
-                <div className="h-2 w-full rounded bg-muted" />
-                <div className="h-2 w-4/5 rounded bg-muted" />
-                <div className="h-2 w-2/3 rounded bg-muted" />
+              <h3 className="mt-6 text-2xl font-semibold tracking-tight">Cloud, built in</h3>
+              <p className="mt-2 max-w-md text-sm leading-relaxed text-white/70">
+                Database, auth, secrets, and file storage wired up the moment you need
+                them — zero config, zero dashboards.
+              </p>
+              <ul className="mt-6 grid gap-2.5 sm:grid-cols-2">
+                {[
+                  'Postgres database, ready to query',
+                  'Email & social sign-in',
+                  'Encrypted secrets & env vars',
+                  'File & image storage',
+                ].map((point) => (
+                  <li key={point} className="flex items-center gap-2.5 text-sm text-white/80">
+                    <Check className="size-4 shrink-0 text-orange-400" />
+                    {point}
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-auto pt-8">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur">
+                  <div className="flex items-center gap-2 text-xs font-medium text-white/60">
+                    <Database className="size-3.5" /> users
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    <div className="h-2 w-full rounded bg-white/15" />
+                    <div className="h-2 w-4/5 rounded bg-white/10" />
+                    <div className="h-2 w-2/3 rounded bg-white/10" />
+                  </div>
+                </div>
               </div>
             </div>
-          </BentoCard>
+          </motion.div>
 
-          {/* 1x1 cards */}
-          <BentoCard
-            icon={Eye}
-            title="Instant live preview"
-            body="Watch your app build and run in real time as it is generated."
-          />
-          <BentoCard
-            icon={Rocket}
-            title="One-click deploy"
-            body="Ship to a real, shareable URL the moment it is ready."
-          />
-          <BentoCard
-            icon={ImageIcon}
-            title="AI images, on brand"
-            body="Beautiful, contextual imagery placed automatically — never a grey box."
-          />
-          <BentoCard
-            icon={Globe}
-            title="Custom domains"
-            body="Point your own domain at your finished app in a few clicks."
-          />
+          {/* WIDE ACCENT — Chat to edit */}
+          <motion.div
+            variants={bentoItem}
+            className="group relative flex flex-col overflow-hidden rounded-3xl border border-violet-200/70 bg-gradient-to-br from-violet-50 to-orange-50 p-7 shadow-sm transition-all hover:-translate-y-1 hover:shadow-md lg:col-span-5"
+          >
+            <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-orange-500 text-white shadow-md">
+              <Wand2 className="size-5" />
+            </div>
+            <h3 className="mt-4 text-xl font-semibold text-neutral-900">Chat to edit</h3>
+            <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-neutral-600">
+              Describe a change in plain English and watch it happen live — no code, no
+              waiting. &ldquo;Make the hero warmer&rdquo; just works.
+            </p>
+          </motion.div>
 
-          {/* WIDE — Chat to edit */}
-          <BentoCard
-            icon={Wand2}
-            title="Chat to edit"
-            body="Describe a change in plain English and watch it happen live — no code, no waiting."
-            className="md:col-span-2"
-          />
+          {/* MEDIUM — Instant live preview */}
+          <motion.div
+            variants={bentoItem}
+            className="group relative flex flex-col rounded-3xl border border-black/[0.07] bg-card p-7 shadow-sm transition-all hover:-translate-y-1 hover:shadow-md lg:col-span-5"
+          >
+            <div className="flex size-11 items-center justify-center rounded-xl bg-neutral-900 text-white shadow-sm">
+              <Eye className="size-5" />
+            </div>
+            <h3 className="mt-4 text-xl font-semibold text-neutral-900">Instant live preview</h3>
+            <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">
+              Watch your app build and run in real time as it is generated — every change,
+              on screen the moment it lands.
+            </p>
+          </motion.div>
+
+          {/* EDITORIAL STRIP — three compact, numbered features */}
+          <div className="grid gap-5 sm:grid-cols-3 lg:col-span-12">
+            <FeatureLine
+              index={1}
+              icon={Rocket}
+              title="One-click deploy"
+              body="Ship to a real, shareable URL the moment it is ready."
+              accent="from-emerald-500 to-teal-400"
+            />
+            <FeatureLine
+              index={2}
+              icon={ImageIcon}
+              title="AI images, on brand"
+              body="Contextual imagery placed automatically — never a grey box."
+              accent="from-orange-500 to-amber-400"
+            />
+            <FeatureLine
+              index={3}
+              icon={Globe}
+              title="Custom domains"
+              body="Point your own domain at the finished app in a few clicks."
+              accent="from-violet-500 to-violet-400"
+            />
+          </div>
         </motion.div>
       </div>
     </section>
@@ -578,10 +617,10 @@ type Stat = {
 }
 
 const STATS: Stat[] = [
-  { value: 12000, suffix: '+', label: 'Apps built' },
-  { value: 60, prefix: '<', suffix: 's', label: 'To first preview' },
-  { value: 120, suffix: '+', label: 'Countries reached' },
-  { value: 99.9, suffix: '%', decimals: 1, label: 'Uptime' },
+  { value: 5000, suffix: '+', label: 'Apps built' },
+  { value: 300, prefix: '<', suffix: 's', label: 'To first preview' },
+  { value: 10, suffix: '+', label: 'Project types' },
+  { value: 98, suffix: '%', label: 'Uptime' },
 ]
 
 // Counts up from 0 to `value` once it scrolls into view.
@@ -770,8 +809,7 @@ function Reviews() {
       `}</style>
 
       <Reveal className="mx-auto max-w-2xl px-5 text-center">
-        <p className="text-sm font-medium text-emerald-600">Testimonials</p>
-        <h2 className="mt-2 text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
+        <h2 className="text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
           Loved by builders everywhere
         </h2>
         <p className="mt-3 text-muted-foreground">
