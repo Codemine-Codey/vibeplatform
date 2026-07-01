@@ -20,6 +20,19 @@ A polished, correct game beats a juicy broken one. These are the exact failures 
 - **One source of truth**: a single `state` variable drives both update and draw — never two flags that can disagree.
 - **Effect cleanup**: `cancelAnimationFrame` + `removeEventListener` in the cleanup, so a re-render / StrictMode double-mount never spawns a second loop. Store rAF id in a ref.
 
+## 0.5 TUNED CONSTANTS — so it PLAYS right, not turtle-slow (READ)
+A game that compiles but plays wrong (ball crawling, jump too floaty) is a FAILURE. Speeds must be
+tuned to the canvas size and a 60fps step — never tiny absolute pixel values. Before coding, write a
+short spec block at the top of the file with these, sized RELATIVE to the canvas (W = canvas width,
+H = canvas height, per 1/60s step):
+- **Horizontal scroll / projectile speed:** ~0.6–1.2% of W per frame (e.g. `W*0.008` to `W*0.012`) — a full-width crossing in ~1.5–2.5s. A "fast" arcade feel is ~1% of W/frame. NEVER 1–2px on a 900px canvas (that's the turtle-ball).
+- **Player move speed:** ~0.8–1.5% of W per frame; snappy, reaches full speed in a few frames.
+- **Gravity (jumpers):** ~0.15–0.35% of H per frame per frame; jump impulse ~1.2–1.8% of H so the arc peaks in ~0.4–0.6s. Flappy-style: gravity ≈ `H*0.0016`, flap ≈ `-H*0.010`.
+- **Ball games (breakout/pong):** ball speed ~0.8–1.1% of the diagonal per frame; paddle a bit faster than the ball.
+- **Spawn cadence:** obstacles every ~1.1–1.8s at start, tightening with difficulty; spacing derived from speed so they never overlap.
+- **Difficulty ramp:** scale speed/spawn by ~5–12% per milestone, capped (never unplayable).
+Rule of thumb: if the main mover doesn't visibly cross a meaningful part of the screen within ~2 seconds, it's TOO SLOW — raise the constant. Tune by feel: fun in the first 10 seconds or adjust.
+
 ## 1. The contract — decide before coding
 - **Core loop**: the ONE action the player repeats (flap, dodge, match, place, shoot). Make it tight + responsive — input latency is death. The whole game is this loop made juicy.
 - **State machine**: ONE explicit state variable — `Start → Playing → Paused → GameOver → (replay)`. Every transition explicit; never ambiguous. Pause actually freezes the loop (cancel/resume rAF).
