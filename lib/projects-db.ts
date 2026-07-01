@@ -19,9 +19,32 @@ export interface ProjectRow {
   database_name: string | null
   auth_enabled: boolean | null
   auth_worker_url: string | null
+  // Reopen & Continue — the conversation persists with the project so a fresh open
+  // (dashboard / another device) restores the chat, not just the files.
+  chat_messages: unknown | null
+  chat_summary: string | null
   tokens_used: number
   created_at: string
   updated_at: string
+}
+
+// Persist the tail of the conversation (+ optional summary) for a project. Admin client —
+// called post-response (fire-and-forget) so it doesn't need request cookies. Caps the stored
+// history so the row stays small; the summary carries anything older.
+export async function saveChatMessages(
+  projectId: string,
+  messages: unknown[],
+  summary?: string
+): Promise<void> {
+  try {
+    const tail = Array.isArray(messages) ? messages.slice(-20) : []
+    const patch: Record<string, unknown> = { chat_messages: tail }
+    if (summary) patch.chat_summary = summary
+    const sb = getAdminSupabase()
+    await sb.from('projects').update(patch).eq('id', projectId)
+  } catch (e) {
+    console.warn('[projects] saveChatMessages failed:', e instanceof Error ? e.message : e)
+  }
 }
 
 // Read a binary file (e.g. a tar.gz) out of the sandbox into a Buffer.

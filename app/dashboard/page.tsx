@@ -58,27 +58,12 @@ function ProjectCard({ project, onDelete }: { project: Project; onDelete: () => 
   const Icon = config.icon
   const [opening, setOpening] = useState(false)
 
-  async function handleOpen() {
-    // Pre-open the tab SYNCHRONOUSLY inside the click — opening it after the
-    // await gets blocked by the popup blocker (that was the "nothing happened" bug).
-    const win = window.open('', '_blank')
+  function handleOpen() {
+    // Open the project INSIDE the builder (chat + preview + code + cloud), not the raw
+    // preview URL. The builder's ProjectLoader rebuilds the workspace from the snapshot and
+    // restores the conversation. Navigating there shows a "Restoring…" state (no blank tab).
     setOpening(true)
-    try {
-      const res = await fetch(`/api/projects/${project.id}/open`, { method: 'POST' })
-      const data = (await res.json()) as { url?: string; error?: string }
-      if (data.url) {
-        if (win) win.location.href = data.url
-        else window.location.href = data.url // popup blocked anyway → same tab
-      } else {
-        if (win) win.close()
-        alert(data.error ?? 'Could not reopen this project.')
-      }
-    } catch {
-      if (win) win.close()
-      alert('Could not reopen this project.')
-    } finally {
-      setOpening(false)
-    }
+    window.location.href = `/?project=${project.id}`
   }
 
   return (

@@ -80,11 +80,16 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   return NextResponse.json({
     url,
     sandboxId: sandbox.sandboxId,
+    projectId: project.id,
+    projectName: project.name,
     databaseId: project.database_id ?? undefined,
     databaseName: project.database_name ?? undefined,
     authEnabled: project.auth_enabled ?? undefined,
     authWorkerUrl: project.auth_worker_url ?? undefined,
     authAppId: project.auth_enabled ? project.id : undefined, // appId == project id
     deployedUrl: project.deploy_url ?? undefined,
+    // Reopen & Continue — the saved conversation so the builder restores the chat.
+    chatMessages: project.chat_messages ?? undefined,
+    chatSummary: project.chat_summary ?? undefined,
   })
 }

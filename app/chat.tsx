@@ -112,6 +112,21 @@ export function Chat({ className }: Props) {
   const pendingChatMessage = useSandboxStore((s) => s.pendingChatMessage)
   const setPendingChatMessage = useSandboxStore((s) => s.setPendingChatMessage)
   const deployStatus = useSandboxStore((s) => s.deployStatus)
+  const projectId = useSandboxStore((s) => s.projectId)
+
+  // Reopen & Continue — after each completed turn, persist the conversation to the project
+  // so a later "open" (dashboard / another device) restores the chat, not just the files.
+  const savedCountRef = useRef(0)
+  useEffect(() => {
+    if (status !== 'ready' || !projectId || messages.length === 0) return
+    if (messages.length === savedCountRef.current) return
+    savedCountRef.current = messages.length
+    fetch(`/api/projects/${projectId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages }),
+    }).catch(() => {})
+  }, [status, projectId, messages])
 
   // Extract project name from AI's first message: "Building [Name] —..."
   useEffect(() => {
