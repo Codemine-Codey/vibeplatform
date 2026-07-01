@@ -1,5 +1,5 @@
-import { streamText, tool, stepCountIs } from 'ai'
-import z from 'zod/v3'
+import { streamText } from 'ai'
+import { randomUUID } from 'node:crypto'
 import type { ModelMessage } from 'ai'
 import { getModelOptions } from '../../gateway'
 import { getMaxOutputTokens } from '../../constants'
@@ -148,8 +148,8 @@ function splitConcatenated(path: string, content: string, requested: string[]): 
 }
 
 const GEN_SYSTEM =
-  'You are a senior product designer + engineer writing real, production files via the writeFile tool.\n' +
-  'One writeFile call per file — NEVER combine two files into one call. Write COMPLETE production-quality code — never truncate or abbreviate.\n' +
+  'You are a senior product designer + engineer writing real, production source files.\n' +
+  'Write COMPLETE production-quality code for every file — never truncate, abbreviate, or placeholder. Output each file in the EXACT delimited raw-text format given in the instruction (write code LITERALLY — do NOT wrap it in JSON or markdown code fences).\n' +
   'Be CONCISE to stay fast: no redundant comments, no over-abstraction, no boilerplate the task does not need. Tight, complete code — every feature works, but no filler.\n' +
   'LANGUAGE: write ALL user-facing copy in ENGLISH by default — even when the brand is from another country (an Italian/French/Japanese/Spanish restaurant, brand, or product still gets ENGLISH headings, descriptions, buttons, labels, and body text). A few authentic proper nouns or dish names are fine (e.g. "Tagliatelle al Ragù"), but everything else is English. ONLY write the site in another language if the user EXPLICITLY asks for that language.\n' +
   'FAVOR THE PRE-INSTALLED STACK: the workspace already ships a large, verified dependency set — framer-motion, react-router-dom, the full shadcn/Radix UI set, lucide-react, react-hook-form + zod, @tanstack/react-query, three + @react-three/fiber + @react-three/drei, gsap, swiper, recharts/chart.js, zustand/jotai, @dnd-kit, embla, date-fns, and many more. ALWAYS reach for one of these FIRST. Solving something with an already-installed package is BETTER and more reliable than inventing or importing a new one — a new/uncommon package is the #1 cause of install + import errors. Only import a package outside the set when it is genuinely required and has no in-stack equivalent.\n' +
@@ -218,73 +218,65 @@ export async function* getContents(
   const { messages, modelId, designContext } = params
   const paths = orderForResilience(params.paths)
 
-  const queue: File[] = []
-  let finished = false
-  let notify!: () => void
-  let signal = new Promise<void>(r => { notify = r })
-  function enqueue(file: File) {
-    queue.push(file)
-    const prev = notify
-    signal = new Promise<void>(r => { notify = r })
-    prev()
-  }
+  // ── RAW-TEXT, NONCE-FENCED TRANSPORT (the permanent cure for content corruption) ──
+  // Files are streamed as PLAIN TEXT between unguessable fences — never encoded inside a JSON
+  // tool-call string. Because the body is never JSON-escaped, it CANNOT be mangled by bad escaping
+  // (the `true]}` / dropped-import class is impossible here) and file size stops mattering. The
+  // nonce makes a fence collision inside real code effectively impossible.
+  const nonce = randomUUID().replace(/-/g, '').slice(0, 16)
+  const instruction =
+    `Output EVERY file listed below as RAW TEXT in EXACTLY this delimited format — NO JSON, NO markdown code fences, NO commentary between blocks:\n\n` +
+    `<<<CMFILE:${nonce}:relative/path/here.tsx>>>\n` +
+    `<the complete file content, written literally exactly as it should be saved to disk>\n` +
+    `<<<CMEND:${nonce}>>>\n\n` +
+    `Rules:\n` +
+    `- The path on each CMFILE line MUST exactly match one path from the list below.\n` +
+    `- Put the ENTIRE file between its CMFILE and CMEND lines. Write the code LITERALLY — do not escape quotes or newlines, do not wrap in backticks.\n` +
+    `- One CMFILE/CMEND block per file. Output nothing outside the blocks.\n\n` +
+    `Write them IN THIS ORDER (foundation + pages first, the App/router that imports them LAST — so the app stays coherent even if generation is interrupted):\n` +
+    paths.map(p => `- ${p}`).join('\n')
 
   const result = streamText({
     ...getModelOptions(modelId),
     maxOutputTokens: getMaxOutputTokens(modelId),
     system: buildGenSystem(designContext),
-    messages: [
-      ...messages,
-      {
-        role: 'user' as const,
-        content:
-          'Write ALL of the following files completely using writeFile, one call per file, ' +
-          'IN THIS EXACT ORDER (foundation + pages first, the App/router that imports them LAST — ' +
-          'so the app is always coherent even if generation is interrupted):\n' +
-          paths.map(p => `- ${p}`).join('\n'),
-      },
-    ],
-    tools: {
-      writeFile: tool({
-        description: 'Write one complete source file with its full content',
-        inputSchema: z.object({
-          path: z.string().describe('File path relative to project root'),
-          content: z.string().describe('Complete file content — never truncate'),
-        }),
-        execute: async ({ path, content }) => {
-          if (!paths.includes(path)) return 'skipped: not in requested list'
-          // INTEGRITY GATE — reject corrupted tool-call output (the `true]}` fragment / dropped
-          // imports) BEFORE it touches disk. A rejected file is left unwritten → the missing-file
-          // retry regenerates it cleanly. Garbage never reaches the preview.
-          const clean = sanitizeContent(path, content)
-          if (clean === null) {
-            console.warn(`[getContents] rejected corrupted content for ${path} — will regenerate`)
-            return 'The content for this file was corrupted/incomplete. Call writeFile again for this exact path with the COMPLETE, valid file (start with the imports).'
-          }
-          for (const file of splitConcatenated(path, clean, paths)) {
-            enqueue({ path: file.path, content: fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content)))) })
-          }
-          return 'ok'
-        },
-      }),
-    },
-    stopWhen: stepCountIs(paths.length + 5),
-    onFinish: () => { finished = true; notify() },
+    messages: [...messages, { role: 'user' as const, content: instruction }],
     onError: err => console.error('[getContents] stream error:', err),
   })
 
-  result.consumeStream()
-
+  // Parse the stream for COMPLETE <<<CMFILE:nonce:path>>> … <<<CMEND:nonce>>> blocks. A file is
+  // yielded only when its END fence arrives; a truncated final file (no END) is simply never
+  // written → the missing-file retry regenerates it cleanly (better than shipping a partial file).
+  // Match on the fence STRUCTURE, not the exact nonce — the marker `<<<CMFILE:` is already unique
+  // enough that it can't collide with real code, and tolerating a mangled nonce means a single
+  // stray character never breaks the whole parse. (The nonce is still emitted for extra safety.)
+  const blockRe = /<<<CMFILE:[^:>\n]+:(.+?)>>>\r?\n([\s\S]*?)\r?\n?<<<CMEND[^>\n]*>>>/g
   const written = new Set<string>()
-  while (true) {
-    while (queue.length > 0) {
-      const file = queue.shift()!
-      if (!written.has(file.path)) {
-        written.add(file.path)
-        yield { files: [file], paths: [file.path], written: [] }
+  let buffer = ''
+  for await (const delta of result.textStream) {
+    buffer += delta
+    blockRe.lastIndex = 0
+    let consumedTo = 0
+    let m: RegExpExecArray | null
+    while ((m = blockRe.exec(buffer)) !== null) {
+      consumedTo = m.index + m[0].length
+      const filePath = m[1].trim()
+      if (!paths.includes(filePath) || written.has(filePath)) continue
+      // INTEGRITY GATE (defence in depth) — even here, reject empty/garbage before it's written.
+      const clean = sanitizeContent(filePath, m[2])
+      if (clean === null) {
+        console.warn(`[getContents] rejected corrupted/empty content for ${filePath} — will regenerate`)
+        continue
+      }
+      written.add(filePath)
+      for (const file of splitConcatenated(filePath, clean, paths)) {
+        yield {
+          files: [{ path: file.path, content: fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content)))) }],
+          paths: [file.path],
+          written: [],
+        }
       }
     }
-    if (finished && queue.length === 0) break
-    await signal
+    if (consumedTo > 0) buffer = buffer.slice(consumedTo)
   }
 }
