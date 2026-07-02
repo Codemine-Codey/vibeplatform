@@ -1093,29 +1093,33 @@ async function runAgenticLoop({
       `confirm the app builds and renders with no error.`
   }
 
-  const result = streamText({
-    ...getModelOptions(isEdit ? EDIT_MODEL : DEFAULT_MODEL),
-    system: resolvedSystemPrompt,
-    // Phase 4: drop stale file-read results from history so each edit turn doesn't
-    // re-pay for files the model already used. Preserves the cached system prefix.
-    messages: trimStaleReadResults(await convertToModelMessages(transformMessages(messages))),
-    stopWhen: stepCountIs(30),
-    // Model's max output — patchFile/generateFiles tool arguments stream through
-    // this budget; a small cap truncated large patches mid-file (a blank-preview
-    // cause). Capped to the active model's real ceiling so the provider never 400s.
-    maxOutputTokens: getMaxOutputTokens(isEdit ? EDIT_MODEL : DEFAULT_MODEL),
-    // Edits use the fast EDIT_MODEL for file writing too (not Pro) — a copy/component
-    // tweak must finish in seconds, not minutes.
-    tools: tools({ modelId: isEdit ? EDIT_MODEL : FILE_GENERATION_MODEL, writer }),
-    onError: error => {
-      console.error('Error communicating with AI')
-      console.error(JSON.stringify(error, null, 2))
-    },
-  })
-  // Token accounting: keep the ALS context alive through every model call this
-  // turn makes (await result.text) so the metrics middleware sums into tokenBox.
+  // Token accounting: create the stream INSIDE the token context so the metrics
+  // middleware's usage callbacks sum into THIS request's tokenBox. streamText created
+  // OUTSIDE tokenStore.run runs its stream transforms in whatever async context is active
+  // when data flows — under concurrency that could be a DIFFERENT request's context,
+  // which misattributed tokens (the "0 tokens" rows). Creating it inside .run pins the
+  // whole stream lifecycle to this request.
   const tokenBox = { total: 0 }
   await tokenStore.run(tokenBox, async () => {
+    const result = streamText({
+      ...getModelOptions(isEdit ? EDIT_MODEL : DEFAULT_MODEL),
+      system: resolvedSystemPrompt,
+      // Phase 4: drop stale file-read results from history so each edit turn doesn't
+      // re-pay for files the model already used. Preserves the cached system prefix.
+      messages: trimStaleReadResults(await convertToModelMessages(transformMessages(messages))),
+      stopWhen: stepCountIs(30),
+      // Model's max output — patchFile/generateFiles tool arguments stream through
+      // this budget; a small cap truncated large patches mid-file (a blank-preview
+      // cause). Capped to the active model's real ceiling so the provider never 400s.
+      maxOutputTokens: getMaxOutputTokens(isEdit ? EDIT_MODEL : DEFAULT_MODEL),
+      // Edits use the fast EDIT_MODEL for file writing too (not Pro) — a copy/component
+      // tweak must finish in seconds, not minutes.
+      tools: tools({ modelId: isEdit ? EDIT_MODEL : FILE_GENERATION_MODEL, writer }),
+      onError: error => {
+        console.error('Error communicating with AI')
+        console.error(JSON.stringify(error, null, 2))
+      },
+    })
     result.consumeStream()
     writer.merge(result.toUIMessageStream({ sendReasoning: false, sendStart: false }))
     try {
