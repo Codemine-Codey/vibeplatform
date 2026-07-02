@@ -1,223 +1,165 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { ArrowRight, Sparkles, Rocket, Heart } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { ChevronLeft, Rocket, Heart, Zap, Globe, Shield } from 'lucide-react'
 import { SiteNav } from '@/components/marketing/site-nav'
 import { SiteFooter } from '@/components/marketing/site-footer'
 import { Reveal } from '@/components/marketing/reveal'
 import { DarkNoiseBackground } from '@/components/ui/futurastic-hero-section'
-import { cn } from '@/lib/utils'
 
 export const metadata: Metadata = {
   title: 'About — Codemine',
   description:
-    'Codemine makes building real, deployed web apps as easy as describing them — no code, no setup, powered by AI.',
+    'Codemine bridges imagination and execution — turning ideas into real, deployed web apps in minutes, powered by AI.',
 }
 
-const VALUES = [
+const PRINCIPLES = [
   {
-    icon: Sparkles,
-    title: 'Anyone can build',
-    body: 'You should not need to be an engineer to ship software. If you can describe it, you can build it — Codemine handles the rest.',
-    accent: 'from-sky-500 to-blue-400',
+    tag: 'Vision',
+    tagColor: 'text-indigo-400',
+    title: 'Limitless Creation',
+    body: "To become the world's most trusted AI-powered builder, enabling anyone, anywhere, to launch their digital dreams effortlessly and instantly.",
   },
   {
-    icon: Rocket,
-    title: 'Real, not a demo',
-    body: 'Every project is a real app that runs and deploys to a live URL. No throwaway mockups, no “export and figure it out yourself”.',
-    accent: 'from-blue-500 to-indigo-400',
+    tag: 'Mission',
+    tagColor: 'text-pink-400',
+    title: 'Speed of Thought',
+    body: 'To abstract away the complexities of development, empowering creators to build, iterate, and deploy at the speed of thought.',
   },
-  {
-    icon: Heart,
-    title: 'Delight in the details',
-    body: 'Great tools feel effortless. We obsess over speed, taste, and the small moments that make building feel like magic.',
-    accent: 'from-indigo-500 to-violet-400',
-  },
-]
+] as const
 
 export default function AboutPage() {
   return (
-    <div className="relative min-h-screen bg-[#05070f] text-neutral-100">
+    <div className="min-h-screen bg-zinc-950 text-white selection:bg-indigo-500/30">
       <DarkNoiseBackground />
       <SiteNav />
 
-      <main>
-        {/* hero */}
-        <section className="relative overflow-hidden">
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              backgroundImage:
-                'radial-gradient(55% 45% at 50% 0%, rgba(59,130,246,0.16), transparent 60%), radial-gradient(45% 45% at 85% 15%, rgba(79,70,229,0.14), transparent 60%)',
-            }}
-          />
-          <div className="relative mx-auto max-w-3xl px-5 py-20 text-center lg:py-28">
-            <Reveal delay={0.05}>
-              <h1 className="text-4xl font-semibold leading-[1.05] tracking-tight text-white sm:text-5xl lg:text-6xl">
-                Building the web should be as easy as{' '}
-                <span className="bg-gradient-to-r from-sky-300 via-blue-400 to-indigo-400 bg-clip-text text-transparent">
-                  describing it
-                </span>
-              </h1>
-            </Reveal>
-            <Reveal delay={0.12}>
-              <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-neutral-300">
-                Codemine turns plain-English ideas into real, deployed web apps — no
-                code, no config, no boilerplate. We are here to put the power of a full
-                engineering team into a single sentence.
-              </p>
-            </Reveal>
-          </div>
-        </section>
+      {/* soft brand decor */}
+      <div className="pointer-events-none fixed inset-0 -z-[5]">
+        <div className="absolute left-[-10%] top-[-20%] h-[600px] w-[600px] rounded-full bg-indigo-600/10 blur-[120px]" />
+        <div className="absolute bottom-[-10%] right-[-20%] h-[500px] w-[500px] rounded-full bg-purple-600/10 blur-[100px]" />
+      </div>
 
-        {/* story — asymmetric: sticky heading + pull-quote + stats on the left,
-            the narrative on the right */}
-        <section className="border-y border-white/[0.06] bg-white/[0.02]">
-          <div className="mx-auto grid max-w-6xl gap-12 px-5 py-20 lg:grid-cols-[0.85fr_1.15fr] lg:gap-16 lg:py-24">
-            <div className="lg:sticky lg:top-28 lg:self-start">
-              <Reveal>
-                <p className="text-sm font-medium text-blue-400">Our story</p>
-                <h2 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                  From idea to live app, without the gap
-                </h2>
-              </Reveal>
-              <Reveal delay={0.08}>
-                <figure className="mt-8 rounded-2xl border-l-4 border-blue-500 bg-white/[0.04] p-6 shadow-sm backdrop-blur">
-                  <blockquote className="text-lg font-medium leading-relaxed text-white">
-                    “Software that used to take weeks and a team, now built in minutes by
-                    one person and a sentence.”
-                  </blockquote>
-                </figure>
-              </Reveal>
-              <Reveal delay={0.14}>
-                <div className="mt-8 flex gap-10">
-                  <div>
-                    <div className="text-3xl font-semibold tracking-tight text-white">
-                      Minutes
-                    </div>
-                    <div className="mt-1 text-sm text-neutral-400">
-                      not weeks, prompt to live
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-3xl font-semibold tracking-tight text-white">
-                      Zero
-                    </div>
-                    <div className="mt-1 text-sm text-neutral-400">
-                      setup, servers, boilerplate
-                    </div>
-                  </div>
-                </div>
-              </Reveal>
-            </div>
+      <div className="relative z-10 px-4 pb-24 pt-32">
+        <div className="mx-auto max-w-4xl">
+          <Link
+            href="/home"
+            className="group mb-8 inline-flex items-center gap-2 text-sm font-medium text-zinc-500 transition-colors hover:text-white"
+          >
+            <span className="rounded-full border border-zinc-800 bg-zinc-900 p-1 transition-colors group-hover:border-zinc-700">
+              <ChevronLeft size={16} />
+            </span>
+            Back to Home
+          </Link>
 
-            <div className="space-y-5 text-[15px] leading-relaxed text-neutral-300">
-              <Reveal delay={0.05}>
-                <p className="text-lg leading-relaxed text-white">
-                  For most people, the distance between an idea and a working product is
-                  enormous — languages to learn, frameworks to wire up, servers to
-                  configure, deploys to babysit. Brilliant ideas die in that gap every
-                  day.
-                </p>
-              </Reveal>
-              <Reveal delay={0.1}>
-                <p>
-                  We built Codemine to close it. You describe what you want, and Codemine
-                  writes the code, runs it, wires up the database and auth, places the
-                  images, and deploys a real app you can share — all while you watch it
-                  come together live. When you want a change, you just say so.
-                </p>
-              </Reveal>
-              <Reveal delay={0.15}>
-                <p>
-                  The result is a shift we care deeply about: making creation accessible
-                  to everyone, not just those who can code. One person and a sentence can
-                  now do what once took a whole team a whole quarter.
-                </p>
-              </Reveal>
-            </div>
-          </div>
-        </section>
-
-        {/* values — alternating editorial rows, not three identical columns */}
-        <section className="mx-auto max-w-5xl px-5 py-20 lg:py-28">
-          <Reveal className="max-w-2xl">
-            <p className="text-sm font-medium text-blue-400">What we believe</p>
-            <h2 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-              The principles behind every build
-            </h2>
+          {/* Hero */}
+          <Reveal className="mb-20 text-center">
+            <h1 className="mb-6 bg-gradient-to-b from-white via-zinc-200 to-zinc-500 bg-clip-text text-4xl font-bold tracking-tight text-transparent md:text-6xl">
+              Bridging Imagination &amp; Execution
+            </h1>
+            <p className="mx-auto max-w-2xl text-xl leading-relaxed text-zinc-400">
+              We believe creating technology should be as natural as having an idea.
+            </p>
           </Reveal>
 
-          <div className="mt-12 space-y-4">
-            {VALUES.map((value, i) => {
-              const flip = i % 2 === 1
-              return (
-                <Reveal key={value.title} delay={i * 0.08}>
-                  <div className="grid items-center gap-6 rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-sm backdrop-blur sm:p-8 md:grid-cols-2 md:gap-10">
-                    {/* emphasis side — big index + accent icon */}
-                    <div className={cn('flex items-center gap-5', flip && 'md:order-2')}>
-                      <span className="text-5xl font-semibold tabular-nums text-white/15 sm:text-6xl">
-                        {String(i + 1).padStart(2, '0')}
-                      </span>
-                      <div
-                        className={cn(
-                          'flex size-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-md',
-                          value.accent,
-                        )}
-                      >
-                        <value.icon className="size-6" />
-                      </div>
-                    </div>
-                    {/* text side */}
-                    <div className={cn(flip && 'md:order-1')}>
-                      <h3 className="text-xl font-semibold text-white">{value.title}</h3>
-                      <p className="mt-2 text-[15px] leading-relaxed text-neutral-400">
-                        {value.body}
-                      </p>
-                    </div>
-                  </div>
-                </Reveal>
-              )
-            })}
-          </div>
-        </section>
+          {/* Our Story */}
+          <Reveal className="mb-24">
+            <h2 className="mb-6 flex items-center gap-3 text-2xl font-bold text-white">
+              <span className="flex size-8 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400">
+                <Heart size={18} />
+              </span>
+              Our Story
+            </h2>
+            <div className="space-y-6 text-lg leading-loose text-zinc-400">
+              <p>
+                We founded Codemine on a simple but powerful belief: that creating technology should feel as natural
+                as having an idea. Too often, we&apos;ve seen brilliant minds held back — not because their vision
+                wasn&apos;t strong enough, but because the tools to bring that vision to life were locked behind layers
+                of technical barriers, endless complexity, and overwhelming costs.
+              </p>
+              <p>
+                Codemine exists to change that. We built it to be the bridge between imagination and execution — a
+                platform where your creativity doesn&apos;t just sit on paper, it comes alive instantly. Whether
+                you&apos;re an ambitious founder with a new product idea, a developer tired of repetitive boilerplate,
+                or a creator eager to share your vision with the world — Codemine gives you the power to move forward
+                without hesitation.
+              </p>
+            </div>
+          </Reveal>
 
-        {/* CTA */}
-        <section className="mx-auto max-w-6xl px-5 pb-20 lg:pb-24">
-          <Reveal>
-            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0a0f22] px-6 py-16 text-center shadow-xl sm:px-16">
-              <div
-                className="pointer-events-none absolute inset-0"
-                style={{
-                  backgroundImage:
-                    'radial-gradient(50% 60% at 20% 0%, rgba(59,130,246,0.4), transparent 60%), radial-gradient(50% 60% at 85% 100%, rgba(79,70,229,0.35), transparent 60%)',
-                }}
-              />
-              <div className="relative">
-                <h2 className="mx-auto max-w-2xl text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                  Come build something real
-                </h2>
-                <p className="mx-auto mt-4 max-w-xl text-base text-white/70">
-                  Describe your idea and watch it become a live app. Free to start — no
-                  credit card required.
-                </p>
-                <div className="mt-8 flex justify-center">
-                  <Button
-                    asChild
-                    size="lg"
-                    className="h-12 bg-blue-600 px-7 text-base text-white shadow-lg shadow-blue-900/40 hover:bg-blue-500"
-                  >
-                    <Link href="/signup">
-                      Start now
-                      <ArrowRight className="size-4" />
-                    </Link>
-                  </Button>
+          {/* Guiding Principles */}
+          <Reveal className="mb-24">
+            <h2 className="mb-8 flex items-center gap-3 text-2xl font-bold text-white">
+              <span className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                <Globe size={18} />
+              </span>
+              Our Guiding Principles
+            </h2>
+            <div className="grid gap-6 md:grid-cols-3">
+              {PRINCIPLES.map((p) => (
+                <div
+                  key={p.tag}
+                  className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 transition-colors hover:bg-zinc-900"
+                >
+                  <div className={`mb-4 text-xs font-bold uppercase tracking-wider ${p.tagColor}`}>{p.tag}</div>
+                  <h3 className="mb-3 text-lg font-bold text-zinc-100">{p.title}</h3>
+                  <p className="text-sm leading-relaxed text-zinc-400">{p.body}</p>
                 </div>
+              ))}
+              {/* Values card */}
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 transition-colors hover:bg-zinc-900">
+                <div className="mb-4 text-xs font-bold uppercase tracking-wider text-yellow-400">Values</div>
+                <h3 className="mb-3 text-lg font-bold text-zinc-100">Core Pillars</h3>
+                <ul className="space-y-2 text-sm text-zinc-400">
+                  <li className="flex items-center gap-2">
+                    <Zap size={14} className="text-yellow-400" /> <strong className="text-zinc-200">Innovation:</strong> Push boundaries.
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Heart size={14} className="text-pink-400" /> <strong className="text-zinc-200">Simplicity:</strong> Make tech accessible.
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Shield size={14} className="text-emerald-400" /> <strong className="text-zinc-200">Trust:</strong> Build reliability.
+                  </li>
+                </ul>
               </div>
             </div>
           </Reveal>
-        </section>
-      </main>
+
+          {/* Our Commitment */}
+          <Reveal>
+            <div className="relative overflow-hidden rounded-3xl border border-zinc-800 bg-gradient-to-br from-zinc-900 to-black p-8 md:p-12">
+              <div className="pointer-events-none absolute right-0 top-0 h-64 w-64 rounded-full bg-indigo-500/5 blur-3xl" />
+              <h2 className="relative z-10 mb-6 flex items-center gap-3 text-2xl font-bold text-white">
+                <span className="flex size-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400">
+                  <Rocket size={18} />
+                </span>
+                Our Commitment
+              </h2>
+              <div className="relative z-10 space-y-6 text-lg leading-loose text-zinc-400">
+                <p>
+                  Codemine isn&apos;t just another tool — it&apos;s your partner in innovation. By harnessing advanced
+                  AI, we make it possible to design, build, and deploy apps and websites at the speed of thought. What
+                  once took months of planning, coding, and debugging can now happen in minutes — freeing you to focus
+                  on what matters most: your story, your customers, your impact.
+                </p>
+                <p className="font-medium text-white">
+                  Our aim is simple: to remove the gap between having an idea and seeing it live in the world. With
+                  Codemine, you don&apos;t just create technology — you unlock possibilities, accelerate your journey,
+                  and bring your boldest ideas to life faster than ever before.
+                </p>
+              </div>
+              <div className="relative z-10 mt-8">
+                <Link
+                  href="/signup"
+                  className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-blue-900/40 transition-colors hover:bg-blue-500"
+                >
+                  Start building
+                  <Rocket size={16} />
+                </Link>
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </div>
 
       <SiteFooter />
     </div>
