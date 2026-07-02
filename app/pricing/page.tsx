@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { SiteNav } from '@/components/marketing/site-nav'
 import { SiteFooter } from '@/components/marketing/site-footer'
 import { Reveal } from '@/components/marketing/reveal'
-import { DarkNoiseBackground } from '@/components/ui/futurastic-hero-section'
+import { MarketingRoot } from '@/components/marketing/marketing-shell'
 import { cn } from '@/lib/utils'
 
 export const metadata: Metadata = {
@@ -78,35 +78,40 @@ const TIERS: Tier[] = [
 
 export default function PricingPage() {
   return (
-    <div className="relative min-h-screen bg-[#05070f] text-neutral-100">
-      <DarkNoiseBackground />
+    <MarketingRoot>
       <SiteNav />
 
       <main>
         {/* hero */}
-        <section className="relative overflow-hidden">
+        <section className="relative overflow-hidden pt-16">
           <div
-            className="pointer-events-none absolute inset-0"
+            className="cm-aurora pointer-events-none absolute inset-0"
             style={{
               backgroundImage:
                 'radial-gradient(55% 45% at 50% 0%, rgba(59,130,246,0.16), transparent 60%), radial-gradient(45% 45% at 85% 15%, rgba(79,70,229,0.14), transparent 60%)',
             }}
           />
           <div className="relative mx-auto max-w-3xl px-5 pb-6 pt-16 text-center lg:pt-24">
-            <Reveal className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-neutral-300 shadow-sm backdrop-blur">
-              <Sparkles className="size-3.5 text-blue-400" />
+            <Reveal className="inline-flex items-center gap-2 rounded-full border border-[var(--cm-border)] bg-[var(--cm-card)] px-3 py-1.5 text-xs font-medium text-[var(--cm-body)] shadow-sm backdrop-blur">
+              <Sparkles className="size-3.5 text-[var(--cm-accent)]" />
               Simple, honest pricing
             </Reveal>
             <Reveal delay={0.05}>
-              <h1 className="mt-6 text-4xl font-semibold leading-[1.05] tracking-tight text-white sm:text-5xl lg:text-6xl">
+              <h1 className="mt-6 text-4xl font-semibold leading-[1.05] tracking-tight text-[var(--cm-heading)] sm:text-5xl lg:text-6xl">
                 Start free.{' '}
-                <span className="bg-gradient-to-r from-sky-300 via-blue-400 to-indigo-400 bg-clip-text text-transparent">
+                <span
+                  className="bg-clip-text text-transparent"
+                  style={{
+                    backgroundImage:
+                      'linear-gradient(to right, var(--cm-grad-from), var(--cm-grad-via), var(--cm-grad-to))',
+                  }}
+                >
                   Upgrade when you ship.
                 </span>
               </h1>
             </Reveal>
             <Reveal delay={0.12}>
-              <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-neutral-300">
+              <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-[var(--cm-body)]">
                 Build and preview as much as you like on the free plan. Only pay when
                 you are ready to put real apps live on your own domains.
               </p>
@@ -123,29 +128,29 @@ export default function PricingPage() {
               </Reveal>
             ))}
           </div>
-          <p className="mt-8 text-center text-sm text-neutral-400">
+          <p className="mt-8 text-center text-sm text-[var(--cm-muted)]">
             Prices shown are placeholders for launch. No credit card required to start.
           </p>
         </section>
 
         {/* comparison note / FAQ-lite */}
-        <section className="border-t border-white/[0.06] bg-white/[0.02]">
+        <section className="border-y border-[var(--cm-border-soft)] bg-[var(--cm-wash)]">
           <div className="mx-auto grid max-w-5xl gap-8 px-5 py-16 md:grid-cols-3 lg:py-20">
             <Reveal>
-              <h3 className="text-base font-semibold text-white">Cancel anytime</h3>
-              <p className="mt-2 text-sm leading-relaxed text-neutral-400">
+              <h3 className="text-base font-semibold text-[var(--cm-heading)]">Cancel anytime</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--cm-muted)]">
                 Upgrade, downgrade, or cancel whenever you like. Your projects stay yours.
               </p>
             </Reveal>
             <Reveal delay={0.06}>
-              <h3 className="text-base font-semibold text-white">No lock-in</h3>
-              <p className="mt-2 text-sm leading-relaxed text-neutral-400">
+              <h3 className="text-base font-semibold text-[var(--cm-heading)]">No lock-in</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--cm-muted)]">
                 Every app is real code on a real URL — export and take it with you at will.
               </p>
             </Reveal>
             <Reveal delay={0.12}>
-              <h3 className="text-base font-semibold text-white">Fair usage</h3>
-              <p className="mt-2 text-sm leading-relaxed text-neutral-400">
+              <h3 className="text-base font-semibold text-[var(--cm-heading)]">Fair usage</h3>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--cm-muted)]">
                 Generous limits on every plan, with clear upgrades if you outgrow them.
               </p>
             </Reveal>
@@ -155,19 +160,19 @@ export default function PricingPage() {
         {/* CTA */}
         <section className="mx-auto max-w-6xl px-5 py-20 lg:py-24">
           <Reveal>
-            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0a0f22] px-6 py-16 text-center shadow-xl sm:px-16">
+            <div className="relative overflow-hidden rounded-3xl border border-[var(--cm-panel-border)] bg-[var(--cm-panel)] px-6 py-16 text-center shadow-xl sm:px-16">
               <div
-                className="pointer-events-none absolute inset-0"
+                className="cm-panel-glow pointer-events-none absolute inset-0"
                 style={{
                   backgroundImage:
                     'radial-gradient(50% 60% at 20% 0%, rgba(59,130,246,0.4), transparent 60%), radial-gradient(50% 60% at 85% 100%, rgba(79,70,229,0.35), transparent 60%)',
                 }}
               />
               <div className="relative">
-                <h2 className="mx-auto max-w-2xl text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+                <h2 className="mx-auto max-w-2xl text-3xl font-semibold tracking-tight text-[var(--cm-panel-heading)] sm:text-4xl">
                   Your next app is one sentence away
                 </h2>
-                <p className="mx-auto mt-4 max-w-xl text-base text-white/70">
+                <p className="mx-auto mt-4 max-w-xl text-base text-[var(--cm-panel-body)]">
                   Describe it, watch it build, and put it live today. Free to start — no
                   credit card required.
                 </p>
@@ -175,7 +180,7 @@ export default function PricingPage() {
                   <Button
                     asChild
                     size="lg"
-                    className="h-12 bg-blue-600 px-7 text-base text-white shadow-lg shadow-blue-900/40 hover:bg-blue-500"
+                    className="h-12 bg-blue-600 px-7 text-base text-white shadow-lg shadow-blue-900/30 hover:bg-blue-500"
                   >
                     <Link href="/signup">
                       Start now
@@ -190,17 +195,17 @@ export default function PricingPage() {
       </main>
 
       <SiteFooter />
-    </div>
+    </MarketingRoot>
   )
 }
 
 function PriceCard({ tier }: { tier: Tier }) {
   if (tier.featured) {
-    // Recommended tier — bright blue, elevated, high-contrast anchor.
+    // Recommended tier — elevated panel anchor, high-contrast in both themes.
     return (
-      <div className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-blue-400/30 bg-[#0a0f22] p-8 text-white shadow-xl shadow-blue-950/40 ring-1 ring-blue-500/20 lg:-my-2">
+      <div className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-blue-400/30 bg-[var(--cm-panel)] p-8 shadow-xl ring-1 ring-blue-500/20 lg:-my-2">
         <div
-          className="pointer-events-none absolute inset-0"
+          className="cm-panel-glow pointer-events-none absolute inset-0"
           style={{
             backgroundImage:
               'radial-gradient(55% 45% at 15% 0%, rgba(59,130,246,0.45), transparent 60%), radial-gradient(50% 60% at 100% 100%, rgba(79,70,229,0.4), transparent 60%)',
@@ -208,20 +213,22 @@ function PriceCard({ tier }: { tier: Tier }) {
         />
         <div className="relative flex flex-1 flex-col">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">{tier.name}</h3>
-            <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/20 px-2.5 py-1 text-[11px] font-medium text-blue-200 ring-1 ring-blue-400/30">
+            <h3 className="text-lg font-semibold text-[var(--cm-panel-heading)]">{tier.name}</h3>
+            <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/20 px-2.5 py-1 text-[11px] font-medium text-[var(--cm-accent)] ring-1 ring-blue-400/30">
               <Sparkles className="size-3" /> Recommended
             </span>
           </div>
           <div className="mt-5 flex items-baseline gap-1.5">
-            <span className="text-4xl font-semibold tracking-tight">{tier.price}</span>
-            {tier.cadence && <span className="text-sm text-white/60">{tier.cadence}</span>}
+            <span className="text-4xl font-semibold tracking-tight text-[var(--cm-panel-heading)]">
+              {tier.price}
+            </span>
+            {tier.cadence && <span className="text-sm text-[var(--cm-panel-body)]">{tier.cadence}</span>}
           </div>
-          <p className="mt-3 text-sm leading-relaxed text-white/70">{tier.tagline}</p>
+          <p className="mt-3 text-sm leading-relaxed text-[var(--cm-panel-body)]">{tier.tagline}</p>
 
           <ul className="mt-7 space-y-3">
             {tier.features.map((f) => (
-              <li key={f} className="flex items-start gap-2.5 text-sm text-white/85">
+              <li key={f} className="flex items-start gap-2.5 text-sm text-[var(--cm-panel-body)]">
                 <Check className="mt-0.5 size-4 shrink-0 text-blue-400" />
                 {f}
               </li>
@@ -232,7 +239,7 @@ function PriceCard({ tier }: { tier: Tier }) {
             <Button
               asChild
               size="lg"
-              className="h-11 w-full bg-blue-600 text-base text-white shadow-lg shadow-blue-900/40 hover:bg-blue-500"
+              className="h-11 w-full bg-blue-600 text-base text-white shadow-lg shadow-blue-900/30 hover:bg-blue-500"
             >
               <Link href={tier.href}>
                 {tier.cta}
@@ -246,21 +253,21 @@ function PriceCard({ tier }: { tier: Tier }) {
   }
 
   return (
-    <div className="flex h-full flex-col rounded-3xl border border-white/10 bg-white/[0.03] p-8 shadow-sm backdrop-blur transition-all hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.05]">
-      <h3 className="text-lg font-semibold text-white">{tier.name}</h3>
+    <div className="flex h-full flex-col rounded-3xl border border-[var(--cm-border)] bg-[var(--cm-card)] p-8 shadow-sm backdrop-blur transition-all hover:-translate-y-1 hover:border-[var(--cm-border-strong)] hover:bg-[var(--cm-card-hover)]">
+      <h3 className="text-lg font-semibold text-[var(--cm-heading)]">{tier.name}</h3>
       <div className="mt-5 flex items-baseline gap-1.5">
-        <span className="text-4xl font-semibold tracking-tight text-white">{tier.price}</span>
-        {tier.cadence && <span className="text-sm text-neutral-400">{tier.cadence}</span>}
+        <span className="text-4xl font-semibold tracking-tight text-[var(--cm-heading)]">{tier.price}</span>
+        {tier.cadence && <span className="text-sm text-[var(--cm-muted)]">{tier.cadence}</span>}
       </div>
-      <p className="mt-3 text-sm leading-relaxed text-neutral-400">{tier.tagline}</p>
+      <p className="mt-3 text-sm leading-relaxed text-[var(--cm-muted)]">{tier.tagline}</p>
 
       <ul className="mt-7 space-y-3">
         {tier.features.map((f) => (
-          <li key={f} className="flex items-start gap-2.5 text-sm text-neutral-300">
+          <li key={f} className="flex items-start gap-2.5 text-sm text-[var(--cm-body)]">
             <Check
               className={cn(
                 'mt-0.5 size-4 shrink-0',
-                tier.name === 'Team' ? 'text-indigo-400' : 'text-sky-400',
+                tier.name === 'Team' ? 'text-indigo-500' : 'text-sky-500',
               )}
             />
             {f}
@@ -273,7 +280,7 @@ function PriceCard({ tier }: { tier: Tier }) {
           asChild
           variant="outline"
           size="lg"
-          className="h-11 w-full border-white/15 bg-transparent text-base text-neutral-100 hover:bg-white/10 hover:text-white"
+          className="h-11 w-full border-[var(--cm-border-strong)] bg-transparent text-base text-[var(--cm-heading)] hover:bg-[var(--cm-hover)] hover:text-[var(--cm-heading)]"
         >
           <Link href={tier.href}>
             {tier.cta}

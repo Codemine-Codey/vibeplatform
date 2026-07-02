@@ -19,12 +19,13 @@ import { Button } from '@/components/ui/button'
 import { SiteNav } from '@/components/marketing/site-nav'
 import { SiteFooter } from '@/components/marketing/site-footer'
 import { Reveal } from '@/components/marketing/reveal'
+import { MarketingRoot } from '@/components/marketing/marketing-shell'
 import { AuroraHero } from '@/components/ui/futurastic-hero-section'
 import { cn } from '@/lib/utils'
 
 export function Landing() {
   return (
-    <div className="min-h-screen bg-[#04060f] text-neutral-100">
+    <MarketingRoot>
       <SiteNav />
       <main>
         <Hero />
@@ -35,7 +36,7 @@ export function Landing() {
         <ClosingCTA />
       </main>
       <SiteFooter />
-    </div>
+    </MarketingRoot>
   )
 }
 
@@ -43,18 +44,34 @@ export function Landing() {
 function Hero() {
   return (
     <section className="relative overflow-hidden">
-      {/* dark aurora background layer (blue-only glow + upward star field) */}
+      {/* dark aurora background layer (blue glow) — hidden in light mode by the shell */}
       <AuroraHero />
+
+      {/* light-mode-only hero wash — a clean warm/blue gradient so light looks intentional */}
+      <div
+        aria-hidden
+        className="cm-light-only pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage:
+            'radial-gradient(60% 55% at 50% -8%, rgba(37,99,235,0.10), transparent 60%), radial-gradient(50% 50% at 85% 10%, rgba(124,58,237,0.08), transparent 60%)',
+        }}
+      />
 
       <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center px-5 py-28 text-center lg:py-40">
         <motion.h1
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
-          className="mt-6 text-4xl font-semibold leading-[1.03] tracking-tight text-white sm:text-6xl lg:text-7xl"
+          className="mt-6 text-4xl font-semibold leading-[1.03] tracking-tight text-[var(--cm-heading)] sm:text-6xl lg:text-7xl"
         >
           Turn your idea into a{' '}
-          <span className="bg-gradient-to-r from-sky-300 via-blue-400 to-indigo-400 bg-clip-text text-transparent">
+          <span
+            className="bg-clip-text text-transparent"
+            style={{
+              backgroundImage:
+                'linear-gradient(to right, var(--cm-grad-from), var(--cm-grad-via), var(--cm-grad-to))',
+            }}
+          >
             live web app
           </span>
         </motion.h1>
@@ -63,7 +80,7 @@ function Hero() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
-          className="mt-6 max-w-xl text-lg leading-relaxed text-neutral-300"
+          className="mt-6 max-w-xl text-lg leading-relaxed text-[var(--cm-body)]"
         >
           Describe what you want. Codemine writes the code, runs it, and deploys a
           real, working app you can share — no setup, no boilerplate.
@@ -78,7 +95,7 @@ function Hero() {
           <Button
             asChild
             size="lg"
-            className="h-12 bg-blue-600 px-7 text-base text-white shadow-lg shadow-blue-900/40 hover:bg-blue-500"
+            className="h-12 bg-blue-600 px-7 text-base text-white shadow-lg shadow-blue-900/30 hover:bg-blue-500"
           >
             <Link href="/signup">
               Start now
@@ -91,7 +108,7 @@ function Hero() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.3 }}
-          className="mt-4 text-sm text-neutral-400"
+          className="mt-4 text-sm text-[var(--cm-muted)]"
         >
           No credit card required · Free to start
         </motion.p>
@@ -139,8 +156,8 @@ function HowItWorks() {
   return (
     <section id="how" className="mx-auto max-w-6xl px-5 py-20 lg:py-28">
       <Reveal className="mx-auto max-w-2xl text-center">
-        <p className="text-sm font-medium text-blue-400">How it works</p>
-        <h2 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+        <p className="text-sm font-medium text-[var(--cm-accent)]">How it works</p>
+        <h2 className="mt-2 text-3xl font-semibold tracking-tight text-[var(--cm-heading)] sm:text-4xl">
           Three steps from idea to live app
         </h2>
       </Reveal>
@@ -161,8 +178,8 @@ function HowItWorks() {
                 className={cn(
                   'group relative flex gap-4 rounded-2xl border p-5 text-left transition-all',
                   isActive
-                    ? 'border-white/10 bg-white/[0.05] shadow-lg shadow-black/40'
-                    : 'border-transparent hover:bg-white/[0.03]',
+                    ? 'border-[var(--cm-border)] bg-[var(--cm-card)] shadow-lg shadow-black/10'
+                    : 'border-transparent hover:bg-[var(--cm-wash)]',
                 )}
               >
                 <div
@@ -176,12 +193,12 @@ function HowItWorks() {
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-neutral-500">
+                    <span className="text-xs font-semibold text-[var(--cm-faint)]">
                       {String(i + 1).padStart(2, '0')}
                     </span>
-                    <h3 className="text-lg font-semibold text-white">{step.title}</h3>
+                    <h3 className="text-lg font-semibold text-[var(--cm-heading)]">{step.title}</h3>
                   </div>
-                  <p className="mt-1 text-sm leading-relaxed text-neutral-400">
+                  <p className="mt-1 text-sm leading-relaxed text-[var(--cm-muted)]">
                     {step.body}
                   </p>
                   {isActive && (
@@ -197,9 +214,9 @@ function HowItWorks() {
         </div>
 
         {/* right — the visual that changes per step */}
-        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] shadow-[0_24px_60px_-20px_rgba(0,0,0,0.6)] backdrop-blur">
+        <div className="relative overflow-hidden rounded-2xl border border-[var(--cm-border)] bg-[var(--cm-card)] shadow-[0_24px_60px_-20px_rgba(0,0,0,0.25)] backdrop-blur">
           {/* window chrome */}
-          <div className="flex items-center gap-2 border-b border-white/[0.08] px-4 py-3">
+          <div className="flex items-center gap-2 border-b border-[var(--cm-border-soft)] px-4 py-3">
             <span className="size-3 rounded-full bg-red-400/80" />
             <span className="size-3 rounded-full bg-amber-400/80" />
             <span className="size-3 rounded-full bg-green-400/80" />
@@ -250,15 +267,15 @@ function PromptVisual() {
   return (
     <VisualShell>
       <div className="flex h-full flex-col justify-center">
-        <div className="text-xs font-medium text-neutral-400">Your prompt</div>
-        <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.04] p-4">
-          <p className="min-h-[3.5rem] text-[15px] leading-relaxed text-neutral-100">
+        <div className="text-xs font-medium text-[var(--cm-muted)]">Your prompt</div>
+        <div className="mt-3 rounded-xl border border-[var(--cm-border)] bg-[var(--cm-inset)] p-4">
+          <p className="min-h-[3.5rem] text-[15px] leading-relaxed text-[var(--cm-heading)]">
             {text}
             <motion.span
               aria-hidden
               animate={{ opacity: [1, 0] }}
               transition={{ duration: 0.6, repeat: Infinity, repeatType: 'reverse' }}
-              className="ml-0.5 inline-block h-4 w-0.5 translate-y-0.5 bg-blue-300 align-middle"
+              className="ml-0.5 inline-block h-4 w-0.5 translate-y-0.5 bg-blue-400 align-middle"
             />
           </p>
         </div>
@@ -303,7 +320,8 @@ const CODE_LINES: CodeSpan[][] = [
   [{ text: '}' }],
 ]
 
-// Step 2 — code appearing one line at a time.
+// Step 2 — code appearing one line at a time. Rendered on a fixed dark editor
+// surface in both themes (a code editor reads well dark on a light page).
 function CodeVisual() {
   const [count, setCount] = useState(0)
 
@@ -323,8 +341,8 @@ function CodeVisual() {
   return (
     <VisualShell>
       <div className="flex h-full flex-col">
-        <div className="text-xs font-medium text-neutral-400">Writing Hero.tsx</div>
-        <div className="mt-3 flex-1 overflow-hidden rounded-xl border border-white/10 bg-[#0b1020] p-4 font-mono text-[12px] leading-6">
+        <div className="text-xs font-medium text-[var(--cm-muted)]">Writing Hero.tsx</div>
+        <div className="mt-3 flex-1 overflow-hidden rounded-xl border border-[var(--cm-border)] bg-[#0b1020] p-4 font-mono text-[12px] leading-6">
           {CODE_LINES.slice(0, count).map((line, i) => (
             <motion.div
               key={i}
@@ -362,12 +380,12 @@ function PreviewVisual() {
     <VisualShell>
       <div className="flex h-full flex-col">
         <div className="flex items-center justify-between">
-          <div className="text-xs font-medium text-neutral-400">Live preview</div>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-400/20">
+          <div className="text-xs font-medium text-[var(--cm-muted)]">Live preview</div>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-500 ring-1 ring-emerald-400/20">
             <span className="size-1.5 rounded-full bg-emerald-400" /> Deployed
           </span>
         </div>
-        <div className="mt-3 flex-1 overflow-hidden rounded-xl border border-white/10">
+        <div className="mt-3 flex-1 overflow-hidden rounded-xl border border-[var(--cm-border)]">
           <div className="relative h-24 overflow-hidden bg-gradient-to-br from-amber-200 via-orange-200 to-rose-200">
             <AnimatePresence>
               {ready && (
@@ -386,12 +404,12 @@ function PreviewVisual() {
           <div className="space-y-2 bg-white p-3">
             {!ready ? (
               <>
-                <div className="h-2 w-2/3 animate-pulse rounded bg-muted" />
-                <div className="h-2 w-full animate-pulse rounded bg-muted" />
-                <div className="h-2 w-4/5 animate-pulse rounded bg-muted" />
+                <div className="h-2 w-2/3 animate-pulse rounded bg-neutral-200" />
+                <div className="h-2 w-full animate-pulse rounded bg-neutral-200" />
+                <div className="h-2 w-4/5 animate-pulse rounded bg-neutral-200" />
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   {[0, 1, 2].map((i) => (
-                    <div key={i} className="h-14 animate-pulse rounded-md bg-muted" />
+                    <div key={i} className="h-14 animate-pulse rounded-md bg-neutral-200" />
                   ))}
                 </div>
               </>
@@ -402,13 +420,13 @@ function PreviewVisual() {
                 transition={{ duration: 0.4 }}
               >
                 <div className="h-2 w-2/3 rounded bg-neutral-300" />
-                <div className="mt-2 h-2 w-full rounded bg-muted" />
-                <div className="mt-2 h-2 w-4/5 rounded bg-muted" />
+                <div className="mt-2 h-2 w-full rounded bg-neutral-200" />
+                <div className="mt-2 h-2 w-4/5 rounded bg-neutral-200" />
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   {[0, 1, 2].map((i) => (
-                    <div key={i} className="space-y-1.5 rounded-md bg-secondary p-2">
+                    <div key={i} className="space-y-1.5 rounded-md bg-neutral-100 p-2">
                       <div className="h-8 rounded bg-gradient-to-br from-amber-100 to-orange-100" />
-                      <div className="h-1.5 w-3/4 rounded bg-muted" />
+                      <div className="h-1.5 w-3/4 rounded bg-neutral-200" />
                     </div>
                   ))}
                 </div>
@@ -422,10 +440,13 @@ function PreviewVisual() {
 }
 
 /* -------------------------------------------------------------- FEATURES */
+// features-8 style: an asymmetric bento — one large spotlight anchor, a couple
+// of medium cards, one wide accent card, and a compact numbered strip. Varied
+// sizes + icons give it editorial rhythm rather than an even grid.
 const bentoContainer = {
   hidden: {},
   show: {
-    transition: { staggerChildren: 0.1 },
+    transition: { staggerChildren: 0.08 },
   },
 }
 
@@ -434,8 +455,29 @@ const bentoItem = {
   show: {
     opacity: 1,
     y: 0,
-    transition: { type: 'spring' as const, stiffness: 100, damping: 10 },
+    transition: { type: 'spring' as const, stiffness: 100, damping: 12 },
   },
+}
+
+// A translucent bento card that reads in both themes.
+function BentoCard({
+  className,
+  children,
+}: {
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <motion.div
+      variants={bentoItem}
+      className={cn(
+        'group relative flex flex-col overflow-hidden rounded-3xl border border-[var(--cm-border)] bg-[var(--cm-card)] p-7 shadow-sm backdrop-blur transition-all hover:-translate-y-1 hover:border-[var(--cm-border-strong)] hover:bg-[var(--cm-card-hover)]',
+        className,
+      )}
+    >
+      {children}
+    </motion.div>
+  )
 }
 
 // A compact, index-numbered feature — used in the editorial bottom strip.
@@ -455,7 +497,7 @@ function FeatureLine({
   return (
     <motion.div
       variants={bentoItem}
-      className="group relative flex flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-6 shadow-sm transition-all hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.05]"
+      className="group relative flex flex-col rounded-2xl border border-[var(--cm-border)] bg-[var(--cm-card)] p-6 shadow-sm backdrop-blur transition-all hover:-translate-y-1 hover:border-[var(--cm-border-strong)] hover:bg-[var(--cm-card-hover)]"
     >
       <span
         className={cn(
@@ -464,29 +506,29 @@ function FeatureLine({
         )}
       />
       <div className="flex items-center justify-between">
-        <div className="flex size-10 items-center justify-center rounded-xl bg-white/10 text-blue-300 ring-1 ring-white/10">
+        <div className="flex size-10 items-center justify-center rounded-xl bg-[var(--cm-inset)] text-[var(--cm-accent)] ring-1 ring-[var(--cm-border)]">
           <Icon className="size-5" />
         </div>
-        <span className="text-sm font-semibold tabular-nums text-neutral-600">
+        <span className="text-sm font-semibold tabular-nums text-[var(--cm-faint)]">
           {String(index).padStart(2, '0')}
         </span>
       </div>
-      <h3 className="mt-4 text-base font-semibold text-white">{title}</h3>
-      <p className="mt-1.5 text-sm leading-relaxed text-neutral-400">{body}</p>
+      <h3 className="mt-4 text-base font-semibold text-[var(--cm-heading)]">{title}</h3>
+      <p className="mt-1.5 text-sm leading-relaxed text-[var(--cm-muted)]">{body}</p>
     </motion.div>
   )
 }
 
 function Features() {
   return (
-    <section className="border-y border-white/[0.06] bg-white/[0.02]">
+    <section className="border-y border-[var(--cm-border-soft)] bg-[var(--cm-wash)]">
       <div className="mx-auto max-w-6xl px-5 py-20 lg:py-28">
         <Reveal className="max-w-2xl">
-          <p className="text-sm font-medium text-blue-400">Everything included</p>
-          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+          <p className="text-sm font-medium text-[var(--cm-accent)]">Everything included</p>
+          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-[var(--cm-heading)] sm:text-4xl">
             A full stack, handled for you
           </h2>
-          <p className="mt-3 max-w-lg text-neutral-400">
+          <p className="mt-3 max-w-lg text-[var(--cm-muted)]">
             The pieces you would normally wire together yourself — already connected, from the very first prompt.
           </p>
         </Reveal>
@@ -496,28 +538,33 @@ function Features() {
           initial="hidden"
           whileInView="show"
           viewport={{ once: true, margin: '-80px' }}
-          className="mt-14 grid gap-5 lg:grid-cols-12"
+          className="mt-14 grid auto-rows-auto gap-5 lg:grid-cols-12"
         >
-          {/* SPOTLIGHT — dark, tall, high-contrast anchor */}
+          {/* SPOTLIGHT — large highlighted feature (Cloudmine), the anchor */}
           <motion.div
             variants={bentoItem}
-            className="group relative flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0a0f22] p-8 text-white shadow-xl lg:col-span-7 lg:row-span-2"
+            className="group relative flex flex-col overflow-hidden rounded-3xl border border-[var(--cm-panel-border)] bg-[var(--cm-panel)] p-8 shadow-xl lg:col-span-7 lg:row-span-2"
           >
             <div
-              className="pointer-events-none absolute inset-0"
+              className="cm-panel-glow pointer-events-none absolute inset-0"
               style={{
                 backgroundImage:
                   'radial-gradient(60% 60% at 12% 0%, rgba(59,130,246,0.4), transparent 60%), radial-gradient(55% 65% at 100% 100%, rgba(79,70,229,0.32), transparent 60%)',
               }}
             />
             <div className="relative flex flex-1 flex-col">
-              <div className="flex size-12 items-center justify-center rounded-2xl bg-white/10 text-white ring-1 ring-white/15 backdrop-blur">
+              <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-blue-500/15 px-2.5 py-1 text-[11px] font-medium text-[var(--cm-accent)] ring-1 ring-blue-400/25">
+                <Sparkles className="size-3" /> Cloudmine
+              </span>
+              <div className="mt-5 flex size-12 items-center justify-center rounded-2xl bg-[var(--cm-panel-inset)] text-[var(--cm-panel-heading)] ring-1 ring-[var(--cm-panel-border)] backdrop-blur">
                 <Database className="size-6" />
               </div>
-              <h3 className="mt-6 text-2xl font-semibold tracking-tight">Cloud, built in</h3>
-              <p className="mt-2 max-w-md text-sm leading-relaxed text-white/70">
-                Database, auth, secrets, and file storage wired up the moment you need
-                them — zero config, zero dashboards.
+              <h3 className="mt-6 text-2xl font-semibold tracking-tight text-[var(--cm-panel-heading)]">
+                Database, auth &amp; storage — built in
+              </h3>
+              <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--cm-panel-body)]">
+                Cloudmine wires up a real database, sign-in, secrets, and file storage
+                the moment you need them — zero config, zero dashboards.
               </p>
               <ul className="mt-6 grid gap-2.5 sm:grid-cols-2">
                 {[
@@ -526,56 +573,58 @@ function Features() {
                   'Encrypted secrets & env vars',
                   'File & image storage',
                 ].map((point) => (
-                  <li key={point} className="flex items-center gap-2.5 text-sm text-white/80">
+                  <li
+                    key={point}
+                    className="flex items-center gap-2.5 text-sm text-[var(--cm-panel-body)]"
+                  >
                     <Check className="size-4 shrink-0 text-blue-400" />
                     {point}
                   </li>
                 ))}
               </ul>
               <div className="mt-auto pt-8">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur">
-                  <div className="flex items-center gap-2 text-xs font-medium text-white/60">
+                <div className="rounded-2xl border border-[var(--cm-panel-border)] bg-[var(--cm-panel-inset)] p-4 backdrop-blur">
+                  <div className="flex items-center gap-2 text-xs font-medium text-[var(--cm-panel-body)]">
                     <Database className="size-3.5" /> users
                   </div>
                   <div className="mt-3 space-y-2">
-                    <div className="h-2 w-full rounded bg-white/15" />
-                    <div className="h-2 w-4/5 rounded bg-white/10" />
-                    <div className="h-2 w-2/3 rounded bg-white/10" />
+                    <div className="h-2 w-full rounded bg-[var(--cm-panel-bar)]" />
+                    <div className="h-2 w-4/5 rounded bg-[var(--cm-panel-bar-soft)]" />
+                    <div className="h-2 w-2/3 rounded bg-[var(--cm-panel-bar-soft)]" />
                   </div>
                 </div>
               </div>
             </div>
           </motion.div>
 
-          {/* WIDE ACCENT — Chat to edit */}
+          {/* WIDE ACCENT — Chat to edit (branded gradient, both themes) */}
           <motion.div
             variants={bentoItem}
-            className="group relative flex flex-col overflow-hidden rounded-3xl border border-blue-400/20 bg-gradient-to-br from-blue-500/[0.12] to-indigo-500/[0.08] p-7 shadow-sm transition-all hover:-translate-y-1 hover:border-blue-400/30 lg:col-span-5"
+            className="group relative flex flex-col overflow-hidden rounded-3xl border border-blue-400/25 bg-gradient-to-br from-blue-500/[0.14] to-indigo-500/[0.10] p-7 shadow-sm backdrop-blur transition-all hover:-translate-y-1 hover:border-blue-400/40 lg:col-span-5"
           >
-            <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 text-white shadow-md shadow-blue-900/40">
+            <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 text-white shadow-md shadow-blue-900/30">
               <Wand2 className="size-5" />
             </div>
-            <h3 className="mt-4 text-xl font-semibold text-white">Chat to edit</h3>
-            <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-neutral-300">
+            <h3 className="mt-4 text-xl font-semibold text-[var(--cm-heading)]">Chat to edit</h3>
+            <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-[var(--cm-body)]">
               Describe a change in plain English and watch it happen live — no code, no
               waiting. &ldquo;Make the hero warmer&rdquo; just works.
             </p>
           </motion.div>
 
           {/* MEDIUM — Instant live preview */}
-          <motion.div
-            variants={bentoItem}
-            className="group relative flex flex-col rounded-3xl border border-white/10 bg-white/[0.03] p-7 shadow-sm transition-all hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.05] lg:col-span-5"
-          >
-            <div className="flex size-11 items-center justify-center rounded-xl bg-white/10 text-blue-300 ring-1 ring-white/10">
+          <BentoCard className="lg:col-span-5">
+            <div className="flex size-11 items-center justify-center rounded-xl bg-[var(--cm-inset)] text-[var(--cm-accent)] ring-1 ring-[var(--cm-border)]">
               <Eye className="size-5" />
             </div>
-            <h3 className="mt-4 text-xl font-semibold text-white">Instant live preview</h3>
-            <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-neutral-400">
+            <h3 className="mt-4 text-xl font-semibold text-[var(--cm-heading)]">
+              Instant live preview
+            </h3>
+            <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-[var(--cm-muted)]">
               Watch your app build and run in real time as it is generated — every change,
               on screen the moment it lands.
             </p>
-          </motion.div>
+          </BentoCard>
 
           {/* EDITORIAL STRIP — three compact, numbered features */}
           <div className="grid gap-5 sm:grid-cols-3 lg:col-span-12">
@@ -655,17 +704,23 @@ function CountUp({ value, decimals = 0 }: { value: number; decimals?: number }) 
 
 function Stats() {
   return (
-    <section className="border-y border-white/[0.06] bg-white/[0.02]">
+    <section className="border-y border-[var(--cm-border-soft)] bg-[var(--cm-wash)]">
       <div className="mx-auto max-w-5xl px-5 py-16 lg:py-20">
         <div className="grid grid-cols-1 gap-8 text-center sm:grid-cols-3">
           {STATS.map((stat, i) => (
             <Reveal key={stat.label} delay={i * 0.08}>
-              <div className="bg-gradient-to-b from-white to-blue-200 bg-clip-text text-4xl font-semibold tracking-tight text-transparent sm:text-5xl">
+              <div
+                className="bg-clip-text text-4xl font-semibold tracking-tight text-transparent sm:text-5xl"
+                style={{
+                  backgroundImage:
+                    'linear-gradient(to bottom, var(--cm-heading), var(--cm-stat-to))',
+                }}
+              >
                 {stat.prefix ?? ''}
                 <CountUp value={stat.value} decimals={stat.decimals ?? 0} />
                 {stat.suffix ?? ''}
               </div>
-              <div className="mt-2 text-sm text-neutral-400">{stat.label}</div>
+              <div className="mt-2 text-sm text-[var(--cm-muted)]">{stat.label}</div>
             </Reveal>
           ))}
         </div>
@@ -748,13 +803,13 @@ const REVIEWS: Review[] = [
 
 function ReviewCard({ review }: { review: Review }) {
   return (
-    <figure className="flex w-[340px] shrink-0 flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-6 shadow-sm">
-      <blockquote className="flex-1 text-[15px] leading-relaxed text-neutral-300">
+    <figure className="flex w-[340px] shrink-0 flex-col rounded-2xl border border-[var(--cm-border)] bg-[var(--cm-card)] p-6 shadow-sm backdrop-blur">
+      <blockquote className="flex-1 text-[15px] leading-relaxed text-[var(--cm-body)]">
         “{review.quote}”
       </blockquote>
       <figcaption className="mt-5">
-        <div className="text-sm font-semibold text-white">{review.name}</div>
-        <div className="text-xs text-blue-400">{review.handle}</div>
+        <div className="text-sm font-semibold text-[var(--cm-heading)]">{review.name}</div>
+        <div className="text-xs text-[var(--cm-accent)]">{review.handle}</div>
       </figcaption>
     </figure>
   )
@@ -808,18 +863,18 @@ function Reviews() {
       `}</style>
 
       <Reveal className="mx-auto max-w-2xl px-5 text-center">
-        <h2 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+        <h2 className="text-3xl font-semibold tracking-tight text-[var(--cm-heading)] sm:text-4xl">
           Loved by builders everywhere
         </h2>
-        <p className="mt-3 text-neutral-400">
+        <p className="mt-3 text-[var(--cm-muted)]">
           From first-time makers to seasoned founders — people are shipping real apps in minutes.
         </p>
       </Reveal>
 
       <div className="relative mt-14 flex flex-col gap-6">
         {/* edge fades */}
-        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-gradient-to-r from-[#04060f] to-transparent" />
-        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-24 bg-gradient-to-l from-[#04060f] to-transparent" />
+        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-gradient-to-r from-[var(--cm-fade)] to-transparent" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-24 bg-gradient-to-l from-[var(--cm-fade)] to-transparent" />
         <MarqueeRow reviews={firstRow} />
         <MarqueeRow reviews={secondRow} reverse />
       </div>
@@ -832,26 +887,26 @@ function ClosingCTA() {
   return (
     <section className="mx-auto max-w-6xl px-5 py-20 lg:py-24">
       <Reveal>
-        <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0a0f22] px-6 py-16 text-center shadow-xl sm:px-16">
+        <div className="relative overflow-hidden rounded-3xl border border-[var(--cm-panel-border)] bg-[var(--cm-panel)] px-6 py-16 text-center shadow-xl sm:px-16">
           <div
-            className="pointer-events-none absolute inset-0"
+            className="cm-panel-glow pointer-events-none absolute inset-0"
             style={{
               backgroundImage:
                 'radial-gradient(50% 60% at 20% 0%, rgba(59,130,246,0.4), transparent 60%), radial-gradient(50% 60% at 85% 100%, rgba(79,70,229,0.35), transparent 60%)',
             }}
           />
           <div className="relative">
-            <h2 className="mx-auto max-w-2xl text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+            <h2 className="mx-auto max-w-2xl text-3xl font-semibold tracking-tight text-[var(--cm-panel-heading)] sm:text-4xl">
               Your next app is one sentence away
             </h2>
-            <p className="mx-auto mt-4 max-w-xl text-base text-white/70">
+            <p className="mx-auto mt-4 max-w-xl text-base text-[var(--cm-panel-body)]">
               Describe it, watch it build, and put it live today. Free to start — no credit card.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Button
                 asChild
                 size="lg"
-                className="h-12 bg-blue-600 px-7 text-base text-white shadow-lg shadow-blue-900/40 hover:bg-blue-500"
+                className="h-12 bg-blue-600 px-7 text-base text-white shadow-lg shadow-blue-900/30 hover:bg-blue-500"
               >
                 <Link href="/signup">
                   Start now
@@ -862,7 +917,7 @@ function ClosingCTA() {
                 asChild
                 size="lg"
                 variant="ghost"
-                className="h-12 px-7 text-base text-white hover:bg-white/10 hover:text-white"
+                className="h-12 px-7 text-base text-[var(--cm-panel-heading)] hover:bg-[var(--cm-panel-inset)] hover:text-[var(--cm-panel-heading)]"
               >
                 <Link href="/login">Sign in</Link>
               </Button>
