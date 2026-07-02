@@ -69,7 +69,10 @@ const THEME_CSS = `
   color-scheme: light;
 }
 .cm-site.dark {
-  --cm-page: transparent;
+  /* Opaque deep-navy base — the StarField's own dark gradient + stars render on top of this
+     (fixed, -z-10). Was `transparent`, which let the cream <body> bleed through in dark mode
+     (no visible stars + mismatched colors). Translucent sections still reveal the starfield. */
+  --cm-page: #04060f;
   --cm-heading: #ffffff;
   --cm-body: #d4d4d8;
   --cm-muted: #a1a1aa;
