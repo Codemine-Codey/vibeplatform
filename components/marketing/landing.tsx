@@ -57,6 +57,26 @@ function Hero() {
         }}
       />
 
+      {/* light-mode-only animated blob — a soft, large blurred blue→purple radial
+          gradient that slowly drifts + scales behind the hero. `cm-light-only` is
+          hidden by the shell in dark mode (dark keeps its own aurora). */}
+      <motion.div
+        aria-hidden
+        className="cm-light-only pointer-events-none absolute left-1/2 top-[-14%] -z-[1] h-[560px] w-[560px] -translate-x-1/2 rounded-full blur-[120px]"
+        style={{
+          backgroundImage:
+            'radial-gradient(closest-side, rgba(37,99,235,0.42), rgba(124,58,237,0.30) 55%, transparent 78%)',
+        }}
+        initial={{ x: '-50%', scale: 1, opacity: 0.85 }}
+        animate={{
+          x: ['-58%', '-42%', '-58%'],
+          y: ['-4%', '6%', '-4%'],
+          scale: [1, 1.18, 1],
+          opacity: [0.8, 1, 0.8],
+        }}
+        transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut' }}
+      />
+
       <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center px-5 py-28 text-center lg:py-40">
         <motion.h1
           initial={{ opacity: 0, y: 16 }}

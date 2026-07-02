@@ -13,7 +13,7 @@ const MotionDiv = motion.div as any
 const LINKS = [
   { label: 'About', href: '/about' },
   { label: 'Pricing', href: '/pricing' },
-  { label: 'Contact', href: 'mailto:hello@codemine.app' },
+  { label: 'Contact', href: '/contact' },
 ]
 
 export function SiteNav() {

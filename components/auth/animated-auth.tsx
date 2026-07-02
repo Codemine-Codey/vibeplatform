@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Eye, EyeOff, Loader2, Zap } from 'lucide-react'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Logo } from '@/components/ui/logo'
 
 // Where the characters' pupils should aim.
 //  - 'cursor'    → follow the mouse (default, idle state)
@@ -325,9 +326,7 @@ export function AnimatedAuth({ mode }: { mode: 'login' | 'signup' }) {
         />
         <div className="relative z-10 flex w-full flex-col justify-between p-10">
           <Link href="/home" className="flex w-fit items-center gap-2">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-neutral-900 text-white">
-              <Zap className="size-4" />
-            </span>
+            <Logo className="size-8" />
             <span className="text-lg font-semibold tracking-tight text-neutral-900">Codemine</span>
           </Link>
 
@@ -350,9 +349,7 @@ export function AnimatedAuth({ mode }: { mode: 'login' | 'signup' }) {
       <div className="flex w-full items-center justify-center px-6 py-12 lg:w-1/2">
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-2 lg:hidden">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-neutral-900 text-white">
-              <Zap className="size-4" />
-            </span>
+            <Logo className="size-8" />
             <span className="text-lg font-semibold tracking-tight">Codemine</span>
           </div>
 

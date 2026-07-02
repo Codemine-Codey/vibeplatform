@@ -32,7 +32,7 @@ export function SiteFooter() {
               links={[
                 { label: 'About', href: '/about' },
                 { label: 'Sign in', href: '/login' },
-                { label: 'Contact', href: 'mailto:hello@codemine.app' },
+                { label: 'Contact', href: '/contact' },
               ]}
             />
             <FooterCol
