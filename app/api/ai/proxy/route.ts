@@ -100,6 +100,14 @@ export async function POST(req: Request) {
   d.model = 'codemine-codey-ai'
   delete d.provider
   delete d.system_fingerprint
+  // Strip upstream cost/billing metadata (cost, cost_details, is_byok) from usage — it reveals the
+  // request is proxied through an upstream provider. Keep only the token counts.
+  const usage = d.usage as Record<string, unknown> | undefined
+  if (usage) {
+    delete usage.cost
+    delete usage.cost_details
+    delete usage.is_byok
+  }
   const choices = d.choices
   if (Array.isArray(choices)) {
     for (const ch of choices as Array<Record<string, unknown>>) {
