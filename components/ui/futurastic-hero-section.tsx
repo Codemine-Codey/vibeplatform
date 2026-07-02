@@ -57,8 +57,8 @@ const STARS: Star[] = (() => {
     return {
       left: rand() * 100,
       top: rand() * 100,
-      size: 1 + depth * 2.2, // 1px → ~3.2px
-      opacity: 0.22 + depth * 0.62, // fainter when far
+      size: 0.6 + depth * 1.3, // ~0.6px → ~1.9px (thinner, finer particles)
+      opacity: 0.28 + depth * 0.66, // fainter when far
       duration: 18 - depth * 9, // near stars drift a touch faster
       delay: -rand() * 22, // negative → mid-flight from the first frame
       rise: 120 + depth * 180, // px travelled upward per loop
@@ -76,10 +76,10 @@ export function StarField() {
       aria-hidden
       className="cm-starfield pointer-events-none fixed inset-0 -z-10 overflow-hidden"
       style={{
-        // Deep navy base for the whole page — lifted off flat-black so the stars read + it feels
-        // like a night sky (the shade from the first dark version), not a black void.
+        // Deep navy night-sky base — darkened so section transitions blend and the thinner white
+        // stars + blue glow pop against it (not flat-black, not washed navy).
         background:
-          'radial-gradient(125% 95% at 50% -8%, #16204a 0%, #0d1430 42%, #080d20 100%)',
+          'radial-gradient(125% 95% at 50% -8%, #0e1838 0%, #080e26 45%, #03050d 100%)',
       }}
     >
       <style>{`
@@ -103,7 +103,7 @@ export function StarField() {
             // custom props consumed by the keyframe
             ['--cm-star-o' as string]: s.opacity.toFixed(2),
             ['--cm-star-rise' as string]: `-${s.rise}px`,
-            boxShadow: '0 0 4px rgba(191,219,254,0.7)',
+            boxShadow: '0 0 2.5px rgba(255,255,255,0.9)',
             animation: `cm-star-rise ${s.duration}s linear ${s.delay}s infinite`,
             willChange: 'transform, opacity',
           }}
@@ -129,27 +129,27 @@ export function AuroraHero() {
         className="absolute -top-1/3 left-1/2 h-[80vh] w-[80vh] -translate-x-1/2 rounded-full blur-[90px]"
         style={{
           background:
-            'radial-gradient(circle at 50% 50%, rgba(59,130,246,0.55), rgba(37,99,235,0.18) 45%, transparent 70%)',
+            'radial-gradient(circle at 50% 50%, rgba(59,130,246,0.75), rgba(37,99,235,0.3) 45%, transparent 70%)',
         }}
-        animate={{ scale: [1, 1.18, 1], opacity: [0.55, 0.85, 0.55] }}
+        animate={{ scale: [1, 1.18, 1], opacity: [0.7, 1, 0.7] }}
         transition={{ duration: 16, repeat: Infinity, ease: 'easeInOut' }}
       />
       <motion.div
         className="absolute -top-1/4 left-[18%] h-[62vh] w-[62vh] rounded-full blur-[100px]"
         style={{
           background:
-            'radial-gradient(circle at 50% 50%, rgba(99,102,241,0.45), rgba(79,70,229,0.14) 50%, transparent 72%)',
+            'radial-gradient(circle at 50% 50%, rgba(99,102,241,0.6), rgba(79,70,229,0.2) 50%, transparent 72%)',
         }}
-        animate={{ scale: [1.05, 0.9, 1.05], opacity: [0.4, 0.7, 0.4], x: [0, 30, 0] }}
+        animate={{ scale: [1.05, 0.9, 1.05], opacity: [0.55, 0.85, 0.55], x: [0, 30, 0] }}
         transition={{ duration: 20, repeat: Infinity, ease: 'easeInOut' }}
       />
       <motion.div
         className="absolute -top-1/4 right-[14%] h-[58vh] w-[58vh] rounded-full blur-[100px]"
         style={{
           background:
-            'radial-gradient(circle at 50% 50%, rgba(29,78,216,0.5), rgba(30,64,175,0.16) 50%, transparent 72%)',
+            'radial-gradient(circle at 50% 50%, rgba(29,78,216,0.66), rgba(30,64,175,0.22) 50%, transparent 72%)',
         }}
-        animate={{ scale: [0.95, 1.15, 0.95], opacity: [0.35, 0.65, 0.35], x: [0, -26, 0] }}
+        animate={{ scale: [0.95, 1.15, 0.95], opacity: [0.5, 0.8, 0.5], x: [0, -26, 0] }}
         transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut', delay: 1.5 }}
       />
 
