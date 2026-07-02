@@ -72,7 +72,7 @@ const THEME_CSS = `
   /* Opaque deep-navy base — the StarField's own dark gradient + stars render on top of this
      (fixed, -z-10). Was 'transparent', which let the cream <body> bleed through in dark mode
      (no visible stars + mismatched colors). Translucent sections still reveal the starfield. */
-  --cm-page: #04060f;
+  --cm-page: #080d20;
   --cm-heading: #ffffff;
   --cm-body: #d4d4d8;
   --cm-muted: #a1a1aa;
@@ -163,7 +163,9 @@ export function MarketingRoot({
         id="cm-site"
         suppressHydrationWarning
         className={cn(
-          'cm-site relative min-h-screen bg-[var(--cm-page)] text-[var(--cm-body)]',
+          // `isolate` establishes a stacking context so the -z-10 StarField renders ABOVE this
+          // wrapper's own background (showing the starfield) instead of escaping behind the page.
+          'cm-site relative isolate min-h-screen bg-[var(--cm-page)] text-[var(--cm-body)]',
           theme === 'dark' && 'dark',
           className,
         )}

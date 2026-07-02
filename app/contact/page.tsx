@@ -129,7 +129,7 @@ export default function ContactPage() {
                         name="name"
                         type="text"
                         required
-                        placeholder="Ada Lovelace"
+                        placeholder="Your name"
                         className="h-11 rounded-xl border border-[var(--cm-panel-border)] bg-[var(--cm-panel-inset)] px-3.5 text-sm text-[var(--cm-panel-heading)] outline-none transition-colors placeholder:text-[var(--cm-faint)] focus:border-blue-400/60 focus:ring-2 focus:ring-blue-500/20"
                       />
                     </div>

@@ -14,7 +14,7 @@ export function SiteFooter() {
               </span>
             </Link>
             <p className="mt-3 text-sm text-[var(--cm-muted)]">
-              Describe it, and Codemine builds a real, deployed web app — no setup, no boilerplate.
+              Describe your idea, and Codemine writes it, runs it, and ships it live, in minutes.
             </p>
           </div>
 

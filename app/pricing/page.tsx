@@ -128,33 +128,6 @@ export default function PricingPage() {
               </Reveal>
             ))}
           </div>
-          <p className="mt-8 text-center text-sm text-[var(--cm-muted)]">
-            Prices shown are placeholders for launch. No credit card required to start.
-          </p>
-        </section>
-
-        {/* comparison note / FAQ-lite */}
-        <section className="border-y border-[var(--cm-border-soft)] bg-[var(--cm-wash)]">
-          <div className="mx-auto grid max-w-5xl gap-8 px-5 py-16 md:grid-cols-3 lg:py-20">
-            <Reveal>
-              <h3 className="text-base font-semibold text-[var(--cm-heading)]">Cancel anytime</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--cm-muted)]">
-                Upgrade, downgrade, or cancel whenever you like. Your projects stay yours.
-              </p>
-            </Reveal>
-            <Reveal delay={0.06}>
-              <h3 className="text-base font-semibold text-[var(--cm-heading)]">No lock-in</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--cm-muted)]">
-                Every app is real code on a real URL — export and take it with you at will.
-              </p>
-            </Reveal>
-            <Reveal delay={0.12}>
-              <h3 className="text-base font-semibold text-[var(--cm-heading)]">Fair usage</h3>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--cm-muted)]">
-                Generous limits on every plan, with clear upgrades if you outgrow them.
-              </p>
-            </Reveal>
-          </div>
         </section>
 
         {/* CTA */}

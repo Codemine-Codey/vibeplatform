@@ -103,7 +103,7 @@ function Hero() {
           className="mt-6 max-w-xl text-lg leading-relaxed text-[var(--cm-body)]"
         >
           Describe what you want. Codemine writes the code, runs it, and deploys a
-          real, working app you can share — no setup, no boilerplate.
+          real, working app you can share.
         </motion.p>
 
         <motion.div
@@ -560,7 +560,7 @@ function Features() {
           viewport={{ once: true, margin: '-80px' }}
           className="mt-14 grid auto-rows-auto gap-5 lg:grid-cols-12"
         >
-          {/* SPOTLIGHT — large highlighted feature (Cloudmine), the anchor */}
+          {/* SPOTLIGHT — large highlighted feature (Codemine Cloud), the anchor */}
           <motion.div
             variants={bentoItem}
             className="group relative flex flex-col overflow-hidden rounded-3xl border border-[var(--cm-panel-border)] bg-[var(--cm-panel)] p-8 shadow-xl lg:col-span-7 lg:row-span-2"
@@ -574,17 +574,18 @@ function Features() {
             />
             <div className="relative flex flex-1 flex-col">
               <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-blue-500/15 px-2.5 py-1 text-[11px] font-medium text-[var(--cm-accent)] ring-1 ring-blue-400/25">
-                <Sparkles className="size-3" /> Cloudmine
+                <Sparkles className="size-3" /> Codemine Cloud
               </span>
               <div className="mt-5 flex size-12 items-center justify-center rounded-2xl bg-[var(--cm-panel-inset)] text-[var(--cm-panel-heading)] ring-1 ring-[var(--cm-panel-border)] backdrop-blur">
                 <Database className="size-6" />
               </div>
               <h3 className="mt-6 text-2xl font-semibold tracking-tight text-[var(--cm-panel-heading)]">
-                Database, auth &amp; storage — built in
+                Codemine Cloud — everything your app needs
               </h3>
               <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--cm-panel-body)]">
-                Cloudmine wires up a real database, sign-in, secrets, and file storage
-                the moment you need them — zero config, zero dashboards.
+                A real database, sign-in, secrets, file storage — and Codemine Codey AI to
+                power your app&apos;s own AI features — wired up the moment you need them.
+                Zero config, zero dashboards.
               </p>
               <ul className="mt-6 grid gap-2.5 sm:grid-cols-2">
                 {[
@@ -592,6 +593,8 @@ function Features() {
                   'Email & social sign-in',
                   'Encrypted secrets & env vars',
                   'File & image storage',
+                  'Codey AI — power your app’s AI',
+                  'One-click deploy + custom domain',
                 ].map((point) => (
                   <li
                     key={point}

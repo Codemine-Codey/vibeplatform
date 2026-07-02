@@ -76,9 +76,10 @@ export function StarField() {
       aria-hidden
       className="cm-starfield pointer-events-none fixed inset-0 -z-10 overflow-hidden"
       style={{
-        // Deep near-black navy base for the whole page.
+        // Deep navy base for the whole page — lifted off flat-black so the stars read + it feels
+        // like a night sky (the shade from the first dark version), not a black void.
         background:
-          'radial-gradient(120% 90% at 50% -10%, #0b1330 0%, #070a1a 45%, #04060f 100%)',
+          'radial-gradient(125% 95% at 50% -8%, #16204a 0%, #0d1430 42%, #080d20 100%)',
       }}
     >
       <style>{`
