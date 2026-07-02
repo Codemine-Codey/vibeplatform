@@ -18,13 +18,21 @@ export function SiteFooter() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-10 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-10 sm:grid-cols-4">
             <FooterCol
               title="Product"
               links={[
                 { label: 'Start building', href: '/signup' },
                 { label: 'How it works', href: '/home#how' },
                 { label: 'Pricing', href: '/pricing' },
+              ]}
+            />
+            <FooterCol
+              title="Resources"
+              links={[
+                { label: 'Blog', href: '/blog' },
+                { label: 'Guides', href: '/guides' },
+                { label: 'FAQ', href: '/faq' },
               ]}
             />
             <FooterCol
