@@ -53,7 +53,7 @@ function Hero() {
           transition={{ duration: 0.6, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
           className="mt-6 text-4xl font-semibold leading-[1.03] tracking-tight text-white sm:text-6xl lg:text-7xl"
         >
-          Turn a sentence into a{' '}
+          Turn your idea into a{' '}
           <span className="bg-gradient-to-r from-sky-300 via-blue-400 to-indigo-400 bg-clip-text text-transparent">
             live web app
           </span>

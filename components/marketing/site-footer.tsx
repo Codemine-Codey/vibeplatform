@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Zap } from 'lucide-react'
+import { Logo } from '@/components/ui/logo'
 
 export function SiteFooter() {
   return (
@@ -8,9 +8,7 @@ export function SiteFooter() {
         <div className="flex flex-col gap-10 md:flex-row md:items-start md:justify-between">
           <div className="max-w-xs">
             <Link href="/home" className="flex items-center gap-2">
-              <span className="flex size-8 items-center justify-center rounded-lg bg-blue-600 text-white shadow-md shadow-blue-900/40">
-                <Zap className="size-4" />
-              </span>
+              <Logo className="size-8" />
               <span className="text-lg font-semibold tracking-tight text-white">Codemine</span>
             </Link>
             <p className="mt-3 text-sm text-neutral-400">

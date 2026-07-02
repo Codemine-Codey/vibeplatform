@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Menu, X, Zap } from 'lucide-react'
+import { Menu, X } from 'lucide-react'
+import { Logo } from '@/components/ui/logo'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -22,9 +23,7 @@ export function SiteNav() {
       <div className="mx-auto flex max-w-fit items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-2 py-2 text-neutral-100 shadow-[0_8px_30px_-12px_rgba(0,0,0,0.6)] backdrop-blur-xl sm:gap-4">
         {/* logo */}
         <Link href="/home" className="flex shrink-0 items-center gap-2 pl-2 pr-1">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-blue-600 text-white shadow-md shadow-blue-900/40">
-            <Zap className="size-4" />
-          </span>
+          <Logo className="size-8" />
           <span className="text-base font-semibold tracking-tight text-white">Codemine</span>
         </Link>
 

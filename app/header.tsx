@@ -3,6 +3,7 @@ import { ZapIcon, LayoutDashboardIcon, LogOutIcon } from 'lucide-react'
 import Link from 'next/link'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { Logo } from '@/components/ui/logo'
 
 interface Props {
   className?: string
@@ -15,7 +16,7 @@ export async function Header({ className, page = 'builder' }: Props) {
   return (
     <header className={cn('flex items-center justify-between', className)}>
       <Link href="/" className="flex items-center gap-2 ml-1 md:ml-2.5 hover:opacity-70 transition-opacity">
-        <ZapIcon className="w-4 h-4" />
+        <Logo className="w-6 h-6" />
         <span className="text-sm uppercase font-mono font-bold tracking-tight">
           Codemine
         </span>
