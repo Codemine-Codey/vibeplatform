@@ -158,11 +158,12 @@ export function AuroraHero() {
         className="absolute inset-0"
         style={{
           background:
-            'radial-gradient(60% 55% at 50% 42%, transparent 0%, rgba(4,6,15,0.35) 78%, rgba(4,6,15,0.7) 100%)',
+            'radial-gradient(60% 55% at 50% 42%, transparent 0%, rgba(8,13,32,0.30) 78%, rgba(8,13,32,0.55) 100%)',
         }}
       />
-      {/* fade into the page background at the bottom edge */}
-      <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent to-[#04060f]" />
+      {/* No bottom fade: the fixed StarField is one continuous dark base behind every section, so
+          the hero must NOT paint its own opaque bottom band (that created a visible seam where its
+          color didn't match the page base). The aurora glows already fade to transparent. */}
     </div>
   )
 }
