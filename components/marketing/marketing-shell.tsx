@@ -109,6 +109,8 @@ const THEME_CSS = `
 .cm-site.dark .cm-light-only { display: none; }
 /* Soften the strong blue radial overlays on light panels. */
 .cm-site:not(.dark) .cm-panel-glow { opacity: 0.5; }
+/* Footer is solid black in dark mode (grounds the page, covers the starfield). */
+.cm-site.dark .cm-footer { background: #000000; border-color: rgba(255,255,255,0.08); }
 `
 
 // Sets the class before first paint (default dark). Kept tiny + defensive.
