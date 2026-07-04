@@ -35,6 +35,14 @@ import { restoreBakedDeps } from '@/lib/baked-deps'
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { createRun, appendRunEvent, updateRun } from '@/lib/runs'
+import {
+  readSandboxFile,
+  extractBuildError,
+  extractErrorFiles,
+  installMissingModules,
+  repairFile,
+  viteBuildOnce,
+} from '@/lib/sandbox-util'
 import { createProjectRow, snapshotProject, updateProjectRow, getProjectBySandboxId, incrementProjectTokens } from '@/lib/projects-db'
 import { tokenStore } from '@/lib/token-context'
 import { ensureValidCss } from '@/lib/css-guard'
@@ -153,99 +161,6 @@ function transformMessages(messages: ChatUIMessage[]): ChatUIMessage[] {
 // engine that would crash in the sandbox. Alias kept for the call sites below.
 const sanitizeCss = ensureValidCss
 
-// Pull the meaningful error lines out of a vite build log.
-function extractBuildError(log: string): string {
-  const lines = log
-    .replace(/##EXIT:\d+/g, '')
-    .split('\n')
-    .filter(l =>
-      /error|Cannot find|not found|Unexpected|unexpected|postcss|Could not resolve|is not exported|Failed to|SyntaxError|Transform failed|No matching/i.test(l)
-    )
-    .slice(0, 25)
-    .join('\n')
-    .slice(0, 2000)
-    .trim()
-  return lines || log.replace(/##EXIT:\d+/g, '').trim().slice(-1500)
-}
-
-// Extract referenced source file paths from a build log (src/... or root configs).
-function extractErrorFiles(log: string): string[] {
-  const files = new Set<string>()
-  const re = /((?:src\/|\.\/src\/|\/[\w./-]*?src\/)?[\w./-]+\.(?:tsx|jsx|ts|js|css))/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(log)) !== null) {
-    let p = m[1]
-    const srcIdx = p.indexOf('src/')
-    if (srcIdx >= 0) p = p.slice(srcIdx)
-    else p = p.replace(/^\.\//, '')
-    if (p.startsWith('src/')) files.add(p)
-    else {
-      // Root-level configs crash PostCSS/Tailwind/Vite and are repairable too
-      // (e.g. "/vercel/sandbox/tailwind.config.js" in a require stack).
-      const base = p.split('/').pop() ?? ''
-      if (/^(tailwind|postcss)\.config\.(js|cjs|mjs|ts)$/.test(base)) files.add(base)
-    }
-  }
-  return [...files]
-}
-
-// ── Missing-module auto-install (generic, any package) ───────────────────────
-// "Cannot find module 'x'" / "Failed to resolve import \"x\"" means a package is
-// referenced (by generated code OR a config) but not installed. The fix is always
-// the same and fully deterministic: install it. This handles the entire class —
-// any package, any project type — without involving the AI at all.
-const NODE_BUILTINS = new Set([
-  'fs', 'path', 'os', 'url', 'http', 'https', 'crypto', 'stream', 'util', 'events',
-  'child_process', 'buffer', 'querystring', 'zlib', 'assert', 'net', 'tls', 'dns',
-])
-function extractMissingModules(log: string): string[] {
-  const mods = new Set<string>()
-  const patterns = [
-    /Cannot find module ['"]([^'"]+)['"]/g,
-    /Could not resolve ['"]([^'"]+)['"]/g,
-    /Failed to resolve import ['"]([^'"]+)['"]/g,
-    /Cannot find package ['"]([^'"]+)['"]/g,
-  ]
-  for (const re of patterns) {
-    let m: RegExpExecArray | null
-    while ((m = re.exec(log)) !== null) {
-      const name = m[1]
-      // Bare npm package names only — relative/absolute paths are file problems,
-      // node builtins aren't installable.
-      if (name.startsWith('.') || name.startsWith('/') || name.startsWith('node:')) continue
-      if (NODE_BUILTINS.has(name)) continue
-      // Normalize deep imports ("pkg/sub/path" → "pkg", "@scope/pkg/sub" → "@scope/pkg")
-      const parts = name.split('/')
-      const pkg = name.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
-      if (/^(@[\w.-]+\/)?[\w.-]+$/.test(pkg)) mods.add(pkg)
-    }
-  }
-  return [...mods].slice(0, 8)
-}
-
-async function installMissingModules(sandbox: Sandbox, log: string): Promise<boolean> {
-  const mods = extractMissingModules(log)
-  if (mods.length === 0) return false
-  console.warn('[auto-install] installing missing modules:', mods.join(', '))
-  logRepair({ layer: 'auto-install', action: 'installing', detail: mods.join(', ') })
-  try {
-    const list = mods.map(m => `'${m.replace(/'/g, '')}'`).join(' ')
-    const cmd = await sandbox.runCommand({
-      detached: true,
-      cmd: 'bash',
-      args: ['-c', `command -v bun >/dev/null 2>&1 && bun add ${list} || pnpm add ${list}`],
-    })
-    await Promise.race([
-      cmd.wait(),
-      new Promise<void>((_, rej) => setTimeout(() => rej(new Error('install timeout')), 60_000)),
-    ])
-    return true
-  } catch (e) {
-    console.warn('[auto-install] failed (non-fatal):', e instanceof Error ? e.message : e)
-    return false
-  }
-}
-
 // Restart the dev server after a fix that the running process can't pick up via
 // HMR (e.g. a newly installed package referenced by tailwind.config.js — jiti
 // caches the failed require). Kill anything holding port 3000, then start fresh.
@@ -265,57 +180,6 @@ async function restartDevServer(sandbox: Sandbox): Promise<void> {
       args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'],
     })
   } catch { /* best-effort */ }
-}
-
-async function readSandboxFile(sandbox: Sandbox, path: string): Promise<string | null> {
-  try {
-    const stream = await sandbox.readFile({ path })
-    if (!stream) return null
-    const chunks: Buffer[] = []
-    for await (const c of stream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as string))
-    return Buffer.concat(chunks).toString('utf8')
-  } catch {
-    return null
-  }
-}
-
-// Ask Flash to repair ONE file given the exact build error. Returns corrected
-// full-file content, or null if it couldn't help.
-async function repairFile(path: string, content: string, error: string): Promise<string | null> {
-  try {
-    const res = await generateText({
-      ...getModelOptions(FILE_GENERATION_MODEL),
-      // Model's max output — a repaired file must NEVER be truncated (a half-written
-      // file is itself a blank-preview cause). Cost only accrues on tokens actually
-      // produced, so the ceiling is free headroom; the value is capped to the
-      // active model's real limit so the provider never 400s.
-      maxOutputTokens: getMaxOutputTokens(FILE_GENERATION_MODEL),
-      // P0-B: a repair AI call must NEVER hang the pipeline. Hard 45s ceiling → on a provider
-      // stall this rejects, the catch returns null, and the repair loop moves on (or hits its
-      // overall budget). This is the fix for the "stuck at 2:00 forever" hang.
-      abortSignal: AbortSignal.timeout(45_000),
-      system:
-        'You are a build-error repair tool. You receive ONE file and the exact build error it causes. ' +
-        'Return ONLY the complete corrected file content — no markdown fences, no explanation, no commentary. ' +
-        'Hard rules: NEVER use @apply in CSS. NEVER use invented Tailwind color classes like bg-lacquer/text-gold — ' +
-        'use only standard Tailwind palette (slate, amber, etc.) or scaffold tokens (bg-primary, bg-background, text-foreground) ' +
-        'or inline style with CSS variables. NEVER use <svg>. Fix ONLY what causes the error; keep the rest identical. ' +
-        'Output the entire file.',
-      messages: [
-        {
-          role: 'user',
-          content:
-            `File: ${path}\n\nBuild error:\n${error}\n\nCurrent file content:\n${content}\n\n` +
-            'Return the complete corrected file content now.',
-        },
-      ],
-    })
-    let out = res.text.trim()
-    out = out.replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '').trim()
-    return out.length > 5 ? out : null
-  } catch {
-    return null
-  }
 }
 
 // THE GUARANTEE: run `vite build` (compile oracle), and if it fails, auto-repair
@@ -1351,26 +1215,6 @@ async function readDesignReference(sandbox: Sandbox, manifest: NormalizedManifes
     if (c) parts.push(`// ${p}\n${c.slice(0, 3000)}`)
   }
   return parts.join('\n\n')
-}
-
-// Run `vite build` once, returning whether it compiled + the raw log (for repair).
-async function viteBuildOnce(sandbox: Sandbox, logPath: string): Promise<{ ok: boolean; log: string }> {
-  try {
-    const cmd = await sandbox.runCommand({
-      detached: true,
-      cmd: 'bash',
-      args: ['-c', `(./node_modules/.bin/vite build 2>&1; echo "##EXIT:$?") | tee ${logPath} >/dev/null`],
-    })
-    await Promise.race([
-      cmd.wait(),
-      new Promise<void>((_, rej) => setTimeout(() => rej(new Error('build timeout')), 90_000)),
-    ])
-  } catch {
-    /* timeout — read whatever landed */
-  }
-  const log = (await readSandboxFile(sandbox, logPath)) ?? ''
-  const m = log.match(/##EXIT:(\d+)/)
-  return { ok: m ? m[1] === '0' : false, log }
 }
 
 // Per-phase transaction gate: the build MUST stay green after an enrichment phase.
