@@ -4,6 +4,7 @@ import type { ModelMessage } from 'ai'
 import { getModelOptions } from '../../gateway'
 import { getMaxOutputTokens } from '../../constants'
 import { applySubstitutions } from './import-gate'
+import { applyIconFix } from '../../gates/semantic-gate'
 
 export type File = {
   path: string
@@ -45,6 +46,16 @@ function fixImports(path: string, content: string): string {
   // Centralized, API-compatible specifier rewrites (motion→framer-motion, deep
   // lucide icon paths→root). See import-gate.ts.
   return applySubstitutions(content)
+}
+
+// P1-A mechanical icon fix (per-file, Q4 hybrid): an empty locally-defined `*Icon`
+// component → a VALIDATED lucide import (or a safe inline element). Only .tsx/.jsx.
+// applyIconFix guarantees any emitted import name is present in the installed
+// lucide-react, so it can NEVER introduce a 404 import. Runs as a pure transform in
+// the same chain as fixRouter/fixImports so the fixed content is what reaches disk.
+function fixIcons(path: string, content: string): string {
+  if (!/\.(tsx|jsx)$/.test(path)) return content
+  return applyIconFix(content)
 }
 
 // Deterministic FONT guard: the model sometimes picks a premium non-Google font
@@ -285,7 +296,7 @@ export async function* getContents(
           // Mark EVERY produced path written (incl. concatenated splits) so closure sees them.
           written.add(file.path)
           yield {
-            files: [{ path: file.path, content: fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content)))) }],
+            files: [{ path: file.path, content: fixIcons(file.path, fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content))))) }],
             paths: [file.path],
             written: [],
           }
