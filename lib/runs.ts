@@ -135,6 +135,91 @@ export async function getRun(runId: string): Promise<RunRow | null> {
   }
 }
 
+// ── Durable-runs STEP 3: server-chained continuation ──────────────────────────
+// A long build runs as a CHAIN of <800s invocations. When an invocation nears the
+// Vercel function cap it snapshots, sets status `continuing`, and fires the next
+// invocation (POST /api/runs/continue) inside waitUntil. These helpers implement the
+// claim/handoff so a run is processed by exactly ONE invocation at a time and never
+// orphaned (a cron sweeper re-fires any run stuck in `continuing`).
+
+// Base URL for the server-to-server continuation self-call. Prefer the CURRENT
+// deployment (VERCEL_URL) so the chain runs the SAME code/version that started the
+// build; fall back to an explicit override or the public alias, then localhost.
+function internalBaseUrl(): string {
+  if (process.env.CM_INTERNAL_BASE_URL) return process.env.CM_INTERNAL_BASE_URL
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
+  return process.env.CM_PUBLIC_BASE_URL || 'http://localhost:3000'
+}
+
+// Fire the internal continuation for a run (server-to-server, shared-secret authed).
+// Fire-and-forget: the CALLER is responsible for wrapping this in waitUntil so the
+// request survives the invocation ending. Never throws.
+export async function fireContinuation(runId: string): Promise<void> {
+  try {
+    const secret = process.env.CM_INTERNAL_SECRET || ''
+    const res = await fetch(`${internalBaseUrl()}/api/runs/continue`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-cm-internal': secret },
+      body: JSON.stringify({ runId }),
+    })
+    if (!res.ok) console.warn('[runs] fireContinuation non-ok:', res.status)
+  } catch (e) {
+    console.warn('[runs] fireContinuation failed:', e instanceof Error ? e.message : e)
+  }
+}
+
+// Atomically CLAIM a run for a continuation invocation: flip status `continuing` →
+// `running` ONLY if it is currently `continuing`. Returns true if THIS caller won the
+// claim (a row was updated), false if it was already claimed/terminal — the guard
+// against double-processing when both the chained fetch and the sweeper land.
+export async function claimRunForContinuation(runId: string): Promise<boolean> {
+  try {
+    const sb = getAdminSupabase()
+    const { data, error } = await sb
+      .from('runs')
+      .update({ status: 'running', updated_at: new Date().toISOString() })
+      .eq('id', runId)
+      .eq('status', 'continuing')
+      .select('id')
+    if (error) {
+      console.warn('[runs] claimRunForContinuation failed:', error.message)
+      return false
+    }
+    return Array.isArray(data) && data.length > 0
+  } catch (e) {
+    console.warn('[runs] claimRunForContinuation threw:', e instanceof Error ? e.message : e)
+    return false
+  }
+}
+
+// Sweeper query: runs stuck in `continuing` whose updated_at is older than the cutoff
+// (a chained fetch that never landed — killed invocation, network drop). The cron
+// re-fires continuation for each so no run is ever orphaned mid-chain.
+export async function listStuckContinuingRuns(
+  olderThanMs = 120_000,
+  limit = 20
+): Promise<RunRow[]> {
+  try {
+    const sb = getAdminSupabase()
+    const cutoff = new Date(Date.now() - olderThanMs).toISOString()
+    const { data, error } = await sb
+      .from('runs')
+      .select('*')
+      .eq('status', 'continuing')
+      .lt('updated_at', cutoff)
+      .order('updated_at', { ascending: true })
+      .limit(limit)
+    if (error) {
+      console.warn('[runs] listStuckContinuingRuns failed:', error.message)
+      return []
+    }
+    return (data ?? []) as RunRow[]
+  } catch (e) {
+    console.warn('[runs] listStuckContinuingRuns threw:', e instanceof Error ? e.message : e)
+    return []
+  }
+}
+
 // Fetch events after a cursor (seq strictly greater than `since`), ordered ascending.
 // Used by the reconnect stream to replay-from-cursor then live-tail. Admin client;
 // the HTTP route owns-checks the run before calling this.
