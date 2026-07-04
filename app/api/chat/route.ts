@@ -263,6 +263,10 @@ async function repairFile(path: string, content: string, error: string): Promise
       // produced, so the ceiling is free headroom; the value is capped to the
       // active model's real limit so the provider never 400s.
       maxOutputTokens: getMaxOutputTokens(FILE_GENERATION_MODEL),
+      // P0-B: a repair AI call must NEVER hang the pipeline. Hard 45s ceiling → on a provider
+      // stall this rejects, the catch returns null, and the repair loop moves on (or hits its
+      // overall budget). This is the fix for the "stuck at 2:00 forever" hang.
+      abortSignal: AbortSignal.timeout(45_000),
       system:
         'You are a build-error repair tool. You receive ONE file and the exact build error it causes. ' +
         'Return ONLY the complete corrected file content — no markdown fences, no explanation, no commentary. ' +
@@ -307,8 +311,16 @@ async function verifyAndRepair({
     type: 'data-run-command',
     data: { sandboxId, command: 'Finalizing your project', args: [], status: 'executing' },
   })
+  // P0-B: hard overall budget for the entire repair phase. No matter how many rounds or files,
+  // repair can NEVER run past this — the pipeline always proceeds to show the best build we have,
+  // never an endless "Finalizing…". Paired with repairFile's own 45s per-call ceiling.
+  const repairDeadline = Date.now() + 150_000
   try {
     for (let attempt = 1; attempt <= 3; attempt++) {
+      if (Date.now() > repairDeadline) {
+        console.warn('[verify] repair budget (150s) exhausted — proceeding with current build')
+        break
+      }
       // vite build only (no tsc — type errors don't blank the preview; CSS/import/
       // syntax errors do, and vite build catches all of those deterministically).
       let log = ''
@@ -366,7 +378,8 @@ async function verifyAndRepair({
       }
 
       let repairedAny = false
-      for (const path of files.slice(0, 5)) {
+      for (const path of files.slice(0, 3)) {
+        if (Date.now() > repairDeadline) break // P0-B: never blow the budget mid-loop
         const content = await readSandboxFile(sandbox, path)
         if (!content) continue
         const fixed = await repairFile(path, content, errorBlock)
@@ -528,6 +541,7 @@ async function visualVerdict(
     const res = await generateText({
       ...getModelOptions(VISION_MODEL),
       maxOutputTokens: 220,
+      abortSignal: AbortSignal.timeout(30_000), // P0-B: never let the vision check hang the pipeline
       messages: [
         {
           role: 'user',
@@ -813,6 +827,7 @@ async function improveDesignPass({
     const res = await generateText({
       ...getModelOptions(DEFAULT_MODEL), // Sonnet 4.6 — vision-capable + strong code
       maxOutputTokens: getMaxOutputTokens(DEFAULT_MODEL),
+      abortSignal: AbortSignal.timeout(60_000), // P0-B: bounded — never hang the pipeline
       messages: [
         {
           role: 'user',
