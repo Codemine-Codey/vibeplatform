@@ -521,7 +521,87 @@ export function FAQ(props: { items: { q: ReactNode; a: ReactNode }[] }) {
 }
 `
 
+// ── Q1: deterministic template fallback (P0-B terminal state) ─────────────────
+// Baked into EVERY scaffold and validated at bake time — NEVER generated or assembled
+// at runtime, so it carries zero regression risk. When the bounded repair budget is
+// exhausted and a page still won't render, the pipeline swaps the offending page (or,
+// if App itself is broken, App.tsx) to render THIS component, so the preview is never
+// blank. Hard constraints that make it un-break-able:
+//   • ZERO imports beyond React (no Tailwind — its pipeline may be the broken thing;
+//     no lucide, no router, no tokens file). It compiles and paints on its own.
+//   • Inline styles + ONE <style> tag only. Colors via CSS vars WITH hardcoded
+//     fallbacks, so it looks right whether or not the app's :root tokens loaded.
+//   • A pure-CSS breathing orb (signals "alive", not crashed) + a 20s self-reload so
+//     it heals itself the moment a background fix lands. Confident copy — never
+//     "error/failed/spinner".
+const FALLBACK_TSX = `import { useEffect } from 'react'
+
+type FallbackSkill = 'website' | 'webapp' | 'game'
+
+// A guaranteed-render "finishing touches" screen. Props are optional so it renders
+// even if swapped in with no props. No imports beyond React → cannot fail to compile.
+export default function Fallback({ brand = 'This project', skill = 'website' }: { brand?: string; skill?: FallbackSkill }) {
+  useEffect(() => {
+    // Self-healing: the moment a background repair lands, the next reload shows it.
+    const t = setInterval(() => { try { location.reload() } catch (e) { void e } }, 20000)
+    return () => clearInterval(t)
+  }, [])
+
+  const wrap: React.CSSProperties = {
+    minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center',
+    justifyContent: 'center', gap: '1.5rem', padding: '2rem', textAlign: 'center',
+    background: 'var(--cm-bg, var(--background, #0a0a0a))',
+    color: 'var(--cm-fg, var(--foreground, #ededed))',
+    fontFamily: 'var(--font-display, var(--font-body, system-ui, -apple-system, sans-serif))',
+  }
+  const orb: React.CSSProperties = {
+    width: '84px', height: '84px', borderRadius: '9999px',
+    background: 'radial-gradient(circle at 35% 35%, var(--primary, #6366f1), transparent 72%)',
+    boxShadow: '0 0 60px 8px var(--primary, #6366f1)',
+    animation: 'cm-breathe 2.8s ease-in-out infinite',
+  }
+  const title: React.CSSProperties = { fontSize: 'clamp(1.25rem, 3.5vw, 2rem)', fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }
+  const sub: React.CSSProperties = { fontSize: '0.95rem', opacity: 0.62, margin: 0, maxWidth: '30rem' }
+
+  let garnish: React.ReactNode = null
+  if (skill === 'game') {
+    garnish = <p style={{ ...sub, opacity: 0.5, letterSpacing: '0.14em', textTransform: 'uppercase', fontSize: '0.8rem' }}>Preparing the arena.</p>
+  } else if (skill === 'webapp') {
+    garnish = (
+      <div style={{ display: 'flex', gap: '0.9rem', flexWrap: 'wrap', justifyContent: 'center', marginTop: '0.5rem' }}>
+        {[0, 1, 2].map((i) => (
+          <div key={i} style={{ width: '150px', height: '92px', borderRadius: '14px', border: '1px solid var(--border, rgba(255,255,255,0.12))', background: 'var(--card, rgba(255,255,255,0.03))', overflow: 'hidden', position: 'relative' }}>
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, transparent, var(--primary, #6366f1), transparent)', opacity: 0.16, animation: 'cm-sweep 1.8s linear infinite' }} />
+          </div>
+        ))}
+      </div>
+    )
+  } else {
+    garnish = (
+      <div style={{ display: 'flex', gap: '1.1rem', flexWrap: 'wrap', justifyContent: 'center', opacity: 0.4, fontSize: '0.8rem', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+        {['Home', 'About', 'Work', 'Contact'].map((s) => <span key={s}>{s}</span>)}
+      </div>
+    )
+  }
+
+  return (
+    <div style={wrap}>
+      <style>{\`@keyframes cm-breathe{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.16);opacity:1}}@keyframes cm-sweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}\`}</style>
+      <div style={orb} aria-hidden="true" />
+      <h1 style={title}>{brand} — putting on the finishing touches.</h1>
+      <p style={sub}>This page refreshes itself.</p>
+      {garnish}
+    </div>
+  )
+}
+`
+
 export const SCAFFOLD_FILES: Array<{ path: string; content: string }> = [
+  {
+    // Q1 template fallback — baked, validated once, swapped in at the P0-B terminal state.
+    path: 'src/components/__fallback.tsx',
+    content: FALLBACK_TSX,
+  },
   {
     path: 'src/components/blocks/index.tsx',
     content: BLOCKS_TSX,
@@ -1278,6 +1358,7 @@ export const SCAFFOLD_PATH_SET: ReadonlySet<string> = new Set([
   'src/index.css',
   'src/main.tsx',
   'src/lib/utils.ts',
+  'src/components/__fallback.tsx',
   'src/components/blocks/index.tsx',
   'src/components/blocks/sections.tsx',
   'src/components/game/engine.ts',

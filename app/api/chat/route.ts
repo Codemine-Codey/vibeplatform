@@ -770,6 +770,59 @@ async function headlessRuntimeCheck(
   }
 }
 
+// Add `import Fallback from './components/__fallback'` to an App file if it's absent.
+function ensureFallbackImport(content: string): string {
+  if (/from\s*['"](?:\.\/components\/__fallback|@\/components\/__fallback)['"]/.test(content)) return content
+  return `import Fallback from './components/__fallback'\n` + content
+}
+
+// Q1 / P0-B TERMINAL STATE: the bounded repair budget is spent and a page STILL will
+// not render. Swap the offending route to the scaffold-baked __fallback so the preview
+// is NEVER blank. Two tiers (Q1): prefer a PAGE-level swap (replace only the broken
+// <Route> element, so the rest of the app keeps working); fall back to an APP-level
+// swap (rewrite App.tsx to render ONLY the fallback) when home/App itself is broken,
+// the route can't be localized, or `force-app-level` is passed. The fallback imports
+// nothing beyond React, so it always compiles and mounts. This is the terminal state —
+// there is no path from here that leaves the user on a blank/errored preview.
+async function applyFallbackTerminalState(
+  sandbox: Sandbox,
+  rtDetail: string,
+  meta: { skill: Skill; brand: string }
+): Promise<boolean> {
+  const brand = (meta.brand || 'This project').replace(/[`\\<>{}]/g, '').trim().slice(0, 60) || 'This project'
+  const fallbackEl = `<Fallback brand={${JSON.stringify(brand)}} skill={${JSON.stringify(meta.skill)}} />`
+
+  // Locate the routing file (where <Routes> live) — usually src/App.tsx.
+  let appPath: string | null = null
+  let appContent: string | null = null
+  for (const p of ['src/App.tsx', 'src/App.jsx']) {
+    const c = await readSandboxFile(sandbox, p)
+    if (c) { appPath = p; appContent = c; break }
+  }
+
+  // TIER 1 — page-level: a specific route was flagged broken and we can find its
+  // <Route path="/x" element={<X .../>} /> → swap ONLY that element for the fallback.
+  const routeMatch = rtDetail.match(/The page "([^"]+)" is broken/)
+  if (routeMatch && appPath && appContent) {
+    const esc = routeMatch[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const re = new RegExp(`(<Route\\b[^>]*\\bpath\\s*=\\s*["']${esc}["'][^>]*\\belement\\s*=\\s*\\{)([\\s\\S]*?)(\\}\\s*/?>)`)
+    if (re.test(appContent)) {
+      const next = ensureFallbackImport(appContent.replace(re, `$1${fallbackEl}$3`))
+      await sandbox.writeFiles([{ path: appPath, content: Buffer.from(next, 'utf8') }])
+      console.warn(`[fallback] page-level swap: route ${routeMatch[1]} → __fallback in ${appPath}`)
+      return true
+    }
+  }
+
+  // TIER 2 — app-level: rewrite App.tsx to render ONLY the fallback (App/home broke, or
+  // the route couldn't be localized). Nothing else is imported → cannot fail to render.
+  const appLevel = `import Fallback from './components/__fallback'\n\nexport default function App() {\n  return ${fallbackEl}\n}\n`
+  const target = appPath ?? 'src/App.tsx'
+  await sandbox.writeFiles([{ path: target, content: Buffer.from(appLevel, 'utf8') }])
+  console.warn(`[fallback] app-level swap: ${target} → __fallback only`)
+  return true
+}
+
 // Run `vite build` once and report whether it compiled — used to guard the design
 // pass: a design rewrite is only kept if it still builds, otherwise we restore.
 async function viteBuildPasses(sandbox: Sandbox): Promise<boolean> {
@@ -1049,7 +1102,7 @@ export async function POST(req: Request) {
         // makes is summed into tokens_used on the project row.
         const tokenBox = { total: 0 }
         await tokenStore.run(tokenBox, () =>
-          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise, tokens: brief.colorTokens })
+          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise, tokens: brief.colorTokens, brandName: brief.brandName })
         )
         if (projectId && tokenBox.total > 0) {
           updateProjectRow(projectId, { tokens_used: tokenBox.total }).catch(() => {})
@@ -1198,6 +1251,7 @@ async function runPipeline({
   designContext,
   sandboxPromise,
   tokens,
+  brandName,
 }: {
   writer: Writer
   messages: ChatUIMessage[]
@@ -1208,6 +1262,7 @@ async function runPipeline({
   designContext?: string
   sandboxPromise?: Promise<Sandbox>
   tokens?: ColorTokens
+  brandName?: string
 }) {
   // ── Step 1: Acquire sandbox (warm pool or fresh creation) ─────────────────
   writer.write({
@@ -1656,7 +1711,26 @@ async function runPipeline({
           rt = await headlessRuntimeCheck(url, sandboxId)
         }
         if (rt.status === 'broken') {
-          // Still broken after one repair — surface so the client self-heal also kicks in.
+          // P0-B TERMINAL STATE (Q1): repair budget spent, page still not rendering.
+          // Swap the offending page (page-level preferred) for the baked __fallback so
+          // the preview is NEVER blank, then re-check. A rare module-level throw that
+          // survives the page-level swap is caught and forced to the App-level swap,
+          // which imports nothing but React and therefore always renders.
+          try {
+            const swapped = await applyFallbackTerminalState(sandbox, rt.detail, { skill, brand: brandName || 'This project' })
+            if (swapped) {
+              await new Promise(r => setTimeout(r, 3500)) // let Vite HMR reload the swap
+              rt = await headlessRuntimeCheck(url, sandboxId)
+              if (rt.status === 'broken') {
+                await applyFallbackTerminalState(sandbox, 'force-app-level', { skill, brand: brandName || 'This project' })
+                await new Promise(r => setTimeout(r, 3500))
+              }
+              logRepair({ layer: 'fallback-terminal', action: 'swapped-to-fallback', detail: rt.detail.slice(0, 160), sandboxId })
+            }
+          } catch (e) {
+            console.warn('[fallback] terminal-state swap failed (non-fatal):', e instanceof Error ? e.message : e)
+          }
+          // Surface to the client self-heal so a REAL fix can still replace the fallback.
           writer.write({
             id: 'srv-runtime',
             type: 'data-report-errors',

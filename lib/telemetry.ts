@@ -14,6 +14,7 @@ export type RepairLayer =
   | 'auto-install'      // missing-module install (any checkpoint)
   | 'dev-500'           // dev server returning 500 after start
   | 'runtime-check'     // headless browser DOM/console check
+  | 'fallback-terminal' // P0-B terminal state: swapped a page to the baked __fallback
   | 'visual-verdict'    // vision model judged screenshot broken
   | 'checkpoint'        // snapshot saved / restored
   | 'deploy'            // CF Pages publish
