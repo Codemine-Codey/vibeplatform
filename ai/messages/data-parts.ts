@@ -37,6 +37,11 @@ export const dataPartSchema = z.object({
     databaseId: z.string(),
     databaseName: z.string(),
   }),
+  // Durable-runs STEP 1: emitted early so the client knows which run this stream
+  // belongs to (used later to reconnect/replay via GET /api/runs/:id/stream).
+  'run': z.object({
+    runId: z.string(),
+  }),
 })
 
 export type DataPart = z.infer<typeof dataPartSchema>

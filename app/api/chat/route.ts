@@ -34,6 +34,7 @@ import { getWarmEntry } from '@/ai/warm-pool'
 import { restoreBakedDeps } from '@/lib/baked-deps'
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
+import { createRun, appendRunEvent, updateRun } from '@/lib/runs'
 import { createProjectRow, snapshotProject, updateProjectRow, getProjectBySandboxId, incrementProjectTokens } from '@/lib/projects-db'
 import { tokenStore } from '@/lib/token-context'
 import { ensureValidCss } from '@/lib/css-guard'
@@ -43,6 +44,32 @@ import prompt from './prompt.md'
 export const maxDuration = 800
 
 type Writer = UIMessageStreamWriter<UIMessage<never, DataPart>>
+
+// ── Durable-runs STEP 1: log-writer wrapper (pass-through + shadow log) ────────
+// Wraps a Writer so EVERY writer.write(part) ALSO appends the part to the canonical
+// run_events log. The live SSE stream is byte-for-byte unchanged — the original
+// write happens first and identically; the log append is fire-and-forget and can
+// never throw into or slow the pipeline (see lib/runs.appendRunEvent). merge() and
+// onError delegate straight through untouched (merged AI-token parts bypass write(),
+// so they are intentionally NOT logged in step 1 — the server pipeline parts are).
+function wrapWriterWithLog(writer: Writer, runId: string): Writer {
+  return {
+    write(part) {
+      writer.write(part)
+      const type = (part as { type?: string }).type ?? 'unknown'
+      appendRunEvent(runId, type, part)
+    },
+    merge(stream) {
+      writer.merge(stream)
+    },
+    get onError() {
+      return writer.onError
+    },
+    set onError(handler) {
+      writer.onError = handler
+    },
+  }
+}
 
 interface BodyData {
   messages: ChatUIMessage[]
@@ -1009,17 +1036,30 @@ export async function POST(req: Request) {
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({
       originalMessages: messages,
-      execute: async ({ writer }) => {
-        // ── EDIT MODE: sandbox already active → standard agentic loop ──────
-        if (hasActiveSandbox(messages)) {
-          return runAgenticLoop({ writer, messages, systemPrompt: prompt })
+      execute: async ({ writer: rawWriter }) => {
+        // ── Durable-runs STEP 1 ─────────────────────────────────────────────
+        // Create a run row for this invocation and wrap the writer so every server
+        // stream part is ALSO appended to the canonical run_events log (dual-write).
+        // Purely additive: if run creation fails we fall back to the raw writer and
+        // the live stream is completely unaffected. The early `data-run` event tells
+        // the client which run this stream belongs to (for later reconnect/replay).
+        const runId = await createRun({ userId: authedUser.id })
+        if (runId) {
+          rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
         }
+        const writer = runId ? wrapWriterWithLog(rawWriter, runId) : rawWriter
+        let terminalStatus = 'done'
+        try {
+          // ── EDIT MODE: sandbox already active → standard agentic loop ──────
+          if (hasActiveSandbox(messages)) {
+            return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
+          }
 
-        // ── NEW PROJECT: classify + expand ──────────────────────────────────
-        const userText = getLastUserText(messages)
-        if (!userText) {
-          return runAgenticLoop({ writer, messages, systemPrompt: prompt })
-        }
+          // ── NEW PROJECT: classify + expand ────────────────────────────────
+          const userText = getLastUserText(messages)
+          if (!userText) {
+            return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
+          }
 
         let skill: Skill | null = null
         let clarify = false
@@ -1033,7 +1073,7 @@ export async function POST(req: Request) {
         }
 
         if (clarify || !skill) {
-          return runAgenticLoop({ writer, messages, systemPrompt: prompt })
+          return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
         }
 
         let brief = null
@@ -1044,7 +1084,7 @@ export async function POST(req: Request) {
         }
 
         if (!brief) {
-          return runAgenticLoop({ writer, messages, systemPrompt: prompt })
+          return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
         }
 
         // Now we're committed to building — provision the workspace VM in parallel with
@@ -1124,6 +1164,17 @@ export async function POST(req: Request) {
         )
         if (projectId && tokenBox.total > 0) {
           updateProjectRow(projectId, { tokens_used: tokenBox.total }).catch(() => {})
+        }
+        } catch (err) {
+          // The pipeline reports most failures as data-report-errors rather than
+          // throwing; a genuine throw here means the run ended in error.
+          terminalStatus = 'error'
+          throw err
+        } finally {
+          // Mark the run terminal so the reconnect stream stops live-tailing. Runs
+          // after all user-facing stream content is written, so it adds no latency to
+          // the perceived generation; guarded so it can never affect the response.
+          if (runId) await updateRun(runId, { status: terminalStatus }).catch(() => {})
         }
       },
     }),
