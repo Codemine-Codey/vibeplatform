@@ -86,9 +86,9 @@ function Hero() {
           className="mt-6 text-4xl font-semibold leading-[1.03] tracking-tight text-[var(--cm-heading)] sm:text-6xl lg:text-7xl"
         >
           <LayoutGroup>
-            <motion.span className="flex w-full flex-wrap items-center justify-center gap-x-2 gap-y-1" layout>
+            <motion.span className="flex w-full flex-wrap items-center justify-center gap-x-3.5 gap-y-1" layout>
               <motion.span layout transition={{ type: 'spring', damping: 30, stiffness: 400 }}>
-                Turn your idea into a
+                Turn your idea into
               </motion.span>
               <TextRotate
                 texts={['web apps', 'websites ✽', 'web games', 'fast', 'fun', '🔥🔥🔥']}
