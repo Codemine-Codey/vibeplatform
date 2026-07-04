@@ -84,3 +84,48 @@ numbers — not on any assistant claim.** If the bar isn't met, we don't launch;
 - [ ] Phase 2 — deterministic catches for top failures
 - [ ] Phase 3 — constrain generation
 - [ ] Phase 4 — 50–100 build proof run → LAUNCH BAR met
+
+---
+
+# EXECUTION SPEC (expert-reviewed, structural — supersedes the phase framing above where they differ)
+
+**Core reframe:** the failure surface is finite. Every observed failure violates ONE of five
+statically-checkable **artifact closure contracts**. Don't add prompt rules the model ignores — add
+**acceptance contracts**: an artifact that violates a contract is never shown. Fix priority is always
+**mechanical transform (<1s) → targeted AI regen (30–90s) → deterministic template fallback (renders)**.
+Gates run **incrementally while files stream**, not at the end (that's where the 12→9 min lives).
+
+The five contracts: (1) every JSX identifier resolves to a NON-EMPTY impl; (2) every className exists
+(Tailwind ∪ generated CSS); (3) every file parses + every manifest entry exists; (4) every route
+produces a meaningful paint; (5) every loop has a budget + terminal state.
+
+## P0-A — Stream integrity + manifest auto-continue (kills truncation + the manual "continue")
+Files: `ai/tools/generate-files/get-contents.ts`, `app/api/chat/route.ts` (pipeline), planProject manifest.
+- Per-file on arrival: require the `<<<CMEND>>>` fence + a fast parse (brace/JSX balance or ms babel). Fail → re-request THAT file only while the stream continues.
+- At stream end: diff received files vs the planProject manifest → auto-issue the continuation **inside the same pipeline run**. The user's "Please continue…" click must cease to exist.
+
+## P0-B — Bounded repair state machine (kills the 2:00-forever hang)
+Files: repair/verify section of `app/api/chat/route.ts` (verifyAndRepair / headlessRuntimeCheck), client watchdog in `app/chat.tsx` / error-monitor.
+- Budgets: total repair ≤150s, ≤2 AI attempts/file, ≤3 files/build; AbortSignal on every AI call.
+- Terminal states (always reached, always emit): `clean`→show · `renders + cosmetic flags`→ship, background-fix · `not renderable + budget out`→ swap offending page for a deterministic brief-token template (renders), background-fix. **No fourth state.**
+- Client watchdog: no stream event for N s → resume affordance, never a frozen timer.
+
+## P1-A — Static semantic gate (NEW module — catches the sushi class in <5s, no browser, no AI)
+File: NEW `ai/gates/semantic-gate.ts`, wired into the pipeline before/while writing to sandbox; fold in existing export/import-closure.
+- Identifier closure + empty-render detection (component returns null/empty frag/childless span → flag).
+- **Mechanical icon fix:** `*Icon` with empty local def → delete def, add `import { Fish as FishIcon } from 'lucide-react'` (strip `Icon`, match lucide export, fallback `Sparkles`). Zero AI.
+- **CSS closure:** classNames vs Tailwind namespace ∪ generated CSS; unknown custom class → **synthesize** from brief palette (e.g. `gold-gradient-text` → linear-gradient + bg-clip:text), flag-for-regen second.
+
+## P1-B — Runtime gate hardening (last line: never show broken)
+File: `headlessRuntimeCheck` in `app/api/chat/route.ts`.
+- Per-route meaningful paint: walk `/`,`/menu`,… require root innerHTML floor + sane element count + zero uncaught console errors + screenshot pixel-variance. Any fail → back to P0-B state machine, never the user.
+
+## P2-A — Shrink the surface
+Files: `ai/tools/scaffold.ts` (+ prompt). Ship `index.css` with the ~10 utilities models keep inventing (gradient-text, glass, section rhythm), token-driven; tell the model they exist. Icon policy enforced by P1-A rewrite, not prompt.
+
+## P2-B — Latency (12→9 min)
+Incremental P1-A during stream (≈0 added) · deterministic fixes replace AI repair calls (−30–90s each) · `bun install` at package.json write (concurrent) · warm pool ON at launch (−70s) · visual-quality AI check non-blocking/advisory.
+
+## Build order
+P0-A + P0-B (end the two user-visible catastrophes) → P1-A (biggest error-class kill/hour) → P1-B → P2.
+Each step proven per the metrics above; launch gates on the Phase-4 number.
