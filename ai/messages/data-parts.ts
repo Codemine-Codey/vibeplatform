@@ -42,6 +42,13 @@ export const dataPartSchema = z.object({
   'run': z.object({
     runId: z.string(),
   }),
+  // Durable-runs STEP 2: conversational phase narration. A warm, plain-English chat
+  // message the SERVER posts at each phase boundary (preview live, page done, etc.).
+  // Written via writer.write so it is dual-written to the canonical run_events log
+  // (model prose bypasses that log). Rendered in chat exactly like an assistant line.
+  'narration': z.object({
+    text: z.string(),
+  }),
 })
 
 export type DataPart = z.infer<typeof dataPartSchema>

@@ -9,6 +9,7 @@ import { RunCommand } from './run-command'
 import { ReportErrors } from './report-errors'
 import { Reasoning } from './reasoning'
 import { Text } from './text'
+import { Narration } from './narration'
 import { memo } from 'react'
 
 interface Props {
@@ -32,6 +33,8 @@ export const MessagePart = memo(function MessagePart({
     return <Reasoning part={part} partIndex={partIndex} />
   } else if (part.type === 'data-report-errors') {
     return <ReportErrors />
+  } else if (part.type === 'data-narration') {
+    return <Narration message={part.data} />
   } else if (part.type === 'text') {
     if (!part.text.trim()) return null
     return <Text part={part} />
