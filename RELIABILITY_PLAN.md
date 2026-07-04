@@ -24,6 +24,16 @@ Everything below serves those two.
 **LAUNCH BAR:** CLEAN-FIRST ≥ 85%, (CLEAN-FIRST + AUTO-FIX) ≥ 97%, BROKEN-SHOWN = 0, TIME-TO-CLEAN ≤ 9 min.
 Do not launch until this is hit across the Phase-4 batch. The user sees the numbers.
 
+**ALL TYPES — the bar is met PER TYPE, not just in aggregate.** The proof batch is balanced across
+**websites, web apps, AND games** (and varied styles within each), and the metrics are reported
+**broken out per type.** A 97% aggregate that is 100% websites + 60% games does NOT pass — every type
+must independently clear the bar. Type-specific runtime checks layer on the universal gate: games get
+the canvas-motion smoke test (does it actually animate + respond to input, not turtle-slow); web apps
+get an interaction/console-error check; websites get the per-route meaningful-paint check.
+NOTE: "renders clean, zero errors" is guaranteed for every type. Deep behavioural correctness (a
+subtle scoring bug, a wrong total) is a HARDER, separate bar — improved by type gates + reference
+lookups, but not claimed as identical to "zero errors." We are honest about which is which.
+
 ---
 
 ## Phase 0 — Baseline truth (know where we really stand)  [assistant runs]
