@@ -12,6 +12,20 @@ import { tool } from 'ai'
 import description from './generate-files.md'
 import z from 'zod/v3'
 
+// Read a text file from the sandbox (streamed). Returns null if absent/unreadable —
+// used by the CSS-closure pass to read the CURRENT index.css + persistent utilities.
+async function readSandboxFileContent(sandbox: Sandbox, path: string): Promise<string | null> {
+  try {
+    const stream = await sandbox.readFile({ path })
+    if (!stream) return null
+    const chunks: Buffer[] = []
+    for await (const c of stream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as string))
+    return Buffer.concat(chunks).toString('utf8')
+  } catch {
+    return null
+  }
+}
+
 // ── Import-closure helpers ────────────────────────────────────────────────────
 // The #1 cause of broken builds: the AI imports a local file (types.ts, a
 // component) it never generated. These helpers find such imports so we can
@@ -422,6 +436,44 @@ export const generateFiles = ({ writer, modelId, designContext }: Params) =>
         console.warn('[footgun] pass failed (non-fatal):', e instanceof Error ? e.message : e)
       }
 
+      // ── Empty-render regen (P1-A / Q3) — Q4 cross-file phase, run ONCE ────────
+      // Deterministically catch components that render nothing meaningful: return
+      // null / empty fragment, a childless leaf (the FishIcon case), a page with a
+      // sub-floor of static text and no data source. BLOCKERS (and page-escalated
+      // advisories) → regenerate that ONE file with an explicit "fill it with real
+      // content" instruction. This NEVER strips or guesses — it asks the model to
+      // paint the empty component, so a blank section can't reach the preview.
+      try {
+        const findings = uploaded
+          .map(f => detectEmptyRender(f.path, f.content))
+          .filter((x): x is NonNullable<typeof x> => x !== null && x.blocker)
+        if (findings.length > 0) {
+          const picked = findings.slice(0, 6)
+          const emptyPaths = picked.map(f => f.path)
+          const issueText = picked
+            .map(f => `// ${f.path}\n` + f.reasons.map(r => '- ' + r).join('\n'))
+            .join('\n\n')
+          console.warn(`[empty-render] regenerating ${emptyPaths.length} file(s): ${emptyPaths.join(', ')}`)
+          const fixMessages = [
+            ...messages,
+            {
+              role: 'user' as const,
+              content:
+                'These files render nothing meaningful — a blank/empty component is a broken preview. Rewrite each listed file COMPLETELY so it renders real, on-brief, production-quality content: never null, never an empty fragment, never a childless placeholder, never lorem/coming-soon. Keep the SAME exports and the file\'s purpose; fill it with the actual UI it should display.\n\n' + issueText,
+            },
+          ]
+          const it = getContents({ messages: fixMessages, modelId, paths: emptyPaths, designContext })
+          for await (const chunk of it) {
+            if (chunk.files.length > 0) {
+              const err = await writeFiles({ ...chunk, written: uploaded.map(f => f.path) })
+              if (!err) for (const nf of chunk.files) { const i = uploaded.findIndex(u => u.path === nf.path); if (i >= 0) uploaded[i] = nf; else uploaded.push(nf) }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[empty-render] pass failed (non-fatal):', e instanceof Error ? e.message : e)
+      }
+
       // ── Router mount guarantee (deterministic) ───────────────────────────────
       // If the app routes but a regenerated main.tsx lost its <BrowserRouter>, inject it
       // now so useLocation()/<Routes> always have context. Kills the "Missing <BrowserRouter>"
@@ -435,6 +487,33 @@ export const generateFiles = ({ writer, modelId, designContext }: Params) =>
         }
       } catch (e) {
         console.warn('[router] guarantee failed (non-fatal):', e instanceof Error ? e.message : e)
+      }
+
+      // ── CSS closure (P1-A / Q2) — Q4 cross-file phase, run ONCE at the end ────
+      // Every className used in JSX must resolve to a definition (Tailwind ∪ scaffold
+      // utilities ∪ generated CSS). For each custom class with no definition we APPEND
+      // either a synthesized rule (recognized decorative patterns — gradient-text,
+      // glass, glow, shimmer, scrim, animate-*, formulaic from the locked tokens) or a
+      // harmless no-op `.cls {}` (unrecognized). This is PURELY ADDITIVE — it never
+      // strips a class from JSX and never guesses semantics, so it cannot introduce a
+      // new error; the worst case is a class that simply does nothing (invisible), which
+      // is exactly the safe outcome. Runs last so it sees every file's final classes.
+      try {
+        const indexCss = await readSandboxFileContent(sandbox, 'src/index.css')
+        const utilCss = await readSandboxFileContent(sandbox, 'src/styles/cm-ui.css')
+        if (indexCss !== null) {
+          const knownCss = indexCss + '\n' + (utilCss ?? '')
+          const closure = computeCssClosure(uploaded, knownCss)
+          if (closure.append) {
+            await sandbox.writeFiles([
+              { path: 'src/index.css', content: Buffer.from(indexCss + '\n' + closure.append, 'utf8') },
+            ])
+            console.warn(`[css-closure] appended ${closure.synthesized.length} synthesized + ${closure.noop.length} no-op class(es)` +
+              (closure.noop.length ? ` (unrecognized: ${closure.noop.slice(0, 12).join(', ')})` : ''))
+          }
+        }
+      } catch (e) {
+        console.warn('[css-closure] pass failed (non-fatal):', e instanceof Error ? e.message : e)
       }
 
       // ── Package pre-declare gate ─────────────────────────────────────────────
