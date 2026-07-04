@@ -139,3 +139,28 @@ Incremental P1-A during stream (≈0 added) · deterministic fixes replace AI re
 ## Build order
 P0-A + P0-B (end the two user-visible catastrophes) → P1-A (biggest error-class kill/hour) → P1-B → P2.
 Each step proven per the metrics above; launch gates on the Phase-4 number.
+
+---
+
+# FABLE-5 IMPLEMENTATION SPECS (authoritative detail for each P)
+
+## Q1 → Template fallback (P0-B terminal state)
+Scaffold-BAKED file `src/components/__fallback.tsx`, validated once in the scaffold image, NEVER generated/assembled at runtime (zero regression). Constraints: **zero imports beyond React**; inline styles + one `<style>` tag (NO Tailwind — its pipeline may be the broken thing); tokens via CSS vars WITH hardcoded fallbacks (`var(--background,#0a0a0a)`, `var(--primary,#6366f1)`, `var(--font-display,system-ui)`); one pure-CSS breathing-orb keyframe (signals alive); `setInterval(()=>location.reload(),20000)` self-healing exit; confident copy ("{Brand} — putting on the finishing touches. This page refreshes itself." — NO "error/failed/spinner"). Per-type garnish via `switch(skill)`: site→section-name type-list · app→3 token skeleton cards · game→title + "Preparing the arena." **Two tiers: prefer PAGE-level swap (only the broken route) over APP-level (App.tsx broken).**
+
+## Q2 → CSS closure (P1-A)
+Decision rule: absence of decoration is invisible; wrong decoration/missing content is visible → bias to SAFE define, never guess. (1) **Synthesize only recognized patterns** (~15 cover ~95%): `{color}-gradient-text`, `glass(-{x})`, `{x}-glow`, `text-shimmer`, `-scrim`/`-overlay`, `animate-{float|marquee|pulse-slow}` — formulaic from brief tokens. (2) **Unrecognized → append a harmless no-op** definition to index.css (NEVER strip from JSX — rewriting risks breakage; a CSS append is additive/safe. NEVER guess semantics — a synthesized `hero-mask` could hide content). (3) **Targeted regen only if load-bearing** (unrecognized AND on large containers / many occurrences). Log every unrecognized class to the catalog → coverage climbs.
+
+## Q3 → Empty-render heuristics (P1-A). Strictness ∝ load-bearing (page > section > leaf).
+BLOCKERS (regen file): returns null/undefined/`<></>`/`[]`/whitespace · childless leaf `<span/>`/`<div/>` no text/props (the FishIcon case) · identifier → empty local def · `<img>` empty/placeholder src · **page text floor <~40 chars static JSX, no data source**. ADVISORIES (escalate only on pages): permanently-hidden top element (hidden/h-0/opacity-0/scale-0, unless an animate prop) · `{false&&…}`/ternary→undefined · `useState([])` whose setter is never called + `.map`ed for main content · `DATA.map` where `DATA=[]` same file · TODO/lorem/coming-soon markers · same var for color+background (invisible text).
+
+## Q4 → Incremental gating (P2-B): HYBRID, then stop.
+Per-file checks (parse, fences, empty-render, placeholder, within-file identifiers) run the instant each `CMEND` lands (ms cost). Cross-file checks (import/export closure, CSS closure vs index.css, Link↔Route) run ONCE at stream end (<2s). Flagged files join the **existing P0-A round loop** (re-requested in round 2) — do NOT fire mid-stream regens, do NOT reintroduce concurrent streamText (destabilized this env twice, reverted). ~90% of the latency win at ~10% of the risk.
+
+## Q5 → Scaffold surface-shrink (P2-A). Utilities live in a PERSISTENT file (NOT the AI-overwritten index.css) + the model is told they exist.
+1 `.gradient-text`/`.gradient-text-accent` (most-invented) · 2 `.glass`/`.glass-strong` · 3 `.glow-sm`/`.glow` · 4 `.section`/`.container-page` · 5 `.img-scrim` · 6 keyframes `float/shimmer/marquee/pulse-slow` + `.animate-*` (truncated keyframes are a known build-breaker) · 7 **game constants as importable code** (`SPEEDS.flappy`, `SPAWN.balloon`…) moved from prose into the engine module (kills turtle-ball structurally) · 8 pre-built `NotFound` · 9 `FormShell` (rhf+zod pre-wired) · 10 SKIP a generic `<Icon name>` wrapper (indirection is misused; the lucide-rewrite enforcement is stronger).
+
+## The guarantee (Fable framing) — three layers, kept distinct
+- **L1 Absolute, proof-by-construction (ALL types):** no user sees blank/errored/hung — bad state is UNREACHABLE (accept only if contracts pass → show only if paint gate passes → every path ends in repaired/cosmetic/fallback, all render; all loops+AI budgeted). Artifact-level → type-agnostic; type probes layer on top. Holds for build 1 and 1,000,000.
+- **L2 Statistical, per type:** ≥97% clean-or-auto-fixed, converged via catalog→catch→re-run (finite surface = converges).
+- **L3 Behavioural correctness:** separate, harder bar; improved not guaranteed; state it honestly (Lovable isn't 100% here either).
+- **Lovable-parity = L1 absolute + L2 ≥97%/type + median ≤9 min** — achievable on the committed pipeline, no model/infra change.
