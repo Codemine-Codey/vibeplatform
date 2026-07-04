@@ -216,67 +216,94 @@ export async function* getContents(
   params: Params
 ): AsyncGenerator<FileContentChunk> {
   const { messages, modelId, designContext } = params
-  const paths = orderForResilience(params.paths)
+  const allPaths = orderForResilience(params.paths)
+  const written = new Set<string>()
 
-  // ── RAW-TEXT, NONCE-FENCED TRANSPORT (the permanent cure for content corruption) ──
+  // ── RAW-TEXT, NONCE-FENCED TRANSPORT + P0-A MANIFEST CLOSURE ───────────────────────────────
   // Files are streamed as PLAIN TEXT between unguessable fences — never encoded inside a JSON
   // tool-call string. Because the body is never JSON-escaped, it CANNOT be mangled by bad escaping
-  // (the `true]}` / dropped-import class is impossible here) and file size stops mattering. The
-  // nonce makes a fence collision inside real code effectively impossible.
-  const nonce = randomUUID().replace(/-/g, '').slice(0, 16)
-  const instruction =
-    `Output EVERY file listed below as RAW TEXT in EXACTLY this delimited format — NO JSON, NO markdown code fences, NO commentary between blocks:\n\n` +
-    `<<<CMFILE:${nonce}:relative/path/here.tsx>>>\n` +
-    `<the complete file content, written literally exactly as it should be saved to disk>\n` +
-    `<<<CMEND:${nonce}>>>\n\n` +
-    `Rules:\n` +
-    `- The path on each CMFILE line MUST exactly match one path from the list below.\n` +
-    `- Put the ENTIRE file between its CMFILE and CMEND lines. Write the code LITERALLY — do not escape quotes or newlines, do not wrap in backticks.\n` +
-    `- One CMFILE/CMEND block per file. Output nothing outside the blocks.\n\n` +
-    `Write them IN THIS ORDER (foundation + pages first, the App/router that imports them LAST — so the app stays coherent even if generation is interrupted):\n` +
-    paths.map(p => `- ${p}`).join('\n')
+  // (the `true]}` / dropped-import class is impossible here) and file size stops mattering.
+  //
+  // CLOSURE CONTRACT (P0-A): a file is written ONLY when its CMEND fence arrives — a truncated file
+  // (no END) is dropped, never shipped partial. Then we LOOP: any manifest path still unwritten
+  // (truncated or skipped) is re-requested — ONLY the missing files — for up to MAX_ROUNDS. This
+  // turns the old manual "Please continue from where you left off" click into a deterministic job
+  // the pipeline does itself. Truncation stops being a user-visible failure.
+  const MAX_ROUNDS = 3
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const pending = allPaths.filter(p => !written.has(p))
+    if (pending.length === 0) break
 
-  const result = streamText({
-    ...getModelOptions(modelId),
-    maxOutputTokens: getMaxOutputTokens(modelId),
-    system: buildGenSystem(designContext),
-    messages: [...messages, { role: 'user' as const, content: instruction }],
-    onError: err => console.error('[getContents] stream error:', err),
-  })
+    const nonce = randomUUID().replace(/-/g, '').slice(0, 16)
+    const header =
+      round === 0
+        ? `Output EVERY file listed below as RAW TEXT in EXACTLY this delimited format`
+        : `The previous output was cut off before all files were finished. Output ONLY the files listed below — each one COMPLETE, start to finish — in EXACTLY this delimited format`
+    const instruction =
+      `${header} — NO JSON, NO markdown code fences, NO commentary between blocks:\n\n` +
+      `<<<CMFILE:${nonce}:relative/path/here.tsx>>>\n` +
+      `<the complete file content, written literally exactly as it should be saved to disk>\n` +
+      `<<<CMEND:${nonce}>>>\n\n` +
+      `Rules:\n` +
+      `- The path on each CMFILE line MUST exactly match one path from the list below.\n` +
+      `- Put the ENTIRE file between its CMFILE and CMEND lines. Write the code LITERALLY — do not escape quotes or newlines, do not wrap in backticks.\n` +
+      `- One CMFILE/CMEND block per file. Output nothing outside the blocks.\n\n` +
+      `Write them IN THIS ORDER (foundation + pages first, the App/router that imports them LAST — so the app stays coherent even if generation is interrupted):\n` +
+      pending.map(p => `- ${p}`).join('\n')
 
-  // Parse the stream for COMPLETE <<<CMFILE:nonce:path>>> … <<<CMEND:nonce>>> blocks. A file is
-  // yielded only when its END fence arrives; a truncated final file (no END) is simply never
-  // written → the missing-file retry regenerates it cleanly (better than shipping a partial file).
-  // Match on the fence STRUCTURE, not the exact nonce — the marker `<<<CMFILE:` is already unique
-  // enough that it can't collide with real code, and tolerating a mangled nonce means a single
-  // stray character never breaks the whole parse. (The nonce is still emitted for extra safety.)
-  const blockRe = /<<<CMFILE:[^:>\n]+:(.+?)>>>\r?\n([\s\S]*?)\r?\n?<<<CMEND[^>\n]*>>>/g
-  const written = new Set<string>()
-  let buffer = ''
-  for await (const delta of result.textStream) {
-    buffer += delta
-    blockRe.lastIndex = 0
-    let consumedTo = 0
-    let m: RegExpExecArray | null
-    while ((m = blockRe.exec(buffer)) !== null) {
-      consumedTo = m.index + m[0].length
-      const filePath = m[1].trim()
-      if (!paths.includes(filePath) || written.has(filePath)) continue
-      // INTEGRITY GATE (defence in depth) — even here, reject empty/garbage before it's written.
-      const clean = sanitizeContent(filePath, m[2])
-      if (clean === null) {
-        console.warn(`[getContents] rejected corrupted/empty content for ${filePath} — will regenerate`)
-        continue
-      }
-      written.add(filePath)
-      for (const file of splitConcatenated(filePath, clean, paths)) {
-        yield {
-          files: [{ path: file.path, content: fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content)))) }],
-          paths: [file.path],
-          written: [],
+    const result = streamText({
+      ...getModelOptions(modelId),
+      maxOutputTokens: getMaxOutputTokens(modelId),
+      system: buildGenSystem(designContext),
+      messages: [...messages, { role: 'user' as const, content: instruction }],
+      onError: err => console.error('[getContents] stream error:', err),
+    })
+
+    // Parse for COMPLETE <<<CMFILE:nonce:path>>> … <<<CMEND:nonce>>> blocks. Match on fence
+    // STRUCTURE, not the exact nonce — the marker is already unique enough that it can't collide
+    // with real code, and tolerating a mangled nonce means one stray char never breaks the parse.
+    const blockRe = /<<<CMFILE:[^:>\n]+:(.+?)>>>\r?\n([\s\S]*?)\r?\n?<<<CMEND[^>\n]*>>>/g
+    let buffer = ''
+    for await (const delta of result.textStream) {
+      buffer += delta
+      blockRe.lastIndex = 0
+      let consumedTo = 0
+      let m: RegExpExecArray | null
+      while ((m = blockRe.exec(buffer)) !== null) {
+        consumedTo = m.index + m[0].length
+        const filePath = m[1].trim()
+        if (!allPaths.includes(filePath) || written.has(filePath)) continue
+        // INTEGRITY GATE (defence in depth) — reject empty/garbage before it's written; the missing
+        // file is then re-requested in the next round instead of shipping corruption.
+        const clean = sanitizeContent(filePath, m[2])
+        if (clean === null) {
+          console.warn(`[getContents] rejected corrupted/empty content for ${filePath} — will re-request`)
+          continue
+        }
+        written.add(filePath)
+        for (const file of splitConcatenated(filePath, clean, allPaths)) {
+          // Mark EVERY produced path written (incl. concatenated splits) so closure sees them.
+          written.add(file.path)
+          yield {
+            files: [{ path: file.path, content: fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content)))) }],
+            paths: [file.path],
+            written: [],
+          }
         }
       }
+      if (consumedTo > 0) buffer = buffer.slice(consumedTo)
     }
-    if (consumedTo > 0) buffer = buffer.slice(consumedTo)
+
+    if (round > 0) {
+      const recovered = pending.filter(p => written.has(p)).length
+      console.warn(`[getContents] auto-continue round ${round}: re-requested ${pending.length}, recovered ${recovered}`)
+    }
+  }
+
+  const stillMissing = allPaths.filter(p => !written.has(p))
+  if (stillMissing.length > 0) {
+    // Rare: after MAX_ROUNDS a file never completed. The pipeline's import-closure / missing-file
+    // handling is the final backstop; log loudly so it's visible in the reliability metrics.
+    console.warn(`[getContents] CLOSURE INCOMPLETE — ${stillMissing.length} file(s) unrecovered after ${MAX_ROUNDS} rounds: ${stillMissing.join(', ')}`)
   }
 }
