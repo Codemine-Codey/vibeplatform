@@ -624,23 +624,35 @@ async function headlessRuntimeCheck(
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {})
     await new Promise(r => setTimeout(r, 800))
 
-    const rootChildren: number = await page
+    // P1-B: require MEANINGFUL PAINT, not merely "a node exists". Read the root's
+    // child count, innerHTML length (the paint floor), total descendant element count,
+    // and whether a canvas is present (games legitimately paint a bare canvas with
+    // little HTML). A page that mounts an empty/near-empty root is treated as broken and
+    // routed back into the bounded repair → fallback path — never shown to the user.
+    const paint = await page
       .evaluate(() => {
         const r = document.getElementById('root')
-        return r ? r.childElementCount : -1
+        if (!r) return { children: -1, htmlLen: 0, elCount: 0, textLen: 0, hasCanvas: false }
+        return {
+          children: r.childElementCount,
+          htmlLen: r.innerHTML.trim().length,
+          elCount: r.querySelectorAll('*').length,
+          textLen: document.body?.innerText?.trim()?.length ?? 0,
+          hasCanvas: !!document.querySelector('canvas'),
+        }
       })
-      .catch(() => -1)
-    const bodyTextLen: number = await page
-      .evaluate(() => (document.body?.innerText?.trim()?.length ?? 0))
-      .catch(() => 0)
+      .catch(() => ({ children: -1, htmlLen: 0, elCount: 0, textLen: 0, hasCanvas: false }))
 
-    // The fallback ErrorBoundary renders text, so a true blank = empty root + no text.
-    const blank = rootChildren <= 0 && bodyTextLen === 0
-    if (blank) {
+    // Meaningful paint = a real subtree mounted. A canvas (game) is always enough; every
+    // other page must clear a small innerHTML floor + have ≥1 real element. This catches
+    // the "single empty child" / whitespace-only render the old blank check let through.
+    const meaningfulPaint = paint.children >= 1 && paint.elCount >= 1 && (paint.htmlLen >= 40 || paint.hasCanvas)
+    if (!meaningfulPaint) {
       return {
         status: 'broken',
         detail:
-          'Blank screen: #root is empty after the page loaded — a component threw during render or returned nothing.\n' +
+          `Blank or near-empty render: #root has no meaningful content after load ` +
+          `(children=${paint.children}, htmlLen=${paint.htmlLen}, elements=${paint.elCount}) — a component threw during render or returned nothing.\n` +
           errors.slice(0, 6).join('\n'),
       }
     }
@@ -674,12 +686,18 @@ async function headlessRuntimeCheck(
         const dest = new URL(href, url).toString()
         await page.goto(dest, { waitUntil: 'networkidle2', timeout: 15_000 }).catch(() => {})
         await new Promise(r => setTimeout(r, 1200))
-        const kids: number = await page
-          .evaluate(() => { const r = document.getElementById('root'); return r ? r.childElementCount : -1 })
-          .catch(() => -1)
+        // P1-B: same meaningful-paint floor per route (not just childElementCount>0).
+        const rp = await page
+          .evaluate(() => {
+            const r = document.getElementById('root')
+            if (!r) return { children: -1, htmlLen: 0, elCount: 0, hasCanvas: false }
+            return { children: r.childElementCount, htmlLen: r.innerHTML.trim().length, elCount: r.querySelectorAll('*').length, hasCanvas: !!document.querySelector('canvas') }
+          })
+          .catch(() => ({ children: -1, htmlLen: 0, elCount: 0, hasCanvas: false }))
         page.off('pageerror', onErr)
         page.off('console', onConsole)
-        if (kids <= 0 || routeErrors.length > 0) {
+        const routePainted = rp.children >= 1 && rp.elCount >= 1 && (rp.htmlLen >= 40 || rp.hasCanvas)
+        if (!routePainted || routeErrors.length > 0) {
           return {
             status: 'broken',
             detail: `The page "${href}" is broken (blank or threw a runtime error) even though Home works. ` +
