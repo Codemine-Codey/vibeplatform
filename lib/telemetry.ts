@@ -18,6 +18,7 @@ export type RepairLayer =
   | 'visual-verdict'    // vision model judged screenshot broken
   | 'checkpoint'        // snapshot saved / restored
   | 'deploy'            // CF Pages publish
+  | 'phase-gate'        // STEP 2 progressive enrichment: phase build gate / rollback
 
 export function logRepair(event: {
   layer: RepairLayer

@@ -16,7 +16,7 @@ import { tools } from '@/ai/tools'
 import { generateFiles } from '@/ai/tools/generate-files'
 import { getUnsplashBatch } from '@/ai/tools/get-unsplash-batch'
 import { generateImageBatch } from '@/ai/tools/generate-image-batch'
-import { planProject } from '@/ai/tools/plan-project'
+import { planProject, type NormalizedManifest } from '@/ai/tools/plan-project'
 import { lookupReference } from '@/ai/tools/lookup-reference'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
@@ -1160,7 +1160,7 @@ export async function POST(req: Request) {
         // makes is summed into tokens_used on the project row.
         const tokenBox = { total: 0 }
         await tokenStore.run(tokenBox, () =>
-          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise, tokens: brief.colorTokens, brandName: brief.brandName })
+          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise, tokens: brief.colorTokens, brandName: brief.brandName, runId })
         )
         if (projectId && tokenBox.total > 0) {
           updateProjectRow(projectId, { tokens_used: tokenBox.total }).catch(() => {})
@@ -1306,6 +1306,229 @@ async function runAgenticLoop({
   }
 }
 
+// ── Durable-runs STEP 2: progressive (phased) generation helpers ──────────────
+
+// Post a warm, plain-English chat message at a phase boundary. Goes through the
+// (log-wrapped) writer so it's dual-written to the canonical run_events log and
+// rendered in chat like an assistant line. Unique id → each is its own bubble.
+function narrate(writer: Writer, text: string): void {
+  writer.write({
+    id: `srv-narr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    type: 'data-narration',
+    data: { text },
+  })
+}
+
+// Human-friendly label for a phase from its page file names ("menu and gallery pages").
+function prettyPhaseLabel(paths: string[]): string {
+  const names = [
+    ...new Set(
+      paths
+        .map((p) => p.split('/').pop() ?? '')
+        .map((n) => n.replace(/\.(tsx|jsx|ts|js)$/i, ''))
+        .filter((n) => n && !/^index$/i.test(n) && !/^App$/.test(n))
+        .map((n) => n.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[-_]+/g, ' ').trim().toLowerCase())
+        .filter(Boolean)
+    ),
+  ]
+  if (names.length === 0) return 'next section'
+  if (names.length === 1) return `${names[0]} page`
+  if (names.length === 2) return `${names[0]} and ${names[1]} pages`
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} pages`
+}
+
+// Read the design-reference files an enrichment pass must match (App routing +
+// tokens + the persistent chrome), so a full page keeps the exact fonts/colors/
+// components the shell already established.
+async function readDesignReference(sandbox: Sandbox, manifest: NormalizedManifest): Promise<string> {
+  const wanted = new Set<string>(['src/App.tsx', 'src/index.css'])
+  for (const f of manifest.files) {
+    if (f.phase === 1 && /(Nav(bar|igation)?|Header|Footer|Layout)\.(tsx|jsx)$/i.test(f.path)) wanted.add(f.path)
+  }
+  const parts: string[] = []
+  for (const p of wanted) {
+    const c = await readSandboxFile(sandbox, p)
+    if (c) parts.push(`// ${p}\n${c.slice(0, 3000)}`)
+  }
+  return parts.join('\n\n')
+}
+
+// Run `vite build` once, returning whether it compiled + the raw log (for repair).
+async function viteBuildOnce(sandbox: Sandbox, logPath: string): Promise<{ ok: boolean; log: string }> {
+  try {
+    const cmd = await sandbox.runCommand({
+      detached: true,
+      cmd: 'bash',
+      args: ['-c', `(./node_modules/.bin/vite build 2>&1; echo "##EXIT:$?") | tee ${logPath} >/dev/null`],
+    })
+    await Promise.race([
+      cmd.wait(),
+      new Promise<void>((_, rej) => setTimeout(() => rej(new Error('build timeout')), 90_000)),
+    ])
+  } catch {
+    /* timeout — read whatever landed */
+  }
+  const log = (await readSandboxFile(sandbox, logPath)) ?? ''
+  const m = log.match(/##EXIT:(\d+)/)
+  return { ok: m ? m[1] === '0' : false, log }
+}
+
+// Per-phase transaction gate: the build MUST stay green after an enrichment phase.
+// Bounded repair on the phase's own files; if it still won't compile, ROLL BACK to
+// the pre-phase content (the shells) so the live preview never regresses to broken.
+// Returns true if the phase landed green, false if it was rolled back.
+async function gateEnrichmentPhase({
+  sandbox,
+  phasePaths,
+  before,
+}: {
+  sandbox: Sandbox
+  phasePaths: string[]
+  before: Array<{ path: string; content: string }>
+}): Promise<boolean> {
+  let { ok, log } = await viteBuildOnce(sandbox, '/tmp/cm-enrich.log')
+  for (let round = 0; round < 2 && !ok; round++) {
+    const errorBlock = extractBuildError(log)
+    // Deterministic first: a missing package is installed, not model-repaired.
+    if (await installMissingModules(sandbox, log)) {
+      ;({ ok, log } = await viteBuildOnce(sandbox, '/tmp/cm-enrich.log'))
+      continue
+    }
+    const files = extractErrorFiles(log).filter((p) => !SCAFFOLD_PATH_SET.has(p))
+    let repairedAny = false
+    for (const path of files.slice(0, 3)) {
+      const content = await readSandboxFile(sandbox, path)
+      if (!content) continue
+      const fixed = await repairFile(path, content, errorBlock)
+      if (fixed && fixed !== content) {
+        const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : fixed
+        await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
+        repairedAny = true
+      }
+    }
+    if (!repairedAny) break
+    ;({ ok, log } = await viteBuildOnce(sandbox, '/tmp/cm-enrich.log'))
+  }
+  if (!ok) {
+    // Roll the phase back to its shells — never leave the preview on a broken build.
+    if (before.length > 0) {
+      await sandbox
+        .writeFiles(before.map((b) => ({ path: b.path, content: Buffer.from(b.content, 'utf8') })))
+        .catch(() => {})
+    }
+    logRepair({ layer: 'phase-gate', action: 'rolled-back', detail: phasePaths.join(', ').slice(0, 200) })
+    return false
+  }
+  return true
+}
+
+// ── Enrichment loop (phases 2..N) ─────────────────────────────────────────────
+// Preview is already LIVE (phase-1 skeleton + shells). Each later phase REPLACES its
+// shells with full pages via a self-contained getContents call (brief + manifest +
+// this phase's files + read-back of the design reference), gated as a transaction so
+// the build stays green — Vite HMR makes each phase appear live in the iframe. All
+// within THIS invocation (cross-invocation chaining is STEP 3).
+async function runEnrichmentPhases({
+  writer,
+  sandbox,
+  sandboxId,
+  manifest,
+  genContext,
+  designContext,
+  runId,
+  projectId,
+  userId,
+}: {
+  writer: Writer
+  sandbox: Sandbox
+  sandboxId: string
+  manifest: NormalizedManifest
+  genContext: import('ai').ModelMessage[]
+  designContext?: string
+  runId?: string | null
+  projectId?: string | null
+  userId?: string | null
+}): Promise<void> {
+  const allPaths = manifest.files.map((f) => f.path)
+  const reference = await readDesignReference(sandbox, manifest)
+
+  narrate(
+    writer,
+    "Your site is live and clickable — go ahead and try it while I work. I'm filling in the rest of the pages now…"
+  )
+  if (runId) await updateRun(runId, { phase_cursor: 1 }).catch(() => {})
+
+  for (let phase = 2; phase <= manifest.phaseCount; phase++) {
+    const phaseFiles = manifest.files.filter((f) => f.phase === phase)
+    if (phaseFiles.length === 0) continue
+    const phasePaths = phaseFiles.map((f) => f.path)
+    const label = prettyPhaseLabel(phasePaths)
+    narrate(writer, `Building the ${label} now…`)
+
+    // Capture the shells so a failed phase can roll back to a known-good state.
+    const before: Array<{ path: string; content: string }> = []
+    for (const p of phasePaths) {
+      const c = await readSandboxFile(sandbox, p)
+      if (c) before.push({ path: p, content: c })
+    }
+
+    try {
+      const enrichMessages: import('ai').ModelMessage[] = [
+        ...genContext,
+        {
+          role: 'user',
+          content:
+            'The app is ALREADY LIVE. The pages at the paths I will generate currently exist only as branded SHELLS. ' +
+            'Replace each with the COMPLETE, full production page: keep the SAME exports and route wiring, and match the ' +
+            'EXISTING design system exactly (fonts, color tokens, spacing, shared components) as shown in these reference ' +
+            'files. Write real, on-brief content — no placeholders, no lorem, no "coming soon". Do NOT change routing or ' +
+            'any file outside the requested paths.\n\nDesign reference files:\n' +
+            reference,
+        },
+      ]
+      const gf = generateFiles({
+        writer,
+        modelId: FILE_GENERATION_MODEL,
+        designContext,
+        existingPaths: allPaths,
+      })
+      // Call the tool's executor directly, server-side, with a per-phase id so each
+      // phase renders as its own file-generation activity in chat.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (gf as any).execute(
+        { sandboxId, paths: phasePaths },
+        { toolCallId: `srv-gen-p${phase}`, messages: enrichMessages }
+      )
+
+      const green = await gateEnrichmentPhase({ sandbox, phasePaths, before })
+      narrate(
+        writer,
+        green
+          ? `${label[0].toUpperCase()}${label.slice(1)} done ✓${phase < manifest.phaseCount ? ' — building the next section.' : ''}`
+          : `Keeping the ${label} on the current version for now — moving on.`
+      )
+    } catch (e) {
+      console.warn('[enrichment] phase', phase, 'failed (non-fatal):', e instanceof Error ? e.message : e)
+      if (before.length > 0) {
+        await sandbox
+          .writeFiles(before.map((b) => ({ path: b.path, content: Buffer.from(b.content, 'utf8') })))
+          .catch(() => {})
+      }
+    }
+
+    // Persist phase progress (sets up STEP 3's cross-invocation resume) + refresh snapshot.
+    if (runId) await updateRun(runId, { phase_cursor: phase }).catch(() => {})
+    if (projectId && userId) {
+      const pid = projectId, uid = userId
+      snapshotProject(sandbox, uid, pid)
+        .then((p) => (p ? updateProjectRow(pid, { snapshot_path: p }) : undefined))
+        .catch(() => {})
+    }
+  }
+
+  narrate(writer, 'All the pages are built — your site is complete. 🎉')
+}
+
 // ── Server-side generation pipeline ──────────────────────────────────────────
 // All tool decisions (createSandbox, pnpm install, pnpm dev, getSandboxURL) are
 // made by the server. The AI's only job is to generate file contents. This
@@ -1321,6 +1544,7 @@ async function runPipeline({
   sandboxPromise,
   tokens,
   brandName,
+  runId,
 }: {
   writer: Writer
   messages: ChatUIMessage[]
@@ -1332,6 +1556,7 @@ async function runPipeline({
   sandboxPromise?: Promise<Sandbox>
   tokens?: ColorTokens
   brandName?: string
+  runId?: string | null
 }) {
   // ── Step 1: Acquire sandbox (warm pool or fresh creation) ─────────────────
   writer.write({
@@ -1462,6 +1687,10 @@ async function runPipeline({
   const fullSystem = systemPrompt + pipelineAddendum + referenceGuidance + `\n\n${fileCountGuidance}`
 
   // ── Step 3: AI generates directly — no planning round-trip ───────────────
+  // Durable-runs STEP 2: capture the (phased, normalized) manifest the planner
+  // commits to, so the server can drive the enrichment phases after phase-1 preview.
+  const planBox: { manifest: NormalizedManifest | null } = { manifest: null }
+  const capturePlan = planProject({ onPlan: (m) => { planBox.manifest = m } })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pipelineTools: Record<string, any> = skill === 'website'
     ? {
@@ -1469,13 +1698,13 @@ async function runPipeline({
         generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
         getUnsplashBatch: getUnsplashBatch(),
         generateImageBatch: generateImageBatch(),
-        planProject: planProject(),
+        planProject: capturePlan,
         lookupReference: lookupReference(),
       }
     : {
         loadSkill: loadSkill(),
         generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
-        planProject: planProject(),
+        planProject: capturePlan,
         lookupReference: lookupReference(),
       }
 
@@ -1530,6 +1759,26 @@ async function runPipeline({
     }
   } catch {
     // Can't verify — proceed anyway
+  }
+
+  // ── Durable-runs STEP 2: capture manifest + conversation context for enrichment ─
+  // The full model-message context (user turn + the AI's tool results, incl. image
+  // URLs + the locked manifest) is what a self-contained enrichment phase re-uses so
+  // each full page matches phase 1. Persist the manifest on the run row now (sets up
+  // STEP 3's resume). All best-effort — never blocks the preview.
+  const enrichManifest = planBox.manifest
+  let genContext: import('ai').ModelMessage[] = []
+  if (enrichManifest && enrichManifest.multiPhase) {
+    try {
+      const base = await convertToModelMessages(transformMessages(messages))
+      const responseMsgs = (await aiResult.response).messages
+      genContext = [...base, ...responseMsgs]
+    } catch (e) {
+      console.warn('[enrichment] could not build gen context (non-fatal):', e instanceof Error ? e.message : e)
+    }
+    if (runId) {
+      await updateRun(runId, { manifest: enrichManifest.files, phase_cursor: 0 }).catch(() => {})
+    }
   }
 
   // ── Step 4: Server finalizes install ─────────────────────────────────────
@@ -1844,6 +2093,30 @@ async function runPipeline({
     type: 'data-get-sandbox-url',
     data: { url, status: 'done' },
   })
+
+  // ── Durable-runs STEP 2: PROGRESSIVE ENRICHMENT (phases 2..N) ──────────────────
+  // The phase-1 skeleton + branded shells are LIVE in the preview now. Fill each
+  // later phase's shells into full pages, one transaction at a time, narrating as we
+  // go — Vite HMR makes them appear live. Only when the planner produced a genuine
+  // multi-phase manifest AND phase 1 is healthy (never enrich onto a broken build).
+  // Single-phase (small/simple) projects skip this entirely — identical to before.
+  if (enrichManifest && enrichManifest.multiPhase && !devError) {
+    try {
+      await runEnrichmentPhases({
+        writer,
+        sandbox,
+        sandboxId,
+        manifest: enrichManifest,
+        genContext,
+        designContext,
+        runId,
+        projectId,
+        userId,
+      })
+    } catch (e) {
+      console.warn('[enrichment] loop failed (non-fatal):', e instanceof Error ? e.message : e)
+    }
+  }
 
   // Stop the incremental snapshot loop — the final awaited snapshot below supersedes it.
   if (snapTimer) { clearInterval(snapTimer); snapTimer = null }

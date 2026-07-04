@@ -219,9 +219,14 @@ interface Params {
   // The design contract (brief tokens + fonts + taste rules) — passed into the
   // file-writer's system prompt so generated code actually matches the design.
   designContext?: string
+  // Durable-runs STEP 2 (enrichment phases): paths that ALREADY exist on disk (the
+  // full manifest — every route ships as a shell from phase 1). Seeds the import-
+  // closure's "existing" set so an enrichment pass generating just this phase's pages
+  // never re-creates a sibling that is already present. Empty on the normal first pass.
+  existingPaths?: string[]
 }
 
-export const generateFiles = ({ writer, modelId, designContext }: Params) =>
+export const generateFiles = ({ writer, modelId, designContext, existingPaths }: Params) =>
   tool({
     description,
     inputSchema: z.object({
@@ -338,6 +343,7 @@ export const generateFiles = ({ writer, modelId, designContext }: Params) =>
           const existing = new Set<string>([
             ...uploaded.map(f => f.path),
             ...SCAFFOLD_PATH_SET,
+            ...(existingPaths ?? []),
           ])
           const missingMap = new Map<string, Set<string>>() // target -> importers
           for (const file of uploaded) {
