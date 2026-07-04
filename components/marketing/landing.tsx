@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
-import { motion, AnimatePresence, useInView, animate } from 'framer-motion'
+import { motion, AnimatePresence, LayoutGroup, useInView, animate } from 'framer-motion'
 import {
   ArrowRight,
   Sparkles,
@@ -21,6 +21,7 @@ import { SiteFooter } from '@/components/marketing/site-footer'
 import { Reveal } from '@/components/marketing/reveal'
 import { MarketingRoot } from '@/components/marketing/marketing-shell'
 import { AuroraHero } from '@/components/ui/futurastic-hero-section'
+import { TextRotate } from '@/components/ui/text-rotate'
 import { cn } from '@/lib/utils'
 
 export function Landing() {
@@ -84,16 +85,25 @@ function Hero() {
           transition={{ duration: 0.6, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
           className="mt-6 text-4xl font-semibold leading-[1.03] tracking-tight text-[var(--cm-heading)] sm:text-6xl lg:text-7xl"
         >
-          Turn your idea into a{' '}
-          <span
-            className="bg-clip-text text-transparent"
-            style={{
-              backgroundImage:
-                'linear-gradient(to right, var(--cm-grad-from), var(--cm-grad-via), var(--cm-grad-to))',
-            }}
-          >
-            live web app
-          </span>
+          <LayoutGroup>
+            <motion.span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 align-middle" layout>
+              <motion.span layout transition={{ type: 'spring', damping: 30, stiffness: 400 }}>
+                Turn your idea into a
+              </motion.span>
+              <TextRotate
+                texts={['web apps', 'websites ✽', 'web games', 'fast', 'fun', '🔥🔥🔥']}
+                mainClassName="text-white px-2 sm:px-2 md:px-3 bg-[#ff5941] overflow-hidden py-0.5 sm:py-1 md:py-2 justify-center rounded-lg"
+                staggerFrom="last"
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '-120%' }}
+                staggerDuration={0.025}
+                splitLevelClassName="overflow-hidden pb-0.5 sm:pb-1 md:pb-1"
+                transition={{ type: 'spring', damping: 30, stiffness: 400 }}
+                rotationInterval={2000}
+              />
+            </motion.span>
+          </LayoutGroup>
         </motion.h1>
 
         <motion.p
