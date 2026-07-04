@@ -690,7 +690,7 @@ type Stat = {
 
 const STATS: Stat[] = [
   { value: 5000, suffix: '+', label: 'Apps built' },
-  { value: 300, prefix: '<', suffix: 's', label: 'To first preview' },
+  { value: 600, prefix: '<', suffix: 's', label: 'To first preview' },
   { value: 98, suffix: '%', label: 'Uptime' },
 ]
 
