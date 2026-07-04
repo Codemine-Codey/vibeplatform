@@ -40,6 +40,7 @@ Start dev server + emit preview URL AFTER phase 1. Vite HMR → every later phas
 ## Build order (each independently testable) — DO NOT run the complex deep test until step 4 done
 1. **Run rows + dual-write log + reconnect stream** (runs, run_events, log-writer wrapper, GET /api/runs/:id/stream). Isolation + walk-away reading land; ZERO pipeline change.
 2. **Phased planning + per-phase gates + progressive preview** (planner emits phases; phase loop inside the existing invocation; preview after phase 1).
+   - **CONVERSATIONAL PHASE NARRATION (required UX):** at each phase boundary the AI posts a friendly chat message so the user always knows what's happening + that the project is already usable. E.g. after phase 1: "Your site is live and clickable — go ahead and click around. I'm now filling in the menu and story pages…"; after each enrichment: "Menu page done ✓ — now building the gallery." Warm, plain-English, never technical. This IS the progressive-delivery feel; the preview URL is surfaced right after phase 1 with an invite to use it while the build continues.
 3. **Chaining + checkpoint + sweeper** (internal /api/runs/continue, deadline logic, cron). The cap is structurally dead.
 4. **Per-run metrics** (run row = reliability-metrics source for the proof run). [Abuse cap: dropped per user.]
 
