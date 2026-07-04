@@ -192,6 +192,7 @@ function makeMainTsx(isGame: boolean): string {
   return `import { StrictMode, Component, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 ${routerImport}import './index.css'
+import './styles/cm-ui.css'
 import App from './App'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -534,7 +535,7 @@ export function FAQ(props: { items: { q: ReactNode; a: ReactNode }[] }) {
 //   • A pure-CSS breathing orb (signals "alive", not crashed) + a 20s self-reload so
 //     it heals itself the moment a background fix lands. Confident copy — never
 //     "error/failed/spinner".
-const FALLBACK_TSX = `import { useEffect } from 'react'
+const FALLBACK_TSX = `import { useEffect, type CSSProperties, type ReactNode } from 'react'
 
 type FallbackSkill = 'website' | 'webapp' | 'game'
 
@@ -547,23 +548,23 @@ export default function Fallback({ brand = 'This project', skill = 'website' }: 
     return () => clearInterval(t)
   }, [])
 
-  const wrap: React.CSSProperties = {
+  const wrap: CSSProperties = {
     minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center',
     justifyContent: 'center', gap: '1.5rem', padding: '2rem', textAlign: 'center',
     background: 'var(--cm-bg, var(--background, #0a0a0a))',
     color: 'var(--cm-fg, var(--foreground, #ededed))',
     fontFamily: 'var(--font-display, var(--font-body, system-ui, -apple-system, sans-serif))',
   }
-  const orb: React.CSSProperties = {
+  const orb: CSSProperties = {
     width: '84px', height: '84px', borderRadius: '9999px',
     background: 'radial-gradient(circle at 35% 35%, var(--primary, #6366f1), transparent 72%)',
     boxShadow: '0 0 60px 8px var(--primary, #6366f1)',
     animation: 'cm-breathe 2.8s ease-in-out infinite',
   }
-  const title: React.CSSProperties = { fontSize: 'clamp(1.25rem, 3.5vw, 2rem)', fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }
-  const sub: React.CSSProperties = { fontSize: '0.95rem', opacity: 0.62, margin: 0, maxWidth: '30rem' }
+  const title: CSSProperties = { fontSize: 'clamp(1.25rem, 3.5vw, 2rem)', fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }
+  const sub: CSSProperties = { fontSize: '0.95rem', opacity: 0.62, margin: 0, maxWidth: '30rem' }
 
-  let garnish: React.ReactNode = null
+  let garnish: ReactNode = null
   if (skill === 'game') {
     garnish = <p style={{ ...sub, opacity: 0.5, letterSpacing: '0.14em', textTransform: 'uppercase', fontSize: '0.8rem' }}>Preparing the arena.</p>
   } else if (skill === 'webapp') {
@@ -596,11 +597,72 @@ export default function Fallback({ brand = 'This project', skill = 'website' }: 
 }
 `
 
+// ── Q5: persistent utility CSS — the ~10 classes models keep re-inventing ─────
+// Lives in its OWN file (main.tsx imports it AFTER index.css) — NOT in index.css,
+// which the AI overwrites with brand tokens. Token-driven so it inherits each project's
+// palette; the AI is TOLD these exist (GEN_SYSTEM) so it stops re-declaring them (a
+// top source of undefined-class + truncated-keyframe build breaks). The semantic-gate's
+// CSS-closure treats these as defined (knownCss includes this file) and won't duplicate.
+const CM_UI_CSS = `/* Codemine UI utilities — persistent, token-driven. Do NOT edit index.css to add these. */
+
+.gradient-text { background-image: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent, var(--primary)))); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+.gradient-text-accent { background-image: linear-gradient(135deg, hsl(var(--accent, var(--primary))), hsl(var(--primary))); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+
+.glass { background-color: hsl(var(--background) / 0.55); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid hsl(var(--border) / 0.4); }
+.glass-strong { background-color: hsl(var(--background) / 0.8); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid hsl(var(--border) / 0.5); }
+
+.glow-sm { box-shadow: 0 0 16px -4px hsl(var(--primary) / 0.45); }
+.glow { box-shadow: 0 0 28px -4px hsl(var(--primary) / 0.5); }
+
+.section { padding-top: 5rem; padding-bottom: 5rem; }
+@media (min-width: 768px) { .section { padding-top: 7rem; padding-bottom: 7rem; } }
+.container-page { width: 100%; max-width: 80rem; margin-left: auto; margin-right: auto; padding-left: 1.5rem; padding-right: 1.5rem; }
+
+.img-scrim { position: relative; }
+.img-scrim::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to top, hsl(var(--background)) 0%, hsl(var(--background) / 0) 60%); }
+
+@keyframes cm-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+@keyframes cm-shimmer { to { background-position: 200% center; } }
+@keyframes cm-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes cm-pulse-slow { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+.animate-float { animation: cm-float 6s ease-in-out infinite; }
+.animate-marquee { animation: cm-marquee 30s linear infinite; }
+.animate-pulse-slow { animation: cm-pulse-slow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.text-shimmer { background: linear-gradient(90deg, hsl(var(--foreground)), hsl(var(--primary)), hsl(var(--foreground))); background-size: 200% auto; -webkit-background-clip: text; background-clip: text; color: transparent; animation: cm-shimmer 3s linear infinite; }
+`
+
+// ── Q5: pre-built 404 (websites/apps). The AI wires it as the catch-all route:
+//   <Route path="*" element={<NotFound />} /> — no need to hand-write it each time.
+const NOTFOUND_TSX = `import { Link } from 'react-router-dom'
+
+export default function NotFound() {
+  return (
+    <div className="flex min-h-[70vh] flex-col items-center justify-center gap-4 px-6 text-center">
+      <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">404</p>
+      <h1 className="font-display text-4xl font-bold tracking-tight text-foreground">This page wandered off</h1>
+      <p className="max-w-md text-muted-foreground">The page you're looking for doesn't exist or may have moved.</p>
+      <Link to="/" className="mt-2 inline-flex items-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90">Back home</Link>
+    </div>
+  )
+}
+`
+
 export const SCAFFOLD_FILES: Array<{ path: string; content: string }> = [
   {
     // Q1 template fallback — baked, validated once, swapped in at the P0-B terminal state.
     path: 'src/components/__fallback.tsx',
     content: FALLBACK_TSX,
+  },
+  {
+    // Q5 persistent utilities (main.tsx imports this after index.css).
+    path: 'src/styles/cm-ui.css',
+    content: CM_UI_CSS,
+  },
+  {
+    // Q5 pre-built 404 (excluded from games — imports react-router-dom).
+    path: 'src/components/NotFound.tsx',
+    content: NOTFOUND_TSX,
   },
   {
     path: 'src/components/blocks/index.tsx',
@@ -1222,6 +1284,8 @@ const GAME_EXCLUDED_UI = new Set([
   'src/components/ui/label.tsx',
   'src/components/ui/select.tsx',
   'src/components/ui/separator.tsx',
+  // NotFound imports react-router-dom, which games don't install → would break tsc/build.
+  'src/components/NotFound.tsx',
   // The website blocks import framer-motion + react-router-dom, which are NOT in the
   // game package.json (games use canvas / three / howler / zustand). Excluding them
   // keeps games free of missing-dependency build errors.
@@ -1234,6 +1298,28 @@ const GAME_EXCLUDED_UI = new Set([
 // (double loops, blank screens, frame-dependent speed). Bake it once, correctly, so the
 // AI only writes the game-specific update()/draw() — not the error-prone plumbing.
 const GAME_ENGINE_TS = `import { useEffect, useRef, useState, useCallback } from 'react'
+
+// ── Tuned game constants (IMPORT these — never guess magic numbers) ──
+// The loop is fixed-timestep, so these are frame-rate INDEPENDENT: speeds are px/step,
+// spawn intervals are ms. Guessing these from prose is the #1 cause of a "turtle-slow"
+// or impossible game. Import the entry for your game type and tune from a sane baseline.
+export const SPEEDS = {
+  flappy: { gravity: 0.5, flap: -8, pipe: 3 },
+  runner: { base: 6, gravity: 1.1, jump: -18 },
+  snake: { stepMs: 110 },
+  pong: { ball: 6, paddle: 8 },
+  breakout: { ball: 5, paddle: 9 },
+  spaceShooter: { player: 6, bullet: 9, enemy: 2 },
+  balloon: { rise: 2.2 },
+} as const
+
+export const SPAWN = {
+  flappyPipeMs: 1500,
+  balloonMs: 900,
+  asteroidMs: 1100,
+  coinMs: 1300,
+  enemyMs: 1000,
+} as const
 
 // Fixed-timestep game loop with a correct lifecycle. update(stepMs) runs at a fixed
 // 1/60s step (frame-rate INDEPENDENT — no double-speed on fast monitors); draw(alpha)
@@ -1356,9 +1442,11 @@ export const SCAFFOLD_PATH_SET: ReadonlySet<string> = new Set([
   'tsconfig.app.json',
   'tsconfig.node.json',
   'src/index.css',
+  'src/styles/cm-ui.css',
   'src/main.tsx',
   'src/lib/utils.ts',
   'src/components/__fallback.tsx',
+  'src/components/NotFound.tsx',
   'src/components/blocks/index.tsx',
   'src/components/blocks/sections.tsx',
   'src/components/game/engine.ts',
