@@ -305,13 +305,27 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       // Generate ONE file (or small group) via its own getContents call, writing each as
       // it lands. Shared `uploaded` is safe to push into — the event loop is single-threaded
       // so pushes are atomic between awaits; concurrent sandbox writes target distinct files.
+      // A getContents call must NEVER hang forever (a stalled DeepSeek stream froze an
+      // entire Vercel build to the 800s kill). Bound every generation call: caller's
+      // abortSignal (if any) OR-combined with a hard per-call timeout.
+      const boundedSignal = (ms: number): AbortSignal =>
+        abortSignal ? AbortSignal.any([abortSignal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms)
+
       const genGroup = async (groupPaths: string[], passMessages: typeof messages) => {
-        const it = getContents({ messages: passMessages, modelId, paths: groupPaths, designContext, abortSignal })
-        for await (const chunk of it) {
-          if (chunk.files.length > 0) {
-            const error = await writeFiles({ ...chunk, written: uploaded.map((f) => f.path) })
-            if (!error) uploaded.push(...chunk.files)
+        // Per-file HARD timeout — a single stalled stream must NEVER hang the parallel
+        // pool. On trip, the file is left missing and the retry/closure pass regenerates it.
+        const sig = boundedSignal(180_000)
+        try {
+          const it = getContents({ messages: passMessages, modelId, paths: groupPaths, designContext, abortSignal: sig })
+          for await (const chunk of it) {
+            if (chunk.files.length > 0) {
+              const error = await writeFiles({ ...chunk, written: uploaded.map((f) => f.path) })
+              if (!error) uploaded.push(...chunk.files)
+            }
           }
+        } catch (e) {
+          // Timeout / abort / stream error on ONE file — non-fatal, others continue.
+          console.warn(`[genGroup] ${groupPaths.join(',')} aborted/failed (retry pass will recover):`, e instanceof Error ? e.message : e)
         }
       }
 
@@ -321,7 +335,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       // not the sum. The locked manifest (exports contract) is in `messages`, so files
       // generated concurrently still import each other's exact names. Foundation files are
       // still generated as a FIRST wave so presentation files see their real content.
-      const CONCURRENCY = 5
+      const CONCURRENCY = 4
       const runPass = async (passPaths: string[], context: File[]) => {
         if (passPaths.length === 0) return
         const passMessages = context.length === 0
@@ -368,7 +382,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       const missing = paths.filter(p => !writtenPaths.has(p))
       if (missing.length > 0) {
         console.warn(`[generateFiles] Retrying ${missing.length} missing file(s): ${missing.join(', ')}`)
-        const retryIterator = getContents({ messages, modelId, paths: missing, designContext, abortSignal })
+        const retryIterator = getContents({ messages, modelId, paths: missing, designContext, abortSignal: boundedSignal(150_000) })
         try {
           for await (const chunk of retryIterator) {
             if (chunk.files.length > 0) {
@@ -449,7 +463,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
           ]
 
           let gotAny = false
-          const closureIter = getContents({ messages: closureMessages, modelId, paths: missingPaths, designContext, abortSignal })
+          const closureIter = getContents({ messages: closureMessages, modelId, paths: missingPaths, designContext, abortSignal: boundedSignal(150_000) })
           try {
             for await (const chunk of closureIter) {
               if (chunk.files.length > 0) {
@@ -480,7 +494,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
             ...messages,
             { role: 'user' as const, content: 'These files COMPILE but contain runtime footguns that will break or hang the app. Rewrite each listed file COMPLETELY — fix the issue, keep every feature, change nothing unrelated.\n\n' + issueText },
           ]
-          const it = getContents({ messages: fixMessages, modelId, paths, designContext, abortSignal })
+          const it = getContents({ messages: fixMessages, modelId, paths, designContext, abortSignal: boundedSignal(150_000) })
           for await (const chunk of it) {
             if (chunk.files.length > 0) {
               const err = await writeFiles({ ...chunk, written: uploaded.map(f => f.path) })
@@ -521,7 +535,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
                 'These files render nothing meaningful — a blank/empty component is a broken preview. Rewrite each listed file COMPLETELY so it renders real, on-brief, production-quality content: never null, never an empty fragment, never a childless placeholder, never lorem/coming-soon. Keep the SAME exports and the file\'s purpose; fill it with the actual UI it should display.\n\n' + issueText,
             },
           ]
-          const it = getContents({ messages: fixMessages, modelId, paths: emptyPaths, designContext, abortSignal })
+          const it = getContents({ messages: fixMessages, modelId, paths: emptyPaths, designContext, abortSignal: boundedSignal(150_000) })
           for await (const chunk of it) {
             if (chunk.files.length > 0) {
               const err = await writeFiles({ ...chunk, written: uploaded.map(f => f.path) })
