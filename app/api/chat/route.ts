@@ -1039,6 +1039,13 @@ export async function POST(req: Request) {
         if (projectId && tokenBox.total > 0) {
           updateProjectRow(projectId, { tokens_used: tokenBox.total }).catch(() => {})
         }
+        // Durable-runs STEP 4: also record this invocation's tokens on the RUN row (the
+        // reliability-metrics source). A single-invocation run gets its full, exact total
+        // here; a chained run records the primary invocation's usage and each /continue
+        // adds its own delta on top.
+        if (runId && tokenBox.total > 0) {
+          await updateRun(runId, { tokens_used: tokenBox.total }).catch(() => {})
+        }
         } catch (err) {
           // The pipeline reports most failures as data-report-errors rather than
           // throwing; a genuine throw here means the run ended in error.
