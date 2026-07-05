@@ -35,11 +35,17 @@ import {
 
 type Writer = UIMessageStreamWriter<UIMessage<never, DataPart>>
 
-// Per-phase budget estimate. We only START a phase if at least this much of the
-// invocation budget remains — a phase (model call ~90–180s + build gate + up to 2
-// repair rounds) can run ~4 min, so we keep a generous margin and chain rather than
-// risk overrunning the hard 800s function cap.
-const PHASE_ESTIMATE_MS = 240_000
+// Per-phase budget estimate. We only START a phase if at least this much of the SOFT
+// budget (deadline) remains. A phase = model call (~90–180s) + build gate (vite build +
+// up to 2 repair rounds, ~150s worst case). Sized to cover BOTH so a phase that starts
+// can also finish its gate before the deadline — otherwise gate work could spill past the
+// hard 800s cap and orphan the run. Generous by design: chaining is cheap + invisible.
+const PHASE_ESTIMATE_MS = 330_000
+
+// Time reserved AFTER the model call for the build gate (build + repair rounds) + the
+// checkpoint/chain. The inner AbortSignal fires the model call this many ms BEFORE the
+// deadline so the gate always has room to run (or roll back) inside the budget.
+const GATE_RESERVE_MS = 170_000
 
 const sanitizeCss = ensureValidCss
 
@@ -182,7 +188,13 @@ async function checkpointAndChain(opts: {
   )
   let snapshotPath: string | null = null
   if (projectId && userId) {
-    snapshotPath = await snapshotProject(sandbox, userId, projectId).catch(() => null)
+    // Bounded — a checkpoint snapshot must NEVER eat the hard-cap margin. If it times out
+    // the continuation still resumes via Sandbox.get (sandbox stays alive), so a missed
+    // snapshot only costs the sweeper-path fallback, never the build.
+    snapshotPath = await Promise.race([
+      snapshotProject(sandbox, userId, projectId),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 45_000)),
+    ]).catch(() => null)
     if (snapshotPath) {
       await updateProjectRow(projectId, { sandbox_id: sandbox.sandboxId, snapshot_path: snapshotPath }).catch(() => {})
     }
@@ -284,9 +296,10 @@ export async function runResumableEnrichment(opts: {
             reference,
         },
       ]
-      // Hard inner guard: abort the model call AT the deadline. Any file whose CMEND
-      // fence already landed is written (salvaged); the gate then rolls back a partial.
-      const phaseAbort = AbortSignal.timeout(Math.max(5_000, deadline - Date.now()))
+      // Hard inner guard: abort the model call GATE_RESERVE_MS before the deadline so the
+      // build gate (which follows) still fits inside the budget. Any file whose CMEND fence
+      // already landed is written (salvaged); the gate then rolls back a partial + we chain.
+      const phaseAbort = AbortSignal.timeout(Math.max(20_000, deadline - Date.now() - GATE_RESERVE_MS))
       const gf = generateFiles({
         writer,
         modelId: FILE_GENERATION_MODEL,

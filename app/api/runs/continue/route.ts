@@ -83,7 +83,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, degraded: 'no-sandbox' })
   }
 
-  const deadline = invocationStart + (maxDuration * 1000 - 90_000)
+  const deadline = invocationStart + (maxDuration * 1000 - 120_000)
   const writer = makeLogWriter(runId)
   const designContext = typeof run.brief === 'string' ? run.brief : undefined
 

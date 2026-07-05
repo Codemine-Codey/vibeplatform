@@ -1774,7 +1774,7 @@ async function runPipeline({
   if (enrichManifest && enrichManifest.multiPhase && !devError) {
     // deadline = invocationStart + (maxDuration − 90s margin). Falls back to now-based
     // if invocationStart wasn't threaded (defensive; the POST handler always passes it).
-    const deadline = (invocationStart ?? Date.now()) + (maxDuration * 1000 - 90_000)
+    const deadline = (invocationStart ?? Date.now()) + (maxDuration * 1000 - 120_000)
     try {
       const res = await runResumableEnrichment({
         writer,
