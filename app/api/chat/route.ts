@@ -36,7 +36,7 @@ import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { createRun, appendRunEvent, updateRun } from '@/lib/runs'
 import { runResumableEnrichment } from '@/lib/enrichment'
-import { stampShellsForManifest } from '@/lib/shell-template'
+import { stampShellsForManifest, stampShell } from '@/lib/shell-template'
 import {
   readSandboxFile,
   extractBuildError,
@@ -1378,6 +1378,14 @@ async function runPipeline({
   // app/game: text + (loadSkill?) + planProject + generateFiles + slack
   const maxSteps = skill === 'website' ? 10 : 9 // +2 headroom for optional reference lookups
 
+  // ── Phase-1 deadline guard (the guarantee) ────────────────────────────────
+  // Generation is bounded so it CANNOT run into Vercel's 800s function cap. At the
+  // deadline the model stops; whatever files aren't done are stamped as on-brand shells
+  // (salvage, below), the build ships a live preview, and the rest go to enrichment.
+  // Reserve ~230s after the deadline for salvage + install + build + dev-server + emit.
+  const genDeadline = (invocationStart ?? Date.now()) + (maxDuration * 1000 - 230_000)
+  const genAbort = AbortSignal.timeout(Math.max(60_000, genDeadline - Date.now()))
+
   const aiResult = streamText({
     ...getModelOptions(DEFAULT_MODEL),
     system: fullSystem,
@@ -1386,27 +1394,37 @@ async function runPipeline({
     // Model's max output — planProject manifests and tool args must never truncate.
     maxOutputTokens: getMaxOutputTokens(DEFAULT_MODEL),
     tools: pipelineTools,
+    abortSignal: genAbort,
     onError: error => console.error('Pipeline AI error:', error),
   })
 
   writer.merge(aiResult.toUIMessageStream({ sendReasoning: false, sendStart: false }))
 
   // Wait for all AI steps (text + all tool calls) to complete
+  let genHitDeadline = false
   try {
     await aiResult.text
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    console.error('Pipeline AI failed:', msg)
-    writer.write({
-      id: 'srv-error',
-      type: 'data-report-errors',
-      data: { summary: `Generation failed: ${msg}. Please try again.`, paths: [] },
-    })
-    return { chained: false }
+    // Deadline abort is NOT a failure — proceed to shell-salvage so a preview still ships.
+    if (genAbort.aborted || /abort|timeout|cancel/i.test(msg)) {
+      genHitDeadline = true
+      console.warn('[phase-1] generation hit the deadline — salvaging remaining files as shells')
+    } else {
+      console.error('Pipeline AI failed:', msg)
+      writer.write({
+        id: 'srv-error',
+        type: 'data-report-errors',
+        data: { summary: `Generation failed: ${msg}. Please try again.`, paths: [] },
+      })
+      return { chained: false }
+    }
   }
 
-  // Verify generateFiles was actually called — if AI only produced text (rare edge case),
-  // skip pnpm commands to avoid starting an empty sandbox.
+  // Verify generateFiles was actually called — if AI only produced text (rare edge case)
+  // AND we have no manifest to salvage from, skip pnpm to avoid an empty sandbox. When a
+  // manifest exists (planProject ran), we proceed even if generation was cut short — the
+  // shell-salvage below makes the build green from the manifest.
   try {
     const allSteps = await aiResult.steps
     const calledGenerateFiles = allSteps.some(
@@ -1416,12 +1434,38 @@ async function runPipeline({
           tc => tc.toolName === 'generateFiles'
         )
     )
-    if (!calledGenerateFiles) {
-      console.warn('Pipeline: AI did not call generateFiles — aborting pnpm phase')
+    if (!calledGenerateFiles && !planBox.manifest) {
+      console.warn('Pipeline: AI produced no files and no manifest — aborting pnpm phase')
       return { chained: false }
     }
   } catch {
     // Can't verify — proceed anyway
+  }
+
+  // ── Shell-salvage — the phase-1 completion guarantee ──────────────────────────
+  // Ensure EVERY phase-1 manifest file exists on disk before the build. Any file the model
+  // didn't finish (deadline hit, or a single file failed) is stamped as an on-brand shell
+  // and MOVED to enrichment, so: (a) the build is green + the preview ALWAYS ships before
+  // the 800s cap, and (b) the real page is filled in live afterward. This is what makes
+  // "no build dies mid-flight, a preview always ships" structural rather than statistical.
+  if (planBox.manifest && sandbox) {
+    const salvaged: string[] = []
+    for (const f of planBox.manifest.files) {
+      if (f.phase !== 1) continue
+      const existing = await readSandboxFile(sandbox, f.path).catch(() => null)
+      if (existing && existing.trim().length > 20) continue
+      try {
+        await sandbox.writeFiles([{ path: f.path, content: Buffer.from(stampShell({ path: f.path, exports: f.exports, brandName }), 'utf8') }])
+        f.phase = 2 // hand the real page/file to the enrichment queue
+        salvaged.push(f.path)
+      } catch { /* non-fatal */ }
+    }
+    if (salvaged.length > 0) {
+      const maxPhase = planBox.manifest.files.reduce((m, f) => Math.max(m, f.phase), 1)
+      planBox.manifest.phaseCount = maxPhase
+      planBox.manifest.multiPhase = maxPhase > 1
+      console.warn(`[phase-1] shell-salvaged ${salvaged.length} file(s)${genHitDeadline ? ' (deadline)' : ''} → enrichment: ${salvaged.join(', ')}`)
+    }
   }
 
   // ── Durable-runs STEP 2: capture manifest + conversation context for enrichment ─
@@ -1640,9 +1684,20 @@ async function runPipeline({
     devError = await waitForDevServer(url)
   }
 
+  // ── Emit the live preview URL NOW — as soon as the dev server responds ─────────
+  // (Fable #4) First preview ships the instant the compile-verified app is serving;
+  // the headless runtime-check + design-improve pass below then run AFTER the preview
+  // is live and repair in place via Vite HMR. Only the compile gate (verifyAndRepair,
+  // above) stays on the critical path — that's the "never show broken" guarantee; the
+  // slower visual checks no longer delay first preview.
+  writer.write({
+    id: 'srv-url',
+    type: 'data-get-sandbox-url',
+    data: { url, status: 'done' },
+  })
+
   // If the dev server is up but the page is broken (500 from Vite/PostCSS crash),
   // emit a data-report-errors so the AI sees the problem in its next turn and fixes it.
-  // The URL is still emitted so the user sees the error state transparently.
   if (devError) {
     logRepair({ layer: 'dev-500', action: 'reported-to-ai', detail: devError.slice(0, 200), sandboxId })
     writer.write({
@@ -1756,12 +1811,6 @@ async function runPipeline({
       console.warn('[runtime-check] wrapper error (non-fatal):', e instanceof Error ? e.message : e)
     }
   }
-
-  writer.write({
-    id: 'srv-url',
-    type: 'data-get-sandbox-url',
-    data: { url, status: 'done' },
-  })
 
   // Durable-runs STEP 3: persist the live URL + sandbox id NOW, before enrichment. A
   // multi-phase build may hand off to a continuation invocation (returning early below),
