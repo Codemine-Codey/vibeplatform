@@ -118,6 +118,22 @@ const kimiProvider = createOpenAI({
 const deepseekProvider = createOpenAI({
   baseURL: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com/v1',
   apiKey: process.env.DEEPSEEK_API_KEY ?? '',
+  fetch: async (url, init) => {
+    if (init?.body) {
+      try {
+        const body = JSON.parse(init.body as string)
+        // DeepSeek V4 REASONS by default — 13-103s time-to-first-token as it thinks
+        // silently before emitting any code. For bulk file generation + orchestration we
+        // want speed, not a multi-minute think. Verified: `thinking:{type:'disabled'}` is
+        // the ONLY flag that actually stops it (no reasoning_content, ~600ms TTFT); the
+        // OpenRouter-era flags (reasoning:{enabled:false}, reasoning_effort, chat_template_
+        // kwargs) do NOT work on the direct API.
+        body.thinking = { type: 'disabled' }
+        init = { ...init, body: JSON.stringify(body) }
+      } catch { }
+    }
+    return fetch(url, init)
+  },
 })
 
 export interface ModelOptions {
