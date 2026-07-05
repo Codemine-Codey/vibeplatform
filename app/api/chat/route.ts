@@ -36,6 +36,7 @@ import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { createRun, appendRunEvent, updateRun } from '@/lib/runs'
 import { runResumableEnrichment } from '@/lib/enrichment'
+import { stampShellsForManifest } from '@/lib/shell-template'
 import {
   readSandboxFile,
   extractBuildError,
@@ -1357,7 +1358,7 @@ async function runPipeline({
   const pipelineTools: Record<string, any> = skill === 'website'
     ? {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, getShellPaths: () => new Set(planBox.manifest?.multiPhase ? planBox.manifest.files.filter(f => f.phase > 1).map(f => f.path) : []) }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, getShells: () => planBox.manifest?.multiPhase ? stampShellsForManifest(planBox.manifest.files, brandName) : [] }),
         getUnsplashBatch: getUnsplashBatch(),
         generateImageBatch: generateImageBatch(),
         planProject: capturePlan,
@@ -1365,7 +1366,7 @@ async function runPipeline({
       }
     : {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, getShellPaths: () => new Set(planBox.manifest?.multiPhase ? planBox.manifest.files.filter(f => f.phase > 1).map(f => f.path) : []) }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, getShells: () => planBox.manifest?.multiPhase ? stampShellsForManifest(planBox.manifest.files, brandName) : [] }),
         planProject: capturePlan,
         lookupReference: lookupReference(),
       }

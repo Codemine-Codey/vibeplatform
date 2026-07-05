@@ -228,15 +228,17 @@ interface Params {
   // enrichment phase that overruns the invocation budget aborts cleanly (completed
   // files are salvaged; the rest re-run in the next chained invocation).
   abortSignal?: AbortSignal
-  // Durable-runs phasing: lazy getter for the phase-2+ SHELL paths (evaluated at execute
-  // time, after planProject has run). Shells are INTENTIONALLY minimal (branded layout +
-  // section headings, enriched into full pages later), so the empty-render gate must NOT
-  // regenerate them — doing so both inflates phase 1 and defeats the fast-first-preview
-  // point of phasing. Empty/undefined on single-phase builds (no shells).
-  getShellPaths?: () => Set<string>
+  // Durable-runs phasing (Fable #1): lazy provider for the phase-2+ SHELL files —
+  // deterministic, on-brand placeholders the SERVER stamps (zero model tokens). Evaluated
+  // at execute time (after planProject ran). generateFiles writes these to the sandbox
+  // BEFORE generation so App.tsx's route imports resolve, marks them satisfied for the
+  // import-closure pass, and exempts them from the empty-render gate. The model therefore
+  // only generates the REAL phase-1 files — the core of the fast-first-preview win. Empty
+  // on single-phase builds.
+  getShells?: () => Array<{ path: string; content: string }>
 }
 
-export const generateFiles = ({ writer, modelId, designContext, existingPaths, abortSignal, getShellPaths }: Params) =>
+export const generateFiles = ({ writer, modelId, designContext, existingPaths, abortSignal, getShells }: Params) =>
   tool({
     description,
     inputSchema: z.object({
@@ -274,6 +276,22 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
 
       const writeFiles = getWriteFiles({ sandbox, toolCallId, writer })
       const uploaded: File[] = []
+
+      // ── Server-stamped shells (Fable #1) ─────────────────────────────────────
+      // Write the deferred-page placeholders NOW, before generation. They resolve
+      // App.tsx's route imports (so the phase-1 build is green), cost zero model tokens,
+      // and are enriched into real pages later. Tracked in shellPathSet so the import-
+      // closure treats them as satisfied and the empty-render gate skips them.
+      const shellFiles = getShells?.() ?? []
+      const shellPathSet = new Set(shellFiles.map((s) => s.path))
+      if (shellFiles.length > 0) {
+        try {
+          await sandbox.writeFiles(shellFiles.map((s) => ({ path: s.path, content: Buffer.from(s.content, 'utf8') })))
+          console.log(`[shells] server-stamped ${shellFiles.length} deferred-page shell(s): ${shellFiles.map((s) => s.path.split('/').pop()).join(', ')}`)
+        } catch (e) {
+          console.warn('[shells] stamp write failed (non-fatal):', e instanceof Error ? e.message : e)
+        }
+      }
 
       // Streaming writeFile tool calls — each file is yielded as soon as Flash
       // finishes writing it. No heartbeat needed; tokens flow continuously.
@@ -354,6 +372,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
             ...uploaded.map(f => f.path),
             ...SCAFFOLD_PATH_SET,
             ...(existingPaths ?? []),
+            ...shellPathSet, // server-stamped shells already exist on disk — never regenerate
           ])
           const missingMap = new Map<string, Set<string>>() // target -> importers
           for (const file of uploaded) {
@@ -462,9 +481,8 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       try {
         // Phase-2+ shells are intentionally minimal (enriched later) — never regenerate
         // them here, or phase 1 balloons into a full build and the fast-preview win is lost.
-        const shellSet = getShellPaths?.() ?? new Set<string>()
         const findings = uploaded
-          .filter(f => !shellSet.has(f.path))
+          .filter(f => !shellPathSet.has(f.path))
           .map(f => detectEmptyRender(f.path, f.content))
           .filter((x): x is NonNullable<typeof x> => x !== null && x.blocker)
         if (findings.length > 0) {

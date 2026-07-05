@@ -212,21 +212,20 @@ export const planProject = (
         )
       }
 
-      // ── Multi-phase (SHELL-FIRST) — build phase-1 files fully + the rest as shells ─
+      // ── Multi-phase (SHELL-FIRST) — the model builds ONLY the phase-1 real files ──
+      // The deferred (phase-2+) pages are SERVER-STAMPED as on-brand shells (zero tokens,
+      // instant) and enriched into full pages automatically after the preview goes live.
+      // So the model generates ONLY the phase-1 files — the small, fast first-preview set.
       const phase1 = manifest.files.filter((f) => f.phase === 1).map((f) => f.path)
-      const shells = manifest.files.filter((f) => f.phase > 1).map((f) => f.path)
+      const deferred = manifest.files.filter((f) => f.phase > 1).map((f) => f.path)
       return (
         `Manifest locked — ${manifest.files.length} files across ${manifest.phaseCount} progressive build phases. ` +
         `This is the export CONTRACT; every import must match it exactly:\n${contract}${pkgNote}\n\n` +
-        `Now call generateFiles with ALL ${allPaths.length} paths: ${allPaths.join(', ')}.\n\n` +
-        `Build these ${phase1.length} files as COMPLETE, production-quality pages/files now:\n` +
-        phase1.map((p) => `- ${p}`).join('\n') +
-        `\n\nBuild these ${shells.length} files as branded SHELL pages — the real header/nav/footer layout plus the ` +
-        `section HEADINGS this page will have, in the brand's colors, fonts, and spacing, with a single intro line under ` +
-        `each heading. They must look on-brand and intentional — NEVER gray boxes, lorem ipsum, or "coming soon". ` +
-        `They will be enriched into full pages automatically, live in the preview, right after it goes online:\n` +
-        shells.map((p) => `- ${p}`).join('\n') +
-        `\n\nEvery file must export precisely the names declared above.`
+        `Now call generateFiles with ONLY these ${phase1.length} phase-1 paths (build each COMPLETE and ` +
+        `production-quality): ${phase1.join(', ')}.\n\n` +
+        `Do NOT generate these ${deferred.length} pages — they are created automatically as on-brand placeholders ` +
+        `and filled in live right after the preview goes online: ${deferred.join(', ')}.\n\n` +
+        `Every file you generate must export precisely the names declared above.`
       )
     },
   })
