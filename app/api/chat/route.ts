@@ -1432,7 +1432,13 @@ async function runPipeline({
       console.warn('[enrichment] could not build gen context (non-fatal):', e instanceof Error ? e.message : e)
     }
     if (runId) {
-      await updateRun(runId, { manifest: enrichManifest.files, phase_cursor: 0 }).catch(() => {})
+      // Persist manifest + the design context so a CONTINUATION invocation can resume
+      // enrichment with ZERO model context (brief re-used for on-brand full pages).
+      await updateRun(runId, {
+        manifest: enrichManifest.files,
+        phase_cursor: 0,
+        ...(designContext ? { brief: designContext } : {}),
+      }).catch(() => {})
     }
   }
 
