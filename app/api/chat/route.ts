@@ -17,7 +17,7 @@ import { generateFiles } from '@/ai/tools/generate-files'
 import { getUnsplashBatch } from '@/ai/tools/get-unsplash-batch'
 import { generateImageBatch } from '@/ai/tools/generate-image-batch'
 import { planProject, type NormalizedManifest } from '@/ai/tools/plan-project'
-import { lookupReference } from '@/ai/tools/lookup-reference'
+import { lookupReference, tavilySearch } from '@/ai/tools/lookup-reference'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
 import { formatBrief } from '@/ai/types/project-brief'
@@ -1020,10 +1020,21 @@ export async function POST(req: Request) {
           }
         }
 
+        // Forced light research (WEBSITES only) — one fast Tavily lookup so the copy and
+        // sections are grounded in REAL specifics for that business/industry instead of
+        // generic filler (agency-level content). Fail-safe: no key / error / 6s timeout →
+        // empty → the build proceeds unchanged. ~1 credit, cached in-process.
+        let researchContext = ''
+        if (skill === 'website') {
+          const q = `${brief.brandName || userText}: what sections, services/offerings, and specific content does this kind of business's website typically include? Give concrete real-world specifics.`
+          const r = await tavilySearch(q).catch(() => '')
+          if (r) researchContext = `\n\n## REAL-WORLD RESEARCH (ground the sections + copy in these facts — no generic filler)\n${r}`
+        }
+
         // The design contract the FILE-WRITER must follow (brief tokens + fonts +
         // the active design skill). This is what makes generated code actually
         // match the design — without it the file-writer is blind to colors/fonts.
-        const designContext = `${formatBrief(brief)}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
+        const designContext = `${formatBrief(brief)}${researchContext}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
 
         // ── SERVER-SIDE PIPELINE ────────────────────────────────────────────
         // Wrap in a token-accounting context so every model call this generation

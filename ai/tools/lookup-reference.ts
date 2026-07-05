@@ -13,7 +13,7 @@ import z from 'zod/v3'
 
 const cache = new Map<string, string>()
 
-async function tavilySearch(query: string): Promise<string> {
+export async function tavilySearch(query: string): Promise<string> {
   const key = process.env.TAVILY_API_KEY
   if (!key) return '' // no key yet → graceful no-op
   const cached = cache.get(query)
