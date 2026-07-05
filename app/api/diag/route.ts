@@ -14,12 +14,16 @@ async function measure(label: string, url: string, key: string, model: string, e
   let ttftMs = 0
   let chars = 0
   let status = 0
+  let lastTokenAt = 0
+  let maxGapMs = 0 // longest pause between content tokens — a big gap = mid-stream STALL
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages: [{ role: 'user', content: PROMPT }], max_tokens: 700, stream: true, ...extra }),
-      signal: AbortSignal.timeout(150_000),
+      // LONG output (6000 tokens ≈ a real file/two) to expose sustained-stream stalls that a
+      // short 700-token call hides. This is the definitive network-stability test.
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: PROMPT }], max_tokens: 6000, stream: true, ...extra }),
+      signal: AbortSignal.timeout(170_000),
     })
     status = res.status
     if (!res.ok || !res.body) {
@@ -44,7 +48,10 @@ async function measure(label: string, url: string, key: string, model: string, e
           const ev = JSON.parse(json)
           const delta = ev?.choices?.[0]?.delta?.content
           if (typeof delta === 'string' && delta.length > 0) {
-            if (ttftMs === 0) ttftMs = Date.now() - t0
+            const now = Date.now()
+            if (ttftMs === 0) ttftMs = now - t0
+            else { const gap = now - lastTokenAt; if (gap > maxGapMs) maxGapMs = gap }
+            lastTokenAt = now
             chars += delta.length
           }
         } catch { /* skip */ }
@@ -54,9 +61,10 @@ async function measure(label: string, url: string, key: string, model: string, e
     const approxTokens = Math.round(chars / 4) // ~4 chars/token
     const streamMs = totalMs - ttftMs
     const tokPerSec = streamMs > 0 ? Math.round((approxTokens / streamMs) * 1000) : 0
-    return { label, status, ttftMs, totalMs, approxTokens, tokPerSec }
+    // completed? if approxTokens << requested, the stream was cut short.
+    return { label, status, ttftMs, totalMs, approxTokens, tokPerSec, maxGapMs }
   } catch (e) {
-    return { label, status, error: e instanceof Error ? e.message : String(e) }
+    return { label, status, error: e instanceof Error ? e.message : String(e), partialTokens: Math.round(chars / 4), maxGapMs, msBeforeFail: Date.now() - t0 }
   }
 }
 
