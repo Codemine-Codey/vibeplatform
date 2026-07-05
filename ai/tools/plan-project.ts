@@ -36,6 +36,28 @@ const CHROME_RE = /(^|\/)(Nav(bar|igation)?|Header|Footer|Layout)\.(tsx|jsx)$/i
 const SMALL_PROJECT_FILES = 8
 const MIN_ENRICHMENT_FILES = 3
 
+// ── Deterministic (server-enforced) shell-first phasing ───────────────────────
+// The model's `phase` hints proved unreliable — a complex multi-page site often comes
+// back with no phases at all, collapsing to a single monolithic pass and a slow (10-16
+// min) first preview. The guarantee CANNOT depend on the model opting in. So when the
+// model didn't split the work, the server mechanically defers the non-home PAGE files
+// (the bulk of the build) into enrichment phases 2..N. Foundation, chrome, the home
+// page, shared components, stores, hooks and data all stay in phase 1 — the small, fast,
+// immediately-previewable skeleton (every deferred page ships as a branded shell in
+// phase 1, so imports always resolve).
+const PAGE_DIR_RE = /(^|\/)(pages|routes|views|screens)\//i
+const HOME_LIKE_RE = /(^|\/)(Home|Index|Landing|Main)(Page|View|Screen)?\.(tsx|jsx)$/i
+const PAGE_SUFFIX_RE = /(Page|View|Screen)\.(tsx|jsx)$/i
+const AUTO_PHASE_MIN_PAGES = 3      // fewer non-home pages than this → monolithic is fast enough
+const AUTO_PHASE_GROUP = 4          // pages enriched per later phase (spec: 3-6)
+
+function isEnrichablePage(path: string): boolean {
+  if (FOUNDATION_RE.test(path) || CHROME_RE.test(path)) return false
+  if (HOME_LIKE_RE.test(path)) return false
+  const base = path.split('/').pop() ?? ''
+  return PAGE_DIR_RE.test(path) || PAGE_SUFFIX_RE.test(base)
+}
+
 // Mechanically normalize + validate a raw planner manifest into phases. Never throws;
 // always returns a coherent manifest (worst case: everything in phase 1 = today).
 export function normalizeManifest(
@@ -52,6 +74,18 @@ export function normalizeManifest(
   // 2. Force foundation + chrome to phase 1 (the shell-first invariant's anchor).
   for (const f of files) {
     if (FOUNDATION_RE.test(f.path) || CHROME_RE.test(f.path)) f.phase = 1
+  }
+
+  // 2b. DETERMINISTIC PHASING — if the model did NOT split the work itself, mechanically
+  // defer the non-home pages into phases 2..N so shell-first ALWAYS engages for a page-rich
+  // project (server-enforced fast first preview, independent of model discretion).
+  const modelSplit = new Set(files.map((f) => f.phase)).size > 1
+  if (!modelSplit) {
+    const pages = files.filter((f) => isEnrichablePage(f.path))
+    if (pages.length >= AUTO_PHASE_MIN_PAGES && files.length > SMALL_PROJECT_FILES) {
+      pages.forEach((f, i) => { f.phase = 2 + Math.floor(i / AUTO_PHASE_GROUP) })
+      console.log(`[normalizeManifest] auto-phased: ${files.length} files, ${pages.length} pages deferred → phases 2..${2 + Math.floor((pages.length - 1) / AUTO_PHASE_GROUP)}`)
+    }
   }
 
   // 3. Renumber distinct phases to a contiguous 1..N (so gaps like 1,3,5 → 1,2,3).
