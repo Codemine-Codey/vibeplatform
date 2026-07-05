@@ -302,6 +302,26 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       // instead of guessing and drifting (the useHabitStore-vs-useStore class). This
       // PREVENTS the contract bugs at the source — Lovable's read-first approach. Falls
       // back to a single pass when there's no clear foundation/presentation split.
+      // Generate ONE file (or small group) via its own getContents call, writing each as
+      // it lands. Shared `uploaded` is safe to push into — the event loop is single-threaded
+      // so pushes are atomic between awaits; concurrent sandbox writes target distinct files.
+      const genGroup = async (groupPaths: string[], passMessages: typeof messages) => {
+        const it = getContents({ messages: passMessages, modelId, paths: groupPaths, designContext, abortSignal })
+        for await (const chunk of it) {
+          if (chunk.files.length > 0) {
+            const error = await writeFiles({ ...chunk, written: uploaded.map((f) => f.path) })
+            if (!error) uploaded.push(...chunk.files)
+          }
+        }
+      }
+
+      // ── Parallel fan-out (Fable #2) ──────────────────────────────────────────
+      // Instead of ONE serial call streaming every file (27k tokens ≈ 5 min), run one
+      // call PER FILE across a capped worker pool → wall-time ≈ the slowest single file,
+      // not the sum. The locked manifest (exports contract) is in `messages`, so files
+      // generated concurrently still import each other's exact names. Foundation files are
+      // still generated as a FIRST wave so presentation files see their real content.
+      const CONCURRENCY = 5
       const runPass = async (passPaths: string[], context: File[]) => {
         if (passPaths.length === 0) return
         const passMessages = context.length === 0
@@ -315,13 +335,14 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
                   context.map((f) => `// ${f.path}\n${f.content.slice(0, 4500)}`).join('\n\n'),
               },
             ]
-        const it = getContents({ messages: passMessages, modelId, paths: passPaths, designContext, abortSignal })
-        for await (const chunk of it) {
-          if (chunk.files.length > 0) {
-            const error = await writeFiles({ ...chunk, written: uploaded.map((f) => f.path) })
-            if (!error) uploaded.push(...chunk.files)
+        let idx = 0
+        const worker = async () => {
+          while (idx < passPaths.length) {
+            const mine = passPaths[idx++]
+            await genGroup([mine], passMessages)
           }
         }
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, passPaths.length) }, worker))
       }
 
       const foundationPaths = paths.filter(isFoundation)
