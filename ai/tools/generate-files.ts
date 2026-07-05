@@ -311,12 +311,17 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       const boundedSignal = (ms: number): AbortSignal =>
         abortSignal ? AbortSignal.any([abortSignal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms)
 
-      // ── Generation pass (serial, proven-reliable + hang-guarded) ─────────────
-      // One getContents call streams all of a pass's files. The parallel per-file fan-out
-      // was reverted after it repeatedly stalled a file with no recovery on Vercel; the
-      // server-stamped shells (which shrink phase-1 to only the real files) are the safe,
-      // durable speed win. A generous hard timeout guarantees a stalled stream can never
-      // hang the invocation to the 800s kill (the retry/closure pass recovers any gap).
+      // ── Generation pass — PARALLEL into memory, then ONE batched write (Fable) ──
+      // Each file streams from its OWN getContents call across a concurrency-capped pool,
+      // collected in MEMORY. We do NOT write to the sandbox during streaming — concurrent
+      // sandbox.writeFiles() to one microVM deadlocks (that was the earlier hang). After the
+      // pool drains we do a SINGLE batched writeFiles([...all files]) — no concurrency, no
+      // deadlock. Wall-time ≈ the slowest single file instead of the sum of all files. A hard
+      // per-file timeout means a stalled stream just drops that file (retry/closure recovers
+      // it) rather than hanging the invocation. The locked manifest (in `messages`) is the
+      // cross-file contract, so files generated concurrently still import each other's exact
+      // exports. Foundation files are still a FIRST pass so presentation sees their content.
+      const PARALLEL = 4
       const runPass = async (passPaths: string[], context: File[]) => {
         if (passPaths.length === 0) return
         const passMessages = context.length === 0
@@ -330,16 +335,26 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
                   context.map((f) => `// ${f.path}\n${f.content.slice(0, 4500)}`).join('\n\n'),
               },
             ]
-        try {
-          const it = getContents({ messages: passMessages, modelId, paths: passPaths, designContext, abortSignal: boundedSignal(450_000) })
-          for await (const chunk of it) {
-            if (chunk.files.length > 0) {
-              const error = await writeFiles({ ...chunk, written: uploaded.map((f) => f.path) })
-              if (!error) uploaded.push(...chunk.files)
+        const collected: File[] = []
+        let idx = 0
+        const worker = async () => {
+          while (idx < passPaths.length) {
+            const mine = passPaths[idx++]
+            try {
+              const it = getContents({ messages: passMessages, modelId, paths: [mine], designContext, abortSignal: boundedSignal(180_000) })
+              for await (const chunk of it) {
+                if (chunk.files.length > 0) collected.push(...chunk.files) // COLLECT — do not write yet
+              }
+            } catch (e) {
+              console.warn(`[runPass] ${mine} gen aborted/failed (retry pass recovers):`, e instanceof Error ? e.message : e)
             }
           }
-        } catch (e) {
-          console.warn('[runPass] generation aborted/failed (retry pass will recover):', e instanceof Error ? e.message : e)
+        }
+        await Promise.all(Array.from({ length: Math.min(PARALLEL, passPaths.length) }, worker))
+        // ONE batched, serial write — never concurrent (avoids the sandbox write deadlock).
+        if (collected.length > 0) {
+          const error = await writeFiles({ files: collected, written: uploaded.map((f) => f.path) })
+          if (!error) uploaded.push(...collected)
         }
       }
 
