@@ -1414,16 +1414,23 @@ async function runPipeline({
 
   writer.merge(aiResult.toUIMessageStream({ sendReasoning: false, sendStart: false }))
 
-  // Wait for all AI steps (text + all tool calls) to complete
+  // Wait for generation to finish — but NEVER past the deadline. A truly-hung model stream
+  // does not always honor AbortSignal, so we RACE aiResult.text against a hard timer: at the
+  // deadline we stop waiting and proceed to the shell-salvage regardless (whatever files
+  // landed are kept; the rest become shells). This is what forces a preview to ALWAYS ship.
   let genHitDeadline = false
   try {
-    await aiResult.text
+    const deadlineMs = Math.max(30_000, genDeadline - Date.now())
+    await Promise.race([
+      Promise.resolve(aiResult.text),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('gen-deadline-forced')), deadlineMs)),
+    ])
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    // Deadline abort is NOT a failure — proceed to shell-salvage so a preview still ships.
-    if (genAbort.aborted || /abort|timeout|cancel/i.test(msg)) {
+    // Deadline (abort OR forced timer) is NOT a failure — proceed to shell-salvage.
+    if (genAbort.aborted || /abort|timeout|cancel|gen-deadline/i.test(msg)) {
       genHitDeadline = true
-      console.warn('[phase-1] generation hit the deadline — salvaging remaining files as shells')
+      console.warn('[phase-1] generation stopped at the deadline — salvaging remaining files as shells')
     } else {
       console.error('Pipeline AI failed:', msg)
       writer.write({
@@ -1439,21 +1446,28 @@ async function runPipeline({
   // AND we have no manifest to salvage from, skip pnpm to avoid an empty sandbox. When a
   // manifest exists (planProject ran), we proceed even if generation was cut short — the
   // shell-salvage below makes the build green from the manifest.
-  try {
-    const allSteps = await aiResult.steps
-    const calledGenerateFiles = allSteps.some(
-      step =>
-        Array.isArray(step.toolCalls) &&
-        (step.toolCalls as Array<{ toolName: string }>).some(
-          tc => tc.toolName === 'generateFiles'
-        )
-    )
-    if (!calledGenerateFiles && !planBox.manifest) {
-      console.warn('Pipeline: AI produced no files and no manifest — aborting pnpm phase')
-      return { chained: false }
+  // Skip this check if generation was force-stopped at the deadline — aiResult.steps would
+  // hang on the stuck stream, and the manifest (planProject) is enough to salvage from.
+  if (!genHitDeadline) {
+    try {
+      const allSteps = await Promise.race([
+        aiResult.steps,
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('steps-timeout')), 8_000)),
+      ])
+      const calledGenerateFiles = allSteps.some(
+        step =>
+          Array.isArray(step.toolCalls) &&
+          (step.toolCalls as Array<{ toolName: string }>).some(
+            tc => tc.toolName === 'generateFiles'
+          )
+      )
+      if (!calledGenerateFiles && !planBox.manifest) {
+        console.warn('Pipeline: AI produced no files and no manifest — aborting pnpm phase')
+        return { chained: false }
+      }
+    } catch {
+      // Can't verify (timeout or error) — proceed anyway; salvage handles missing files.
     }
-  } catch {
-    // Can't verify — proceed anyway
   }
 
   // ── Shell-salvage — the phase-1 completion guarantee ──────────────────────────

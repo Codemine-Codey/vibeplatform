@@ -311,17 +311,34 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       const boundedSignal = (ms: number): AbortSignal =>
         abortSignal ? AbortSignal.any([abortSignal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms)
 
-      // ── Generation pass — PARALLEL into memory, then ONE batched write (Fable) ──
-      // Each file streams from its OWN getContents call across a concurrency-capped pool,
-      // collected in MEMORY. We do NOT write to the sandbox during streaming — concurrent
-      // sandbox.writeFiles() to one microVM deadlocks (that was the earlier hang). After the
-      // pool drains we do a SINGLE batched writeFiles([...all files]) — no concurrency, no
-      // deadlock. Wall-time ≈ the slowest single file instead of the sum of all files. A hard
-      // per-file timeout means a stalled stream just drops that file (retry/closure recovers
-      // it) rather than hanging the invocation. The locked manifest (in `messages`) is the
-      // cross-file contract, so files generated concurrently still import each other's exact
-      // exports. Foundation files are still a FIRST pass so presentation sees their content.
-      const PARALLEL = 4
+      // ── Generation pass — PARALLEL into memory, HARD-timeout + retry, ONE write ──
+      // Diagnosed: DeepSeek handles 4 concurrent streams fine (measured); the earlier freeze
+      // was a MISSING RECOVERY layer — AbortSignal does NOT unstick a truly-hung AI-SDK stream,
+      // so one hung concurrent call froze the whole batch forever. Fix (Lovable's model):
+      //   • each file streams from its OWN getContents call across a concurrency-4 pool,
+      //     collected in MEMORY (no concurrent sandbox writes — those deadlock);
+      //   • a Promise.race HARD timeout force-abandons a file that hasn't finished in time
+      //     (the stuck stream is left to die; the worker moves on — this is the key freeze fix);
+      //   • unfinished files are RETRIED once; whatever's still missing is left for the
+      //     import-closure / route-level shell-salvage;
+      //   • ONE batched writeFiles at the end.
+      const HARD_FILE_MS = 55_000 // a single file finishes in ~20-30s; 55s = stuck → abandon
+      const genOneFile = async (path: string, passMessages: typeof messages): Promise<File[]> => {
+        const out: File[] = []
+        const iterate = async () => {
+          const it = getContents({ messages: passMessages, modelId, paths: [path], designContext, abortSignal: boundedSignal(HARD_FILE_MS) })
+          for await (const chunk of it) if (chunk.files.length > 0) out.push(...chunk.files)
+        }
+        try {
+          await Promise.race([
+            iterate(),
+            new Promise<never>((_, rej) => setTimeout(() => rej(new Error('hard-timeout')), HARD_FILE_MS)),
+          ])
+        } catch (e) {
+          console.warn(`[gen] ${path} abandoned/failed (${e instanceof Error ? e.message : e}) — will retry/salvage`)
+        }
+        return out
+      }
       const runPass = async (passPaths: string[], context: File[]) => {
         if (passPaths.length === 0) return
         const passMessages = context.length === 0
@@ -335,23 +352,24 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
                   context.map((f) => `// ${f.path}\n${f.content.slice(0, 4500)}`).join('\n\n'),
               },
             ]
-        const collected: File[] = []
-        let idx = 0
-        const worker = async () => {
-          while (idx < passPaths.length) {
-            const mine = passPaths[idx++]
-            try {
-              const it = getContents({ messages: passMessages, modelId, paths: [mine], designContext, abortSignal: boundedSignal(180_000) })
-              for await (const chunk of it) {
-                if (chunk.files.length > 0) collected.push(...chunk.files) // COLLECT — do not write yet
-              }
-            } catch (e) {
-              console.warn(`[runPass] ${mine} gen aborted/failed (retry pass recovers):`, e instanceof Error ? e.message : e)
+        const results = new Map<string, File>()
+        const attempt = async (todo: string[]) => {
+          let idx = 0
+          const worker = async () => {
+            while (idx < todo.length) {
+              const p = todo[idx++]
+              for (const f of await genOneFile(p, passMessages)) results.set(f.path, f)
             }
           }
+          await Promise.all(Array.from({ length: Math.min(4, todo.length) }, worker))
         }
-        await Promise.all(Array.from({ length: Math.min(PARALLEL, passPaths.length) }, worker))
-        // ONE batched, serial write — never concurrent (avoids the sandbox write deadlock).
+        await attempt(passPaths)
+        const missing = passPaths.filter((p) => !results.has(p))
+        if (missing.length > 0) {
+          console.warn(`[runPass] retrying ${missing.length} unfinished file(s): ${missing.join(', ')}`)
+          await attempt(missing)
+        }
+        const collected = [...results.values()]
         if (collected.length > 0) {
           const error = await writeFiles({ files: collected, paths: collected.map((f) => f.path), written: uploaded.map((f) => f.path) })
           if (!error) uploaded.push(...collected)
