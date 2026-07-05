@@ -311,34 +311,13 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       const boundedSignal = (ms: number): AbortSignal =>
         abortSignal ? AbortSignal.any([abortSignal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms)
 
-      // ── Generation pass — PARALLEL into memory, HARD-timeout + retry, ONE write ──
-      // Diagnosed: DeepSeek handles 4 concurrent streams fine (measured); the earlier freeze
-      // was a MISSING RECOVERY layer — AbortSignal does NOT unstick a truly-hung AI-SDK stream,
-      // so one hung concurrent call froze the whole batch forever. Fix (Lovable's model):
-      //   • each file streams from its OWN getContents call across a concurrency-4 pool,
-      //     collected in MEMORY (no concurrent sandbox writes — those deadlock);
-      //   • a Promise.race HARD timeout force-abandons a file that hasn't finished in time
-      //     (the stuck stream is left to die; the worker moves on — this is the key freeze fix);
-      //   • unfinished files are RETRIED once; whatever's still missing is left for the
-      //     import-closure / route-level shell-salvage;
-      //   • ONE batched writeFiles at the end.
-      const HARD_FILE_MS = 55_000 // a single file finishes in ~20-30s; 55s = stuck → abandon
-      const genOneFile = async (path: string, passMessages: typeof messages): Promise<File[]> => {
-        const out: File[] = []
-        const iterate = async () => {
-          const it = getContents({ messages: passMessages, modelId, paths: [path], designContext, abortSignal: boundedSignal(HARD_FILE_MS) })
-          for await (const chunk of it) if (chunk.files.length > 0) out.push(...chunk.files)
-        }
-        try {
-          await Promise.race([
-            iterate(),
-            new Promise<never>((_, rej) => setTimeout(() => rej(new Error('hard-timeout')), HARD_FILE_MS)),
-          ])
-        } catch (e) {
-          console.warn(`[gen] ${path} abandoned/failed (${e instanceof Error ? e.message : e}) — will retry/salvage`)
-        }
-        return out
-      }
+      // ── Generation pass — SERIAL (the ONLY path that works on Vercel) ───────────
+      // PROVEN on Vercel: concurrent AI-SDK streamText calls HANG (the function froze with 0
+      // files for 6+ min, twice). Serial AI-SDK reliably progresses (writes files one by one).
+      // So generation is serial here; reliability comes from the route-level bulletproof
+      // deadline (Promise.race) + shell-salvage that force-ship a preview no matter what, and
+      // the server-stamped shells that keep phase-1 to only the real files. (Speed to 8-10 min
+      // is a follow-up: rewrite getContents on RAW fetch, where concurrency is proven to work.)
       const runPass = async (passPaths: string[], context: File[]) => {
         if (passPaths.length === 0) return
         const passMessages = context.length === 0
@@ -352,27 +331,16 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
                   context.map((f) => `// ${f.path}\n${f.content.slice(0, 4500)}`).join('\n\n'),
               },
             ]
-        const results = new Map<string, File>()
-        const attempt = async (todo: string[]) => {
-          let idx = 0
-          const worker = async () => {
-            while (idx < todo.length) {
-              const p = todo[idx++]
-              for (const f of await genOneFile(p, passMessages)) results.set(f.path, f)
+        try {
+          const it = getContents({ messages: passMessages, modelId, paths: passPaths, designContext, abortSignal: boundedSignal(450_000) })
+          for await (const chunk of it) {
+            if (chunk.files.length > 0) {
+              const error = await writeFiles({ ...chunk, written: uploaded.map((f) => f.path) })
+              if (!error) uploaded.push(...chunk.files)
             }
           }
-          await Promise.all(Array.from({ length: Math.min(4, todo.length) }, worker))
-        }
-        await attempt(passPaths)
-        const missing = passPaths.filter((p) => !results.has(p))
-        if (missing.length > 0) {
-          console.warn(`[runPass] retrying ${missing.length} unfinished file(s): ${missing.join(', ')}`)
-          await attempt(missing)
-        }
-        const collected = [...results.values()]
-        if (collected.length > 0) {
-          const error = await writeFiles({ files: collected, paths: collected.map((f) => f.path), written: uploaded.map((f) => f.path) })
-          if (!error) uploaded.push(...collected)
+        } catch (e) {
+          console.warn('[runPass] generation aborted/failed (retry/salvage will recover):', e instanceof Error ? e.message : e)
         }
       }
 
