@@ -347,6 +347,17 @@ export async function runResumableEnrichment(opts: {
         .then((p) => (p ? updateProjectRow(pid, { snapshot_path: p }) : undefined))
         .catch(() => {})
     }
+
+    // ── TEST HOOK (env-gated, no-op in prod) ─────────────────────────────────
+    // CM_TEST_FORCE_CHAIN_EVERY=N forces a checkpoint+chain after every N completed
+    // phases, so the full cross-invocation handoff/resume/completion path can be proven
+    // deterministically on a normal-length build (no need to burn the real 680s deadline).
+    const forceEvery = Number(process.env.CM_TEST_FORCE_CHAIN_EVERY) || 0
+    if (forceEvery > 0 && phase < manifest.phaseCount && phase % forceEvery === 0) {
+      console.warn('[enrichment] TEST force-chain after phase', phase)
+      await checkpointAndChain({ writer, sandbox, runId, projectId, userId, phaseCursor: phase })
+      return { chained: true }
+    }
   }
 
   narrate(writer, 'All the pages are built — your site is complete. 🎉')
