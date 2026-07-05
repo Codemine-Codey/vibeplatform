@@ -1,6 +1,6 @@
 import type { Sandbox } from '@vercel/sandbox'
 import type { ModelMessage, UIMessage, UIMessageStreamWriter } from 'ai'
-import { waitUntil } from '@vercel/functions'
+import { after } from 'next/server'
 import type { DataPart } from '@/ai/messages/data-parts'
 import { FILE_GENERATION_MODEL } from '@/ai/constants'
 import { generateFiles } from '@/ai/tools/generate-files'
@@ -206,9 +206,10 @@ async function checkpointAndChain(opts: {
       sandbox_id: sandbox.sandboxId,
       ...(snapshotPath ? { snapshot_path: snapshotPath } : {}),
     }).catch(() => {})
-    // Fire the next invocation. waitUntil keeps the request alive past this function's
-    // return; the sweeper cron re-fires if it somehow never lands.
-    waitUntil(fireContinuation(runId))
+    // Fire the next invocation. next/server `after` keeps the request alive past this
+    // function's return until the fetch completes; the sweeper cron re-fires if it
+    // somehow never lands (killed invocation / cold deploy mid-chain).
+    after(fireContinuation(runId))
   }
 }
 
