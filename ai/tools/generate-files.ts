@@ -311,31 +311,12 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       const boundedSignal = (ms: number): AbortSignal =>
         abortSignal ? AbortSignal.any([abortSignal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms)
 
-      const genGroup = async (groupPaths: string[], passMessages: typeof messages) => {
-        // Per-file HARD timeout — a single stalled stream must NEVER hang the parallel
-        // pool. On trip, the file is left missing and the retry/closure pass regenerates it.
-        const sig = boundedSignal(180_000)
-        try {
-          const it = getContents({ messages: passMessages, modelId, paths: groupPaths, designContext, abortSignal: sig })
-          for await (const chunk of it) {
-            if (chunk.files.length > 0) {
-              const error = await writeFiles({ ...chunk, written: uploaded.map((f) => f.path) })
-              if (!error) uploaded.push(...chunk.files)
-            }
-          }
-        } catch (e) {
-          // Timeout / abort / stream error on ONE file — non-fatal, others continue.
-          console.warn(`[genGroup] ${groupPaths.join(',')} aborted/failed (retry pass will recover):`, e instanceof Error ? e.message : e)
-        }
-      }
-
-      // ── Parallel fan-out (Fable #2) ──────────────────────────────────────────
-      // Instead of ONE serial call streaming every file (27k tokens ≈ 5 min), run one
-      // call PER FILE across a capped worker pool → wall-time ≈ the slowest single file,
-      // not the sum. The locked manifest (exports contract) is in `messages`, so files
-      // generated concurrently still import each other's exact names. Foundation files are
-      // still generated as a FIRST wave so presentation files see their real content.
-      const CONCURRENCY = 4
+      // ── Generation pass (serial, proven-reliable + hang-guarded) ─────────────
+      // One getContents call streams all of a pass's files. The parallel per-file fan-out
+      // was reverted after it repeatedly stalled a file with no recovery on Vercel; the
+      // server-stamped shells (which shrink phase-1 to only the real files) are the safe,
+      // durable speed win. A generous hard timeout guarantees a stalled stream can never
+      // hang the invocation to the 800s kill (the retry/closure pass recovers any gap).
       const runPass = async (passPaths: string[], context: File[]) => {
         if (passPaths.length === 0) return
         const passMessages = context.length === 0
@@ -349,14 +330,17 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
                   context.map((f) => `// ${f.path}\n${f.content.slice(0, 4500)}`).join('\n\n'),
               },
             ]
-        let idx = 0
-        const worker = async () => {
-          while (idx < passPaths.length) {
-            const mine = passPaths[idx++]
-            await genGroup([mine], passMessages)
+        try {
+          const it = getContents({ messages: passMessages, modelId, paths: passPaths, designContext, abortSignal: boundedSignal(450_000) })
+          for await (const chunk of it) {
+            if (chunk.files.length > 0) {
+              const error = await writeFiles({ ...chunk, written: uploaded.map((f) => f.path) })
+              if (!error) uploaded.push(...chunk.files)
+            }
           }
+        } catch (e) {
+          console.warn('[runPass] generation aborted/failed (retry pass will recover):', e instanceof Error ? e.message : e)
         }
-        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, passPaths.length) }, worker))
       }
 
       const foundationPaths = paths.filter(isFoundation)
