@@ -10,18 +10,23 @@
 // (pinned to DeepSeek's infra in gateway.ts). Edits on Pro too (quality). Errors on
 // Flash (cheap, fast). Speed comes from the single-page default + tight design law,
 // not a pricier model.
-export const DEFAULT_MODEL = 'deepseek/deepseek-v4-pro'
-export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-pro'
+// NOTE (2026-07): switched from the OpenRouter route (`deepseek/…`) to DeepSeek-DIRECT
+// (`deepseek-…`, no slash → deepseekProvider in gateway.ts → api.deepseek.com). The
+// OpenRouter key was revoked/depleted (401 "User not found" on inference), which stalled
+// every build. DeepSeek-direct serves the SAME models (deepseek-v4-pro / -flash) with no
+// hard rate limit. Keep IDs slashless so getModelOptions routes them to the direct provider.
+export const DEFAULT_MODEL = 'deepseek-v4-pro'
+export const FILE_GENERATION_MODEL = 'deepseek-v4-pro'
 // Edits (changing copy, tweaking a component, fixing one thing) must be FAST — a
 // small targeted change, not a full build. DeepSeek V4 Flash handles edits in seconds
 // (Pro took minutes for a one-line copy change). Initial generation stays on Pro.
-export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
-export const ERROR_MODEL = 'deepseek/deepseek-v4-flash'
+export const EDIT_MODEL = 'deepseek-v4-flash'
+export const ERROR_MODEL = 'deepseek-v4-flash'
 // Orchestration (classify intent + expand the brief) — these run BEFORE the workspace
 // is created, so they must be FAST, not Pro. Flash classifies + briefs in ~3-5s each
 // vs Pro's ~20-40s; quality of the final code is unaffected (generation stays Pro).
 // This is the fix for "2 minutes and no workspace" — the pre-sandbox steps were on Pro.
-export const ORCHESTRATION_MODEL = 'deepseek/deepseek-v4-flash'
+export const ORCHESTRATION_MODEL = 'deepseek-v4-flash'
 // Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
 // gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
 // and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),

@@ -110,9 +110,13 @@ const kimiProvider = createOpenAI({
   },
 })
 
-// Direct DeepSeek API via CF AI Gateway (Flash for file generation + error analysis)
+// Direct DeepSeek API — the PRIMARY generation path (2026-07). OpenRouter was retired
+// after its key was revoked/depleted (401 on inference), stalling every build. DeepSeek's
+// own API serves the same deepseek-v4-pro/-flash models with automatic prefix caching and
+// no hard rate limit. Bypasses the old CF AI Gateway base (an OpenRouter-era endpoint that
+// was never actually in the path); set DEEPSEEK_BASE_URL to reintroduce a gateway later.
 const deepseekProvider = createOpenAI({
-  baseURL: process.env.AI_GATEWAY_BASE_URL ?? 'https://api.deepseek.com/v1',
+  baseURL: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com/v1',
   apiKey: process.env.DEEPSEEK_API_KEY ?? '',
 })
 
