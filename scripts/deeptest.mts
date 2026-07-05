@@ -87,38 +87,45 @@ async function run() {
   const narrations: string[] = []
   let unknownSample = 0
 
+  // The SSE read is best-effort ONLY (live narration + runId). A mid-stream termination
+  // (undici body-timeout, or an intentional walk-away) is NON-FATAL — the build runs
+  // server-side and the canonical run log is the source of truth for every metric.
   const reader = res.body.getReader()
   const dec = new TextDecoder()
   let buf = ''
-  streamLoop: for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += dec.decode(value, { stream: true })
-    let idx: number
-    while ((idx = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, idx).trim()
-      buf = buf.slice(idx + 1)
-      if (!line.startsWith('data:')) continue
-      const json = line.slice(5).trim()
-      if (!json || json === '[DONE]') continue
-      let ev: { type?: string; data?: Record<string, unknown> }
-      try { ev = JSON.parse(json) } catch { continue }
-      if (ev.type === 'data-run' && ev.data?.runId) runId = String(ev.data.runId)
-      if (ev.type === 'data-get-sandbox-url' && ev.data?.status === 'done' && firstPreviewMs === null) {
-        firstPreviewMs = Date.now() - t0
-        previewUrl = ev.data.url ? String(ev.data.url) : null
-        log(`  ⏱  FIRST PREVIEW at ${fmt(firstPreviewMs)} → ${previewUrl}`)
-        if (WALKAWAY) { log('  🚶 walk-away: dropping the stream now — build must finish server-side'); reader.cancel().catch(() => {}); break streamLoop }
-      }
-      if (ev.type === 'data-narration' && ev.data?.text) {
-        const at = Math.round((Date.now() - t0) / 1000)
-        narrations.push(`${at}s: ${ev.data.text}`)
-        log(`  💬 ${at}s: ${ev.data.text}`)
-      }
-      if (ev.type && !/^data-(run|get-sandbox-url|narration|run-command|create-sandbox|report-errors|generating-files|get-file-paths)$/.test(ev.type) && unknownSample < 4) {
-        unknownSample++
+  try {
+    streamLoop: for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += dec.decode(value, { stream: true })
+      let idx: number
+      while ((idx = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, idx).trim()
+        buf = buf.slice(idx + 1)
+        if (!line.startsWith('data:')) continue
+        const json = line.slice(5).trim()
+        if (!json || json === '[DONE]') continue
+        let ev: { type?: string; data?: Record<string, unknown> }
+        try { ev = JSON.parse(json) } catch { continue }
+        if (ev.type === 'data-run' && ev.data?.runId) runId = String(ev.data.runId)
+        if (ev.type === 'data-get-sandbox-url' && ev.data?.status === 'done' && firstPreviewMs === null) {
+          firstPreviewMs = Date.now() - t0
+          previewUrl = ev.data.url ? String(ev.data.url) : null
+          log(`  ⏱  FIRST PREVIEW (client-observed) at ${fmt(firstPreviewMs)} → ${previewUrl}`)
+          if (WALKAWAY) { log('  🚶 walk-away: dropping the stream now — build must finish server-side'); reader.cancel().catch(() => {}); break streamLoop }
+        }
+        if (ev.type === 'data-narration' && ev.data?.text) {
+          const at = Math.round((Date.now() - t0) / 1000)
+          narrations.push(`${at}s: ${ev.data.text}`)
+          log(`  💬 ${at}s: ${ev.data.text}`)
+        }
+        if (ev.type && !/^data-(run|get-sandbox-url|narration|run-command|create-sandbox|report-errors|generating-files|get-file-paths)$/.test(ev.type) && unknownSample < 4) {
+          unknownSample++
+        }
       }
     }
+  } catch (e) {
+    log(`  (stream ended early — non-fatal, build continues server-side: ${e instanceof Error ? e.message : e})`)
   }
   const streamEndMs = Date.now() - t0
   log(`  stream ended at ${fmt(streamEndMs)} (runId=${runId})`)
@@ -150,9 +157,19 @@ async function run() {
   const { data: evs } = await admin.from('run_events').select('type,payload,created_at').eq('run_id', runId).order('seq', { ascending: true }).limit(5000)
   const chainMarkers = (evs ?? []).filter((e) => e.type === 'data-narration' && /in the background|keep filling/i.test((e.payload as { data?: { text?: string } })?.data?.text ?? '')).length
 
+  // Server-accurate first-preview: the data-get-sandbox-url 'done' event timestamp minus
+  // run start. Immune to client stream drops; falls back to the client-observed value.
+  let serverFirstPreviewMs: number | null = null
+  for (const e of evs ?? []) {
+    if (e.type === 'data-get-sandbox-url' && serverFirstPreviewMs === null) {
+      const d = (e.payload as { data?: { status?: string } })?.data
+      if (d?.status === 'done') serverFirstPreviewMs = new Date(e.created_at as string).getTime() - created
+    }
+  }
+
   log(`\n  ── RESULT: ${label} ──`)
   log(`  status:            ${final?.status}`)
-  log(`  time to preview:   ${fmt(firstPreviewMs)}`)
+  log(`  time to preview:   ${fmt(serverFirstPreviewMs ?? firstPreviewMs)}`)
   log(`  total build time:  ${fmt(updated - created)}`)
   log(`  phases:            ${final?.phase_cursor}/${phaseCount ?? '?'} completed`)
   log(`  tokens used:       ${final?.tokens_used}`)
