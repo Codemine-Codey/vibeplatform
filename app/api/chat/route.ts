@@ -1354,11 +1354,22 @@ async function runPipeline({
   // commits to, so the server can drive the enrichment phases after phase-1 preview.
   const planBox: { manifest: NormalizedManifest | null } = { manifest: null }
   const capturePlan = planProject({ onPlan: (m) => { planBox.manifest = m } })
+
+  // ── Phase-1 deadline guard (the guarantee) ────────────────────────────────
+  // Generation is bounded so it CANNOT run into Vercel's 800s function cap. The deadline
+  // is threaded into generateFiles ITSELF (so the tool's own model calls abort in time —
+  // aborting only the agent loop does NOT stop an in-flight tool), and onto the agent
+  // streamText. At the deadline the shell-salvage (below) stamps any unfinished file and a
+  // preview still ships. Reserve ~250s after the deadline for salvage + install + build +
+  // dev-server + emit.
+  const genDeadline = (invocationStart ?? Date.now()) + (maxDuration * 1000 - 250_000)
+  const genAbort = AbortSignal.timeout(Math.max(60_000, genDeadline - Date.now()))
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pipelineTools: Record<string, any> = skill === 'website'
     ? {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, getShells: () => planBox.manifest?.multiPhase ? stampShellsForManifest(planBox.manifest.files, brandName) : [] }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, abortSignal: genAbort, getShells: () => planBox.manifest?.multiPhase ? stampShellsForManifest(planBox.manifest.files, brandName) : [] }),
         getUnsplashBatch: getUnsplashBatch(),
         generateImageBatch: generateImageBatch(),
         planProject: capturePlan,
@@ -1366,7 +1377,7 @@ async function runPipeline({
       }
     : {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, getShells: () => planBox.manifest?.multiPhase ? stampShellsForManifest(planBox.manifest.files, brandName) : [] }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, abortSignal: genAbort, getShells: () => planBox.manifest?.multiPhase ? stampShellsForManifest(planBox.manifest.files, brandName) : [] }),
         planProject: capturePlan,
         lookupReference: lookupReference(),
       }
@@ -1377,14 +1388,6 @@ async function runPipeline({
   // website: text + (loadSkill?) + getUnsplashBatch + planProject + generateFiles + slack
   // app/game: text + (loadSkill?) + planProject + generateFiles + slack
   const maxSteps = skill === 'website' ? 10 : 9 // +2 headroom for optional reference lookups
-
-  // ── Phase-1 deadline guard (the guarantee) ────────────────────────────────
-  // Generation is bounded so it CANNOT run into Vercel's 800s function cap. At the
-  // deadline the model stops; whatever files aren't done are stamped as on-brand shells
-  // (salvage, below), the build ships a live preview, and the rest go to enrichment.
-  // Reserve ~230s after the deadline for salvage + install + build + dev-server + emit.
-  const genDeadline = (invocationStart ?? Date.now()) + (maxDuration * 1000 - 230_000)
-  const genAbort = AbortSignal.timeout(Math.max(60_000, genDeadline - Date.now()))
 
   const aiResult = streamText({
     ...getModelOptions(DEFAULT_MODEL),
