@@ -220,6 +220,72 @@ export async function listStuckContinuingRuns(
   }
 }
 
+// ── Durable-runs STEP 4: per-run reliability metrics ──────────────────────────
+// The run row + its append-only event log ARE the metrics source — every timestamp we
+// need is already recorded. This derives the proof numbers for a run with no extra
+// instrumentation: time-to-first-preview (the product's <5-min bar), total build time,
+// phases planned vs completed, and tokens. Used by the deep-test harness + the metrics
+// endpoint to produce the guarantee numbers per project type.
+export interface RunMetrics {
+  runId: string
+  status: string
+  phaseCursor: number
+  phaseCount: number | null
+  tokensUsed: number
+  msToFirstPreview: number | null
+  msTotal: number | null
+  eventCount: number
+  chained: boolean
+}
+
+function phaseCountFromManifest(manifest: unknown): number | null {
+  if (!Array.isArray(manifest)) return null
+  let max = 0
+  for (const f of manifest) {
+    const p = (f as { phase?: unknown })?.phase
+    if (typeof p === 'number' && p > max) max = Math.floor(p)
+  }
+  return max > 0 ? max : 1
+}
+
+export async function computeRunMetrics(runId: string): Promise<RunMetrics | null> {
+  const run = await getRun(runId)
+  if (!run) return null
+  const events = await getRunEventsSince(runId, 0, 5000)
+  const started = new Date(run.created_at).getTime()
+
+  // First preview = first `data-get-sandbox-url` event that reports status 'done' (the
+  // moment the live URL is surfaced to the user — the <5-min product bar).
+  let firstPreviewAt: number | null = null
+  let chained = false
+  for (const ev of events) {
+    if (ev.type === 'data-get-sandbox-url' && firstPreviewAt === null) {
+      const status = (ev.payload as { data?: { status?: string } })?.data?.status
+      if (status === 'done') firstPreviewAt = new Date(ev.created_at).getTime()
+    }
+    // A run that ever entered 'continuing' was chained across invocations. We can't see
+    // status history in events, but a continuation narration is a reliable marker.
+    if (ev.type === 'data-narration') {
+      const text = (ev.payload as { data?: { text?: string } })?.data?.text ?? ''
+      if (/in the background|keep filling in/i.test(text)) chained = true
+    }
+  }
+
+  const endAt = isTerminalRunStatus(run.status) ? new Date(run.updated_at).getTime() : null
+
+  return {
+    runId,
+    status: run.status,
+    phaseCursor: run.phase_cursor ?? 0,
+    phaseCount: phaseCountFromManifest(run.manifest),
+    tokensUsed: run.tokens_used ?? 0,
+    msToFirstPreview: firstPreviewAt !== null ? firstPreviewAt - started : null,
+    msTotal: endAt !== null ? endAt - started : null,
+    eventCount: events.length,
+    chained,
+  }
+}
+
 // Fetch events after a cursor (seq strictly greater than `since`), ordered ascending.
 // Used by the reconnect stream to replay-from-cursor then live-tail. Admin client;
 // the HTTP route owns-checks the run before calling this.
