@@ -76,16 +76,16 @@ export function normalizeManifest(
     if (FOUNDATION_RE.test(f.path) || CHROME_RE.test(f.path)) f.phase = 1
   }
 
-  // 2b. DETERMINISTIC PHASING — if the model did NOT split the work itself, mechanically
-  // defer the non-home pages into phases 2..N so shell-first ALWAYS engages for a page-rich
-  // project (server-enforced fast first preview, independent of model discretion).
-  const modelSplit = new Set(files.map((f) => f.phase)).size > 1
-  if (!modelSplit) {
-    const pages = files.filter((f) => isEnrichablePage(f.path))
-    if (pages.length >= AUTO_PHASE_MIN_PAGES && files.length > SMALL_PROJECT_FILES) {
-      pages.forEach((f, i) => { f.phase = 2 + Math.floor(i / AUTO_PHASE_GROUP) })
-      console.log(`[normalizeManifest] auto-phased: ${files.length} files, ${pages.length} pages deferred → phases 2..${2 + Math.floor((pages.length - 1) / AUTO_PHASE_GROUP)}`)
-    }
+  // 2b. DETERMINISTIC PHASING — the model's `phase` hints are unreliable (it emits none,
+  // or a weak split that collapses), so we compute the split from PAGE STRUCTURE and make
+  // it AUTHORITATIVE. For any page-rich project, defer the non-home pages into enrichment
+  // phases 2..N and force everything else to phase 1 — overriding whatever the model did.
+  // This is what guarantees a small, fast, immediately-previewable phase-1 skeleton.
+  const pages = files.filter((f) => isEnrichablePage(f.path))
+  if (pages.length >= AUTO_PHASE_MIN_PAGES && files.length > SMALL_PROJECT_FILES) {
+    for (const f of files) if (!isEnrichablePage(f.path)) f.phase = 1
+    pages.forEach((f, i) => { f.phase = 2 + Math.floor(i / AUTO_PHASE_GROUP) })
+    console.log(`[normalizeManifest] auto-phased: ${files.length} files, ${pages.length} pages deferred → phases 2..${2 + Math.floor((pages.length - 1) / AUTO_PHASE_GROUP)}`)
   }
 
   // 3. Renumber distinct phases to a contiguous 1..N (so gaps like 1,3,5 → 1,2,3).
