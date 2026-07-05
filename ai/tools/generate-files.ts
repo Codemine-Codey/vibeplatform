@@ -228,9 +228,15 @@ interface Params {
   // enrichment phase that overruns the invocation budget aborts cleanly (completed
   // files are salvaged; the rest re-run in the next chained invocation).
   abortSignal?: AbortSignal
+  // Durable-runs phasing: lazy getter for the phase-2+ SHELL paths (evaluated at execute
+  // time, after planProject has run). Shells are INTENTIONALLY minimal (branded layout +
+  // section headings, enriched into full pages later), so the empty-render gate must NOT
+  // regenerate them — doing so both inflates phase 1 and defeats the fast-first-preview
+  // point of phasing. Empty/undefined on single-phase builds (no shells).
+  getShellPaths?: () => Set<string>
 }
 
-export const generateFiles = ({ writer, modelId, designContext, existingPaths, abortSignal }: Params) =>
+export const generateFiles = ({ writer, modelId, designContext, existingPaths, abortSignal, getShellPaths }: Params) =>
   tool({
     description,
     inputSchema: z.object({
@@ -454,7 +460,11 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       // content" instruction. This NEVER strips or guesses — it asks the model to
       // paint the empty component, so a blank section can't reach the preview.
       try {
+        // Phase-2+ shells are intentionally minimal (enriched later) — never regenerate
+        // them here, or phase 1 balloons into a full build and the fast-preview win is lost.
+        const shellSet = getShellPaths?.() ?? new Set<string>()
         const findings = uploaded
+          .filter(f => !shellSet.has(f.path))
           .map(f => detectEmptyRender(f.path, f.content))
           .filter((x): x is NonNullable<typeof x> => x !== null && x.blocker)
         if (findings.length > 0) {

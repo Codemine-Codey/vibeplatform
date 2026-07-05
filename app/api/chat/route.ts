@@ -1357,7 +1357,7 @@ async function runPipeline({
   const pipelineTools: Record<string, any> = skill === 'website'
     ? {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, getShellPaths: () => new Set(planBox.manifest?.multiPhase ? planBox.manifest.files.filter(f => f.phase > 1).map(f => f.path) : []) }),
         getUnsplashBatch: getUnsplashBatch(),
         generateImageBatch: generateImageBatch(),
         planProject: capturePlan,
@@ -1365,7 +1365,7 @@ async function runPipeline({
       }
     : {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, getShellPaths: () => new Set(planBox.manifest?.multiPhase ? planBox.manifest.files.filter(f => f.phase > 1).map(f => f.path) : []) }),
         planProject: capturePlan,
         lookupReference: lookupReference(),
       }
