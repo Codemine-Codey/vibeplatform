@@ -353,7 +353,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
         await Promise.all(Array.from({ length: Math.min(PARALLEL, passPaths.length) }, worker))
         // ONE batched, serial write — never concurrent (avoids the sandbox write deadlock).
         if (collected.length > 0) {
-          const error = await writeFiles({ files: collected, written: uploaded.map((f) => f.path) })
+          const error = await writeFiles({ files: collected, paths: collected.map((f) => f.path), written: uploaded.map((f) => f.path) })
           if (!error) uploaded.push(...collected)
         }
       }
