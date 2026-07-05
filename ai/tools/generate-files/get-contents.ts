@@ -19,6 +19,11 @@ interface Params {
   // the file-writer has no idea what colors/fonts/layout to use → generic, low-
   // contrast output. Injected into the system prompt so design reaches the code.
   designContext?: string
+  // Durable-runs STEP 3: hard deadline guard for the enrichment chain. When the
+  // invocation nears the Vercel function cap, the model call is aborted; any file
+  // whose CMEND fence already landed is safely kept (salvaged), the rest re-run in
+  // the next chained invocation. Undefined on the normal (non-chained) path.
+  abortSignal?: AbortSignal
 }
 
 interface FileContentChunk {
@@ -228,7 +233,7 @@ function orderForResilience(paths: string[]): string[] {
 export async function* getContents(
   params: Params
 ): AsyncGenerator<FileContentChunk> {
-  const { messages, modelId, designContext } = params
+  const { messages, modelId, designContext, abortSignal } = params
   const allPaths = orderForResilience(params.paths)
   const written = new Set<string>()
 
@@ -269,6 +274,7 @@ export async function* getContents(
       maxOutputTokens: getMaxOutputTokens(modelId),
       system: buildGenSystem(designContext),
       messages: [...messages, { role: 'user' as const, content: instruction }],
+      ...(abortSignal ? { abortSignal } : {}),
       onError: err => console.error('[getContents] stream error:', err),
     })
 

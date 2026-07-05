@@ -35,13 +35,13 @@ import { restoreBakedDeps } from '@/lib/baked-deps'
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { createRun, appendRunEvent, updateRun } from '@/lib/runs'
+import { runResumableEnrichment } from '@/lib/enrichment'
 import {
   readSandboxFile,
   extractBuildError,
   extractErrorFiles,
   installMissingModules,
   repairFile,
-  viteBuildOnce,
 } from '@/lib/sandbox-util'
 import { createProjectRow, snapshotProject, updateProjectRow, getProjectBySandboxId, incrementProjectTokens } from '@/lib/projects-db'
 import { tokenStore } from '@/lib/token-context'
@@ -883,6 +883,10 @@ function genRateOk(userId: string): boolean {
 }
 
 export async function POST(req: Request) {
+  // Durable-runs STEP 3: anchor the invocation deadline to the moment the request was
+  // received (classify/expand/plan all run before the pipeline and eat into the 800s
+  // function cap). deadline = invocationStart + (maxDuration − 90s safety margin).
+  const invocationStart = Date.now()
   const { messages: rawMessages } = (await req.json()) as BodyData
   const messages = sanitizeMessages(rawMessages)
 
@@ -913,6 +917,7 @@ export async function POST(req: Request) {
         }
         const writer = runId ? wrapWriterWithLog(rawWriter, runId) : rawWriter
         let terminalStatus = 'done'
+        let chainedHandoff = false
         try {
           // ── EDIT MODE: sandbox already active → standard agentic loop ──────
           if (hasActiveSandbox(messages)) {
@@ -1023,9 +1028,14 @@ export async function POST(req: Request) {
         // Wrap in a token-accounting context so every model call this generation
         // makes is summed into tokens_used on the project row.
         const tokenBox = { total: 0 }
-        await tokenStore.run(tokenBox, () =>
-          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise, tokens: brief.colorTokens, brandName: brief.brandName, runId })
+        const pipelineResult = await tokenStore.run(tokenBox, () =>
+          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise, tokens: brief.colorTokens, brandName: brief.brandName, runId, invocationStart })
         )
+        // Durable-runs STEP 3: a chained handoff means enrichment ran out of invocation
+        // budget and passed the run to a fresh continuation (status already 'continuing').
+        // The finally below must NOT overwrite that back to 'done' — the LAST invocation
+        // in the chain marks it done.
+        if (pipelineResult?.chained) chainedHandoff = true
         if (projectId && tokenBox.total > 0) {
           updateProjectRow(projectId, { tokens_used: tokenBox.total }).catch(() => {})
         }
@@ -1038,7 +1048,8 @@ export async function POST(req: Request) {
           // Mark the run terminal so the reconnect stream stops live-tailing. Runs
           // after all user-facing stream content is written, so it adds no latency to
           // the perceived generation; guarded so it can never affect the response.
-          if (runId) await updateRun(runId, { status: terminalStatus }).catch(() => {})
+          // Skip when the run was handed off to a continuation (still 'continuing').
+          if (runId && !chainedHandoff) await updateRun(runId, { status: terminalStatus }).catch(() => {})
         }
       },
     }),
@@ -1170,208 +1181,6 @@ async function runAgenticLoop({
   }
 }
 
-// ── Durable-runs STEP 2: progressive (phased) generation helpers ──────────────
-
-// Post a warm, plain-English chat message at a phase boundary. Goes through the
-// (log-wrapped) writer so it's dual-written to the canonical run_events log and
-// rendered in chat like an assistant line. Unique id → each is its own bubble.
-function narrate(writer: Writer, text: string): void {
-  writer.write({
-    id: `srv-narr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    type: 'data-narration',
-    data: { text },
-  })
-}
-
-// Human-friendly label for a phase from its page file names ("menu and gallery pages").
-function prettyPhaseLabel(paths: string[]): string {
-  const names = [
-    ...new Set(
-      paths
-        .map((p) => p.split('/').pop() ?? '')
-        .map((n) => n.replace(/\.(tsx|jsx|ts|js)$/i, ''))
-        .filter((n) => n && !/^index$/i.test(n) && !/^App$/.test(n))
-        .map((n) => n.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[-_]+/g, ' ').trim().toLowerCase())
-        .filter(Boolean)
-    ),
-  ]
-  if (names.length === 0) return 'next section'
-  if (names.length === 1) return `${names[0]} page`
-  if (names.length === 2) return `${names[0]} and ${names[1]} pages`
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} pages`
-}
-
-// Read the design-reference files an enrichment pass must match (App routing +
-// tokens + the persistent chrome), so a full page keeps the exact fonts/colors/
-// components the shell already established.
-async function readDesignReference(sandbox: Sandbox, manifest: NormalizedManifest): Promise<string> {
-  const wanted = new Set<string>(['src/App.tsx', 'src/index.css'])
-  for (const f of manifest.files) {
-    if (f.phase === 1 && /(Nav(bar|igation)?|Header|Footer|Layout)\.(tsx|jsx)$/i.test(f.path)) wanted.add(f.path)
-  }
-  const parts: string[] = []
-  for (const p of wanted) {
-    const c = await readSandboxFile(sandbox, p)
-    if (c) parts.push(`// ${p}\n${c.slice(0, 3000)}`)
-  }
-  return parts.join('\n\n')
-}
-
-// Per-phase transaction gate: the build MUST stay green after an enrichment phase.
-// Bounded repair on the phase's own files; if it still won't compile, ROLL BACK to
-// the pre-phase content (the shells) so the live preview never regresses to broken.
-// Returns true if the phase landed green, false if it was rolled back.
-async function gateEnrichmentPhase({
-  sandbox,
-  phasePaths,
-  before,
-}: {
-  sandbox: Sandbox
-  phasePaths: string[]
-  before: Array<{ path: string; content: string }>
-}): Promise<boolean> {
-  let { ok, log } = await viteBuildOnce(sandbox, '/tmp/cm-enrich.log')
-  for (let round = 0; round < 2 && !ok; round++) {
-    const errorBlock = extractBuildError(log)
-    // Deterministic first: a missing package is installed, not model-repaired.
-    if (await installMissingModules(sandbox, log)) {
-      ;({ ok, log } = await viteBuildOnce(sandbox, '/tmp/cm-enrich.log'))
-      continue
-    }
-    const files = extractErrorFiles(log).filter((p) => !SCAFFOLD_PATH_SET.has(p))
-    let repairedAny = false
-    for (const path of files.slice(0, 3)) {
-      const content = await readSandboxFile(sandbox, path)
-      if (!content) continue
-      const fixed = await repairFile(path, content, errorBlock)
-      if (fixed && fixed !== content) {
-        const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : fixed
-        await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
-        repairedAny = true
-      }
-    }
-    if (!repairedAny) break
-    ;({ ok, log } = await viteBuildOnce(sandbox, '/tmp/cm-enrich.log'))
-  }
-  if (!ok) {
-    // Roll the phase back to its shells — never leave the preview on a broken build.
-    if (before.length > 0) {
-      await sandbox
-        .writeFiles(before.map((b) => ({ path: b.path, content: Buffer.from(b.content, 'utf8') })))
-        .catch(() => {})
-    }
-    logRepair({ layer: 'phase-gate', action: 'rolled-back', detail: phasePaths.join(', ').slice(0, 200) })
-    return false
-  }
-  return true
-}
-
-// ── Enrichment loop (phases 2..N) ─────────────────────────────────────────────
-// Preview is already LIVE (phase-1 skeleton + shells). Each later phase REPLACES its
-// shells with full pages via a self-contained getContents call (brief + manifest +
-// this phase's files + read-back of the design reference), gated as a transaction so
-// the build stays green — Vite HMR makes each phase appear live in the iframe. All
-// within THIS invocation (cross-invocation chaining is STEP 3).
-async function runEnrichmentPhases({
-  writer,
-  sandbox,
-  sandboxId,
-  manifest,
-  genContext,
-  designContext,
-  runId,
-  projectId,
-  userId,
-}: {
-  writer: Writer
-  sandbox: Sandbox
-  sandboxId: string
-  manifest: NormalizedManifest
-  genContext: import('ai').ModelMessage[]
-  designContext?: string
-  runId?: string | null
-  projectId?: string | null
-  userId?: string | null
-}): Promise<void> {
-  const allPaths = manifest.files.map((f) => f.path)
-  const reference = await readDesignReference(sandbox, manifest)
-
-  narrate(
-    writer,
-    "Your site is live and clickable — go ahead and try it while I work. I'm filling in the rest of the pages now…"
-  )
-  if (runId) await updateRun(runId, { phase_cursor: 1 }).catch(() => {})
-
-  for (let phase = 2; phase <= manifest.phaseCount; phase++) {
-    const phaseFiles = manifest.files.filter((f) => f.phase === phase)
-    if (phaseFiles.length === 0) continue
-    const phasePaths = phaseFiles.map((f) => f.path)
-    const label = prettyPhaseLabel(phasePaths)
-    narrate(writer, `Building the ${label} now…`)
-
-    // Capture the shells so a failed phase can roll back to a known-good state.
-    const before: Array<{ path: string; content: string }> = []
-    for (const p of phasePaths) {
-      const c = await readSandboxFile(sandbox, p)
-      if (c) before.push({ path: p, content: c })
-    }
-
-    try {
-      const enrichMessages: import('ai').ModelMessage[] = [
-        ...genContext,
-        {
-          role: 'user',
-          content:
-            'The app is ALREADY LIVE. The pages at the paths I will generate currently exist only as branded SHELLS. ' +
-            'Replace each with the COMPLETE, full production page: keep the SAME exports and route wiring, and match the ' +
-            'EXISTING design system exactly (fonts, color tokens, spacing, shared components) as shown in these reference ' +
-            'files. Write real, on-brief content — no placeholders, no lorem, no "coming soon". Do NOT change routing or ' +
-            'any file outside the requested paths.\n\nDesign reference files:\n' +
-            reference,
-        },
-      ]
-      const gf = generateFiles({
-        writer,
-        modelId: FILE_GENERATION_MODEL,
-        designContext,
-        existingPaths: allPaths,
-      })
-      // Call the tool's executor directly, server-side, with a per-phase id so each
-      // phase renders as its own file-generation activity in chat.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (gf as any).execute(
-        { sandboxId, paths: phasePaths },
-        { toolCallId: `srv-gen-p${phase}`, messages: enrichMessages }
-      )
-
-      const green = await gateEnrichmentPhase({ sandbox, phasePaths, before })
-      narrate(
-        writer,
-        green
-          ? `${label[0].toUpperCase()}${label.slice(1)} done ✓${phase < manifest.phaseCount ? ' — building the next section.' : ''}`
-          : `Keeping the ${label} on the current version for now — moving on.`
-      )
-    } catch (e) {
-      console.warn('[enrichment] phase', phase, 'failed (non-fatal):', e instanceof Error ? e.message : e)
-      if (before.length > 0) {
-        await sandbox
-          .writeFiles(before.map((b) => ({ path: b.path, content: Buffer.from(b.content, 'utf8') })))
-          .catch(() => {})
-      }
-    }
-
-    // Persist phase progress (sets up STEP 3's cross-invocation resume) + refresh snapshot.
-    if (runId) await updateRun(runId, { phase_cursor: phase }).catch(() => {})
-    if (projectId && userId) {
-      const pid = projectId, uid = userId
-      snapshotProject(sandbox, uid, pid)
-        .then((p) => (p ? updateProjectRow(pid, { snapshot_path: p }) : undefined))
-        .catch(() => {})
-    }
-  }
-
-  narrate(writer, 'All the pages are built — your site is complete. 🎉')
-}
 
 // ── Server-side generation pipeline ──────────────────────────────────────────
 // All tool decisions (createSandbox, pnpm install, pnpm dev, getSandboxURL) are
@@ -1389,6 +1198,7 @@ async function runPipeline({
   tokens,
   brandName,
   runId,
+  invocationStart,
 }: {
   writer: Writer
   messages: ChatUIMessage[]
@@ -1401,7 +1211,8 @@ async function runPipeline({
   tokens?: ColorTokens
   brandName?: string
   runId?: string | null
-}) {
+  invocationStart?: number
+}): Promise<{ chained: boolean }> {
   // ── Step 1: Acquire sandbox (warm pool or fresh creation) ─────────────────
   writer.write({
     id: 'srv-sandbox',
@@ -1431,7 +1242,7 @@ async function runPipeline({
         type: 'data-create-sandbox',
         data: { error: { message }, status: 'error' },
       })
-      return
+      return { chained: false }
     }
   }
 
@@ -1583,7 +1394,7 @@ async function runPipeline({
       type: 'data-report-errors',
       data: { summary: `Generation failed: ${msg}. Please try again.`, paths: [] },
     })
-    return
+    return { chained: false }
   }
 
   // Verify generateFiles was actually called — if AI only produced text (rare edge case),
@@ -1599,7 +1410,7 @@ async function runPipeline({
     )
     if (!calledGenerateFiles) {
       console.warn('Pipeline: AI did not call generateFiles — aborting pnpm phase')
-      return
+      return { chained: false }
     }
   } catch {
     // Can't verify — proceed anyway
@@ -1938,15 +1749,28 @@ async function runPipeline({
     data: { url, status: 'done' },
   })
 
-  // ── Durable-runs STEP 2: PROGRESSIVE ENRICHMENT (phases 2..N) ──────────────────
-  // The phase-1 skeleton + branded shells are LIVE in the preview now. Fill each
-  // later phase's shells into full pages, one transaction at a time, narrating as we
-  // go — Vite HMR makes them appear live. Only when the planner produced a genuine
-  // multi-phase manifest AND phase 1 is healthy (never enrich onto a broken build).
-  // Single-phase (small/simple) projects skip this entirely — identical to before.
+  // Durable-runs STEP 3: persist the live URL + sandbox id NOW, before enrichment. A
+  // multi-phase build may hand off to a continuation invocation (returning early below),
+  // so the preview URL must be saved here or it could be lost on the handoff path.
+  if (projectId) {
+    updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: url }).catch(() => {})
+  }
+
+  // ── Durable-runs STEP 2+3: PROGRESSIVE, RESUMABLE ENRICHMENT (phases 2..N) ──────
+  // The phase-1 skeleton + branded shells are LIVE in the preview now. Fill each later
+  // phase's shells into full pages, one transaction at a time, narrating as we go —
+  // Vite HMR makes them appear live. STEP 3: the engine is deadline-aware — if the 800s
+  // invocation budget runs out mid-build it snapshots, marks the run 'continuing', and
+  // fires a fresh continuation invocation (server-chained, walk-away-native), returning
+  // { chained: true }. Only when the planner produced a genuine multi-phase manifest AND
+  // phase 1 is healthy (never enrich onto a broken build). Single-phase (small/simple)
+  // projects skip this entirely — identical to before.
   if (enrichManifest && enrichManifest.multiPhase && !devError) {
+    // deadline = invocationStart + (maxDuration − 90s margin). Falls back to now-based
+    // if invocationStart wasn't threaded (defensive; the POST handler always passes it).
+    const deadline = (invocationStart ?? Date.now()) + (maxDuration * 1000 - 90_000)
     try {
-      await runEnrichmentPhases({
+      const res = await runResumableEnrichment({
         writer,
         sandbox,
         sandboxId,
@@ -1956,7 +1780,15 @@ async function runPipeline({
         runId,
         projectId,
         userId,
+        deadline,
+        fromPhase: 0,
       })
+      if (res.chained) {
+        // Handed off to a continuation invocation — it owns the final snapshot + marking
+        // the run done. Stop the incremental snapshot loop and end THIS invocation now.
+        if (snapTimer) { clearInterval(snapTimer); snapTimer = null }
+        return { chained: true }
+      }
     } catch (e) {
       console.warn('[enrichment] loop failed (non-fatal):', e instanceof Error ? e.message : e)
     }
@@ -1997,6 +1829,7 @@ async function runPipeline({
     }).catch(() => {})
     if (!snapshotPath) console.warn(`[snapshot] final snapshot still NULL after retry for project ${projectId} (sandbox ${sandboxId})`)
   }
+  return { chained: false }
 }
 
 // Poll the sandbox URL until the dev server responds (non-502 = port is listening).

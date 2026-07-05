@@ -224,9 +224,13 @@ interface Params {
   // closure's "existing" set so an enrichment pass generating just this phase's pages
   // never re-creates a sibling that is already present. Empty on the normal first pass.
   existingPaths?: string[]
+  // Durable-runs STEP 3: hard deadline guard threaded to every model call so an
+  // enrichment phase that overruns the invocation budget aborts cleanly (completed
+  // files are salvaged; the rest re-run in the next chained invocation).
+  abortSignal?: AbortSignal
 }
 
-export const generateFiles = ({ writer, modelId, designContext, existingPaths }: Params) =>
+export const generateFiles = ({ writer, modelId, designContext, existingPaths, abortSignal }: Params) =>
   tool({
     description,
     inputSchema: z.object({
@@ -287,7 +291,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths }:
                   context.map((f) => `// ${f.path}\n${f.content.slice(0, 4500)}`).join('\n\n'),
               },
             ]
-        const it = getContents({ messages: passMessages, modelId, paths: passPaths, designContext })
+        const it = getContents({ messages: passMessages, modelId, paths: passPaths, designContext, abortSignal })
         for await (const chunk of it) {
           if (chunk.files.length > 0) {
             const error = await writeFiles({ ...chunk, written: uploaded.map((f) => f.path) })
@@ -319,7 +323,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths }:
       const missing = paths.filter(p => !writtenPaths.has(p))
       if (missing.length > 0) {
         console.warn(`[generateFiles] Retrying ${missing.length} missing file(s): ${missing.join(', ')}`)
-        const retryIterator = getContents({ messages, modelId, paths: missing, designContext })
+        const retryIterator = getContents({ messages, modelId, paths: missing, designContext, abortSignal })
         try {
           for await (const chunk of retryIterator) {
             if (chunk.files.length > 0) {
@@ -399,7 +403,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths }:
           ]
 
           let gotAny = false
-          const closureIter = getContents({ messages: closureMessages, modelId, paths: missingPaths, designContext })
+          const closureIter = getContents({ messages: closureMessages, modelId, paths: missingPaths, designContext, abortSignal })
           try {
             for await (const chunk of closureIter) {
               if (chunk.files.length > 0) {
@@ -430,7 +434,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths }:
             ...messages,
             { role: 'user' as const, content: 'These files COMPILE but contain runtime footguns that will break or hang the app. Rewrite each listed file COMPLETELY — fix the issue, keep every feature, change nothing unrelated.\n\n' + issueText },
           ]
-          const it = getContents({ messages: fixMessages, modelId, paths, designContext })
+          const it = getContents({ messages: fixMessages, modelId, paths, designContext, abortSignal })
           for await (const chunk of it) {
             if (chunk.files.length > 0) {
               const err = await writeFiles({ ...chunk, written: uploaded.map(f => f.path) })
@@ -468,7 +472,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths }:
                 'These files render nothing meaningful — a blank/empty component is a broken preview. Rewrite each listed file COMPLETELY so it renders real, on-brief, production-quality content: never null, never an empty fragment, never a childless placeholder, never lorem/coming-soon. Keep the SAME exports and the file\'s purpose; fill it with the actual UI it should display.\n\n' + issueText,
             },
           ]
-          const it = getContents({ messages: fixMessages, modelId, paths: emptyPaths, designContext })
+          const it = getContents({ messages: fixMessages, modelId, paths: emptyPaths, designContext, abortSignal })
           for await (const chunk of it) {
             if (chunk.files.length > 0) {
               const err = await writeFiles({ ...chunk, written: uploaded.map(f => f.path) })

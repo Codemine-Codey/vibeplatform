@@ -71,6 +71,29 @@ export function normalizeManifest(
   return { files, phaseCount, multiPhase: phaseCount > 1, extraPackages }
 }
 
+// Durable-runs STEP 3: rebuild a NormalizedManifest from the bare files array that was
+// persisted on the run row (run.manifest = enrichManifest.files). Used by a continuation
+// invocation to resume enrichment with ZERO model context. phaseCount is derived from the
+// stored per-file phases (already normalized when the run was first created).
+export function manifestFromFiles(input: unknown): NormalizedManifest {
+  const raw = Array.isArray(input) ? input : []
+  const files: ManifestFile[] = raw
+    .filter((f): f is Record<string, unknown> => !!f && typeof f === 'object')
+    .map((f) => ({
+      path: String((f as { path?: unknown }).path ?? ''),
+      exports: Array.isArray((f as { exports?: unknown }).exports)
+        ? ((f as { exports: unknown[] }).exports.map((e) => String(e)))
+        : [],
+      phase:
+        typeof (f as { phase?: unknown }).phase === 'number' && (f as { phase: number }).phase >= 1
+          ? Math.floor((f as { phase: number }).phase)
+          : 1,
+    }))
+    .filter((f) => f.path.length > 0)
+  const phaseCount = files.reduce((max, f) => Math.max(max, f.phase), 1)
+  return { files, phaseCount, multiPhase: phaseCount > 1, extraPackages: [] }
+}
+
 export const planProject = (
   { onPlan }: { onPlan?: (manifest: NormalizedManifest) => void } = {}
 ) =>
