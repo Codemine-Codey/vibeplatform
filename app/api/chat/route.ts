@@ -1289,16 +1289,21 @@ async function runPipeline({
     }, 45_000)
   }
 
-  // Write scaffold files for cold sandboxes (warm pool already has them)
+  // Write the SKILL-SPECIFIC scaffold ALWAYS (both warm and cold). This is the critical
+  // fix (2026-07-06): the warm pool writes only the base SCAFFOLD_FILES — it CANNOT include
+  // src/main.tsx because that file is skill-dependent (game vs non-game) and the skill isn't
+  // known at pre-warm time. So a WARM sandbox had NO main.tsx → the Vite entry 404'd →
+  // nothing mounted → the whole "spotted an issue / rebuild everything" spiral. Writing
+  // getScaffoldFiles(skill) here adds main.tsx (+ any skill files); re-writing the base
+  // files on a warm sandbox is harmless and cheap.
   try {
+    await sandbox.writeFiles(
+      getScaffoldFiles(skill).map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
+    )
+    // Deps: cold sandboxes install now (warm ones already installed during pre-warm).
     if (!hadWarmSandbox) {
-      await sandbox.writeFiles(
-        getScaffoldFiles(skill).map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
-      )
-      // Restore the BAKED node_modules (fast extract) then a reconcile install for
-      // any package the AI adds — far quicker than a cold install. Falls back to a
-      // plain install if the baked archive is unavailable. Runs in the background
-      // during file generation so it's done before the dev server starts.
+      // Restore the BAKED node_modules (fast extract) then a reconcile install for any
+      // package the AI adds — far quicker than a cold install. Runs in the background.
       ;(async () => {
         const baked = await restoreBakedDeps(sandbox, skill).catch(() => false)
         const installCmd = baked
