@@ -9,7 +9,12 @@ interface WarmEntry {
 }
 
 const POOL_SIZE = 2
-const MAX_AGE_MS = 9 * 60 * 1000
+// A warm sandbox may sit up to MAX_AGE_MS before being handed to a build, so its lifetime
+// must comfortably cover (idle wait + full build). Sandboxes are created with a 30-min
+// timeout (below); evict from the pool after 8 min idle so an assigned one still has ≥22 min
+// of runtime for the build + edits — never the ~1-min-left sandbox that timed builds out at 10m.
+const MAX_AGE_MS = 8 * 60 * 1000
+const SANDBOX_TIMEOUT_MS = 30 * 60 * 1000
 
 let pool: WarmEntry[] = []
 let warming = 0 // number of in-progress warm operations
@@ -19,7 +24,7 @@ async function addOne() {
   if (warming + pool.length >= POOL_SIZE) return
   warming++
   try {
-    const sandbox = await Sandbox.create({ timeout: 600_000, ports: [3000] })
+    const sandbox = await Sandbox.create({ timeout: SANDBOX_TIMEOUT_MS, ports: [3000] })
     await sandbox.writeFiles(
       SCAFFOLD_FILES.map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
     )
