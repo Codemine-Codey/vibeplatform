@@ -76,17 +76,12 @@ export function normalizeManifest(
     if (FOUNDATION_RE.test(f.path) || CHROME_RE.test(f.path)) f.phase = 1
   }
 
-  // 2b. DETERMINISTIC PHASING — the model's `phase` hints are unreliable (it emits none,
-  // or a weak split that collapses), so we compute the split from PAGE STRUCTURE and make
-  // it AUTHORITATIVE. For any page-rich project, defer the non-home pages into enrichment
-  // phases 2..N and force everything else to phase 1 — overriding whatever the model did.
-  // This is what guarantees a small, fast, immediately-previewable phase-1 skeleton.
-  const pages = files.filter((f) => isEnrichablePage(f.path))
-  if (pages.length >= AUTO_PHASE_MIN_PAGES && files.length > SMALL_PROJECT_FILES) {
-    for (const f of files) if (!isEnrichablePage(f.path)) f.phase = 1
-    pages.forEach((f, i) => { f.phase = 2 + Math.floor(i / AUTO_PHASE_GROUP) })
-    console.log(`[normalizeManifest] auto-phased: ${files.length} files, ${pages.length} pages deferred → phases 2..${2 + Math.floor((pages.length - 1) / AUTO_PHASE_GROUP)}`)
-  }
+  // 2b. PHASING DISABLED (2026-07-06) — reverted to ONE-SHOT generation. Phasing + server
+  // shells regressed real builds (shelled App.tsx, broke the mount). Lovable's real lever is
+  // the SCAFFOLD (which we already ship) + generating only the ~10-15 project files in one
+  // pass, gated silently by typecheck/build. So every manifest stays single-phase: the model
+  // generates all files at once. (isEnrichablePage/AUTO_PHASE_* kept but unused.)
+  void isEnrichablePage
 
   // 3. Renumber distinct phases to a contiguous 1..N (so gaps like 1,3,5 → 1,2,3).
   const distinct = [...new Set(files.map((f) => f.phase))].sort((a, b) => a - b)

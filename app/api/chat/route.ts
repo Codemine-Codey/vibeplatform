@@ -1366,21 +1366,11 @@ async function runPipeline({
   const planBox: { manifest: NormalizedManifest | null } = { manifest: null }
   const capturePlan = planProject({ onPlan: (m) => { planBox.manifest = m } })
 
-  // ── Phase-1 deadline guard (the guarantee) ────────────────────────────────
-  // Generation is bounded so it CANNOT run into Vercel's 800s function cap. The deadline
-  // is threaded into generateFiles ITSELF (so the tool's own model calls abort in time —
-  // aborting only the agent loop does NOT stop an in-flight tool), and onto the agent
-  // streamText. At the deadline the shell-salvage (below) stamps any unfinished file and a
-  // preview still ships. Reserve ~250s after the deadline for salvage + install + build +
-  // dev-server + emit.
-  const genDeadline = (invocationStart ?? Date.now()) + (maxDuration * 1000 - 250_000)
-  const genAbort = AbortSignal.timeout(Math.max(60_000, genDeadline - Date.now()))
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pipelineTools: Record<string, any> = skill === 'website'
     ? {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, abortSignal: genAbort, getShells: () => planBox.manifest?.multiPhase ? stampShellsForManifest(planBox.manifest.files, brandName) : [] }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
         getUnsplashBatch: getUnsplashBatch(),
         generateImageBatch: generateImageBatch(),
         planProject: capturePlan,
@@ -1388,7 +1378,7 @@ async function runPipeline({
       }
     : {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, abortSignal: genAbort, getShells: () => planBox.manifest?.multiPhase ? stampShellsForManifest(planBox.manifest.files, brandName) : [] }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
         planProject: capturePlan,
         lookupReference: lookupReference(),
       }
@@ -1408,29 +1398,21 @@ async function runPipeline({
     // Model's max output — planProject manifests and tool args must never truncate.
     maxOutputTokens: getMaxOutputTokens(DEFAULT_MODEL),
     tools: pipelineTools,
-    abortSignal: genAbort,
     onError: error => console.error('Pipeline AI error:', error),
   })
 
   writer.merge(aiResult.toUIMessageStream({ sendReasoning: false, sendStart: false }))
 
-  // Wait for generation to finish — but NEVER past the deadline. A truly-hung model stream
-  // does not always honor AbortSignal, so we RACE aiResult.text against a hard timer: at the
-  // deadline we stop waiting and proceed to the shell-salvage regardless (whatever files
-  // landed are kept; the rest become shells). This is what forces a preview to ALWAYS ship.
-  let genHitDeadline = false
+  // Wait for generation (all files) to complete. No deadline-abort — cutting generation off
+  // mid-way is exactly what left a half-built project (App.tsx never written). One-shot on a
+  // scaffold is small enough to finish well inside the function budget.
+  const genHitDeadline = false
   try {
-    const deadlineMs = Math.max(30_000, genDeadline - Date.now())
-    await Promise.race([
-      Promise.resolve(aiResult.text),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('gen-deadline-forced')), deadlineMs)),
-    ])
+    await aiResult.text
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    // Deadline (abort OR forced timer) is NOT a failure — proceed to shell-salvage.
-    if (genAbort.aborted || /abort|timeout|cancel|gen-deadline/i.test(msg)) {
-      genHitDeadline = true
-      console.warn('[phase-1] generation stopped at the deadline — salvaging remaining files as shells')
+    if (/abort|timeout|cancel/i.test(msg)) {
+      console.warn('Pipeline AI stopped early (non-fatal):', msg)
     } else {
       console.error('Pipeline AI failed:', msg)
       writer.write({
@@ -1470,31 +1452,10 @@ async function runPipeline({
     }
   }
 
-  // ── Shell-salvage — the phase-1 completion guarantee ──────────────────────────
-  // Ensure EVERY phase-1 manifest file exists on disk before the build. Any file the model
-  // didn't finish (deadline hit, or a single file failed) is stamped as an on-brand shell
-  // and MOVED to enrichment, so: (a) the build is green + the preview ALWAYS ships before
-  // the 800s cap, and (b) the real page is filled in live afterward. This is what makes
-  // "no build dies mid-flight, a preview always ships" structural rather than statistical.
-  if (planBox.manifest && sandbox) {
-    const salvaged: string[] = []
-    for (const f of planBox.manifest.files) {
-      if (f.phase !== 1) continue
-      const existing = await readSandboxFile(sandbox, f.path).catch(() => null)
-      if (existing && existing.trim().length > 20) continue
-      try {
-        await sandbox.writeFiles([{ path: f.path, content: Buffer.from(stampShell({ path: f.path, exports: f.exports, brandName }), 'utf8') }])
-        f.phase = 2 // hand the real page/file to the enrichment queue
-        salvaged.push(f.path)
-      } catch { /* non-fatal */ }
-    }
-    if (salvaged.length > 0) {
-      const maxPhase = planBox.manifest.files.reduce((m, f) => Math.max(m, f.phase), 1)
-      planBox.manifest.phaseCount = maxPhase
-      planBox.manifest.multiPhase = maxPhase > 1
-      console.warn(`[phase-1] shell-salvaged ${salvaged.length} file(s)${genHitDeadline ? ' (deadline)' : ''} → enrichment: ${salvaged.join(', ')}`)
-    }
-  }
+  // (Shell-salvage removed 2026-07-06 — it wrongly shelled App.tsx and broke the mount.
+  // Missing/incomplete files are now recovered by generateFiles' own import-closure + retry
+  // passes and the silent build gate below, never by stamping page-shells over foundation.)
+  void genHitDeadline
 
   // ── Durable-runs STEP 2: capture manifest + conversation context for enrichment ─
   // The full model-message context (user turn + the AI's tool results, incl. image
@@ -1724,18 +1685,15 @@ async function runPipeline({
     data: { url, status: 'done' },
   })
 
-  // If the dev server is up but the page is broken (500 from Vite/PostCSS crash),
-  // emit a data-report-errors so the AI sees the problem in its next turn and fixes it.
+  // SILENT (2026-07-06): the server's build gate (verifyAndRepair, above) already compiled
+  // + repaired before the preview. If the dev server is somehow still 500ing, swap in the
+  // baked fallback so the user sees a clean page — NEVER a raw error in chat (Lovable-style).
   if (devError) {
-    logRepair({ layer: 'dev-500', action: 'reported-to-ai', detail: devError.slice(0, 200), sandboxId })
-    writer.write({
-      id: 'srv-check',
-      type: 'data-report-errors',
-      data: {
-        summary: devError,
-        paths: ['src/index.css', 'src/App.tsx'],
-      },
-    })
+    logRepair({ layer: 'dev-500', action: 'silent-fallback', detail: devError.slice(0, 200), sandboxId })
+    try {
+      await applyFallbackTerminalState(sandbox, devError, { skill, brand: brandName || 'This project' })
+      await new Promise(r => setTimeout(r, 3000))
+    } catch { /* non-fatal */ }
   } else {
     // ── Step 6.5: Headless runtime check (screenshot/DOM layer) ──────────────
     // The page serves 200 — but does it actually RENDER? Load it in a real
@@ -1800,12 +1758,10 @@ async function runPipeline({
           } catch (e) {
             console.warn('[fallback] terminal-state swap failed (non-fatal):', e instanceof Error ? e.message : e)
           }
-          // Surface to the client self-heal so a REAL fix can still replace the fallback.
-          writer.write({
-            id: 'srv-runtime',
-            type: 'data-report-errors',
-            data: { summary: rt.detail, paths: files.length ? files : ['src/App.tsx'] },
-          })
+          // SILENT (2026-07-06): the fallback above already renders a clean page. We do NOT
+          // surface the error to chat — no visible self-heal, no "spotted an issue" (Lovable-
+          // style: the user only ever sees a working preview).
+          logRepair({ layer: 'runtime-check', action: 'silent-fallback', detail: rt.detail.slice(0, 160), sandboxId })
         }
       }
 
