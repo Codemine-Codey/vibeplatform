@@ -232,7 +232,7 @@ The workspace already exists. Do NOT call `planProject`, `createSandbox`, or `ge
 
 **Edit sequence:** `grepCode` to locate (often enough to patch straight away) → `readFiles` only if you need full content (batch, ≤5 reads) → `patchFile` the smallest diff → done. The preview hot-reloads automatically; don't run `pnpm dev` after a patch. If `patchFile` fails (string not found), `readFile` again and retry once.
 
-**Adding a page** (website/webapp) = just create `src/pages/<Name>.tsx` with `generateFiles` — it is auto-routed to `/<name>` by the scaffold router; there is NO `App.tsx` route to patch (App.tsx is read-only). If it needs a nav entry, ONE `patchFile` on `src/components/Layout.tsx` to add the `<Link>`. NEVER write or patch `App.tsx`/`main.tsx`. (Games have no router — they edit their own `App.tsx` normally.)
+**Adding a page** (website/webapp) = just create `src/pages/<Name>.tsx` with `generateFiles` — it is auto-routed to `/<name>` by the scaffold router; there is NO `App.tsx` route to patch (App.tsx is read-only). If it needs a nav entry, ONE `patchFile` on `src/components/Layout.tsx` to add the `<Link>`. **NEVER write or patch `App.tsx`/`main.tsx` for ANY project type** — including games. Games have no router, but their root is still `src/pages/Home.tsx` (the scaffold's App mounts it); edit `src/pages/Home.tsx` and the game components, never `App.tsx`.
 
 Common edits: button color → the Tailwind/token class in JSX · heading → the text string · player speed → the constant at the top · spacing → the padding/margin class.
 

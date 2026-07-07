@@ -106,8 +106,11 @@ function ensureViteAllowedHosts(content: string): string {
 }
 
 export function getWriteFiles({ sandbox, toolCallId, writer, skill }: Params) {
-  // Sites get the read-only scaffold router; games keep writing their own App.tsx.
-  const appReadonly = skill !== 'game'
+  // App.tsx is scaffold-owned + read-only for ALL project types now: sites get the file-router,
+  // games get a no-router App that mounts src/pages/Home.tsx. The model's root is always
+  // src/pages/Home.tsx — it never writes App.tsx. (skill kept for future per-skill rules.)
+  void skill
+  const appReadonly = true
   return async function writeFiles(params: {
     written: string[]
     files: File[]

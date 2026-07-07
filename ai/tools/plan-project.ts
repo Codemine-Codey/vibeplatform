@@ -114,7 +114,9 @@ export const planProject = (
       'src/main.tsx (they are read-only and discarded). List one page per route in src/pages/ ' +
       '(src/pages/Home.tsx is REQUIRED and routes to "/", src/pages/About.tsx → "/about", etc.), the global ' +
       'nav/footer as src/components/Layout.tsx, plus any section components, stores, and src/index.css. ' +
-      'Leave `phase` off — every file ships in one pass. (Games only: DO list src/App.tsx — games have no router.)',
+      'Leave `phase` off — every file ships in one pass. NEVER list src/App.tsx or src/main.tsx for ANY ' +
+      'project type (they are scaffolded/read-only). GAMES: list src/pages/Home.tsx as the game root ' +
+      '(it mounts the game UI) plus the game components — games have no router but still root at Home.tsx.',
     inputSchema: z.object({
       files: z
         .array(

@@ -1452,6 +1452,23 @@ export default function App() {
 }
 `
 
+// GAME App.tsx (scaffold-owned, read-only). Games have NO router — main.tsx renders <App/>
+// bare — so App just mounts the game's root page (src/pages/Home.tsx, which the model writes,
+// same as websites). No react-router import (games don't install it). Unifies the contract:
+// the model NEVER writes App.tsx or main.tsx for ANY project type; the root is always
+// src/pages/Home.tsx. Robust to naming: prefers Home, falls back to whatever page exists.
+export const APP_TSX_GAME = `import type { ComponentType } from 'react'
+
+const pages = import.meta.glob('./pages/*.tsx', { eager: true }) as Record<string, { default: ComponentType }>
+const Root =
+  (pages['./pages/Home.tsx'] && pages['./pages/Home.tsx'].default) ||
+  (Object.values(pages)[0] && Object.values(pages)[0].default)
+
+export default function App() {
+  return Root ? <Root /> : null
+}
+`
+
 export function getScaffoldFiles(skill: Skill): Array<{ path: string; content: string }> {
   const mainTsx = { path: 'src/main.tsx', content: makeMainTsx(skill === 'game') }
   if (skill === 'game') {
@@ -1463,6 +1480,8 @@ export function getScaffoldFiles(skill: Skill): Array<{ path: string; content: s
         ),
       ...GAME_ONLY_FILES,
       mainTsx,
+      // Games get a no-router App.tsx that mounts src/pages/Home.tsx (read-only, like sites).
+      { path: 'src/App.tsx', content: APP_TSX_GAME },
     ]
   }
   // Website/webapp: ship the read-only file-router App.tsx so the model never writes routing.
