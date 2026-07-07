@@ -392,6 +392,49 @@ export interface CssClosureResult {
 // Compute the CSS to append so every JSX class resolves. `knownCss` is the combined
 // text of every CSS file already present (index.css + any persistent utility file), so
 // classes those define are treated as known and skipped.
+// Color-family words models hallucinate as Tailwind classes (bg-cream, text-warm-900,
+// border-sand) that don't exist in the theme — Tailwind's JIT emits NOTHING for them, so the
+// element renders unstyled (the recurring A3 "undefined class" look). We map each to the
+// project's OWN semantic token so it renders on-brand instead of blank. CURATED to contain no
+// real Tailwind color, so genuine utilities (text-sm, bg-cover, border-2, bg-red-500) are never
+// touched — a false map here would be worse than the miss.
+const INVENTED_COLOR_WORDS = new Set([
+  'cream', 'ivory', 'sand', 'beige', 'taupe', 'warm', 'cool', 'charcoal', 'ink', 'paper',
+  'bone', 'linen', 'pearl', 'snow', 'midnight', 'forest', 'sage', 'terracotta', 'rust',
+  'mustard', 'olive', 'clay', 'coffee', 'mocha', 'latte', 'espresso', 'wine', 'burgundy',
+  'navy', 'coral', 'peach', 'blush', 'lavender', 'mint', 'seafoam', 'ocean', 'sunset', 'dusk',
+  'dawn', 'ash', 'graphite', 'onyx', 'ebony', 'jet', 'smoke', 'fog', 'mist', 'cloud', 'chalk',
+  'vanilla', 'honey', 'gold', 'bronze', 'copper', 'brass', 'sienna', 'umber', 'ochre',
+  'saffron', 'aqua',
+])
+const DARK_COLOR_WORDS = new Set([
+  'charcoal', 'ink', 'midnight', 'ebony', 'jet', 'onyx', 'graphite', 'navy', 'espresso',
+  'wine', 'burgundy', 'forest', 'olive', 'coffee',
+])
+
+function synthesizeInventedColor(cls: string): Synth | null {
+  const m = cls.match(/^(bg|text|border|ring|from|to|via|fill|stroke|decoration|caret|accent|placeholder|outline|divide)-(.+)$/)
+  if (!m) return null
+  const prefix = m[1]
+  const rest = m[2]
+  if (rest.includes('[')) return null // arbitrary value bg-[#fff] — real
+  const word = rest.split('/')[0].split('-')[0] // 'warm' from 'warm-900'; drop opacity suffix
+  if (!INVENTED_COLOR_WORDS.has(word)) return null
+  const esc = cssEsc(cls)
+  if (prefix === 'text' || prefix === 'decoration' || prefix === 'caret' || prefix === 'accent' || prefix === 'placeholder') {
+    return { css: `.${esc} { color: hsl(var(--foreground)); }` }
+  }
+  if (prefix === 'border' || prefix === 'ring' || prefix === 'outline' || prefix === 'divide') {
+    return { css: `.${esc} { border-color: hsl(var(--border)); }` }
+  }
+  if (prefix === 'fill') return { css: `.${esc} { fill: hsl(var(--foreground)); }` }
+  if (prefix === 'stroke') return { css: `.${esc} { stroke: hsl(var(--border)); }` }
+  // bg / from / to / via → a surface. Dark words map to a deeper token so overlaid text stays readable.
+  const isDark = DARK_COLOR_WORDS.has(word) || /-(7|8|9)\d\d$/.test(rest)
+  const token = isDark ? '--secondary' : '--card'
+  return { css: `.${esc} { background-color: hsl(var(${token})); }` }
+}
+
 export function computeCssClosure(
   files: { path: string; content: string }[],
   knownCss: string
@@ -411,7 +454,14 @@ export function computeCssClosure(
   for (const cls of used) {
     if (!cls || seen.has(cls)) continue
     seen.add(cls)
-    if (isTailwindClass(cls)) continue
+    if (isTailwindClass(cls)) {
+      // Even a "valid-looking" Tailwind class may be an invented color (bg-cream) that the
+      // JIT drops — map those to a token so they render instead of vanishing. Real utilities
+      // return null here and are correctly skipped.
+      const invented = synthesizeInventedColor(cls)
+      if (invented) { synthBlocks.push(invented.css); synthesized.push(cls) }
+      continue
+    }
     if (defined.has(cls)) continue
     // Custom class with no definition anywhere.
     const synth = synthesizeClass(cls)
