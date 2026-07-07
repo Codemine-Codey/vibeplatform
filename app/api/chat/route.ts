@@ -962,7 +962,7 @@ export async function POST(req: Request) {
         // turn, so its ~35s cold-create overlaps work instead of blocking afterward.
         // Started only here (post-brief) so a clarify/bail never orphans a VM. runPipeline
         // awaits it; the no-op catch prevents an unhandled rejection while it provisions.
-        const sandboxPromise: Promise<Sandbox> = Sandbox.create({ timeout: 1_800_000, ports: [3000] })
+        const sandboxPromise: Promise<Sandbox> = Sandbox.create({ timeout: 2_700_000, ports: [3000] })
         sandboxPromise.catch(() => {})
 
         // PLANNER system prompt — LEAN (progressive disclosure): the planner plans
@@ -1233,7 +1233,7 @@ async function reopenFromSnapshot(
   if (!project || !project.snapshot_path) return null
   try {
     writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { status: 'loading' } })
-    const sandbox = await Sandbox.create({ timeout: 1_800_000, ports: [3000] })
+    const sandbox = await Sandbox.create({ timeout: 2_700_000, ports: [3000] })
     const ok = await restoreSnapshotInto(sandbox, project.snapshot_path)
     if (!ok) return null
     const baked = await restoreBakedDeps(sandbox, project.skill as Skill).catch(() => false)
@@ -1314,7 +1314,7 @@ async function runPipeline({
       // ceiling only benefits users actively working — it doesn't inflate idle cost.
       // Prefer the VM already provisioning in parallel with classify/brief/plan; fall
       // back to a fresh create if none was pre-started.
-      sandbox = sandboxPromise ? await sandboxPromise : await Sandbox.create({ timeout: 1_800_000, ports: [3000] })
+      sandbox = sandboxPromise ? await sandboxPromise : await Sandbox.create({ timeout: 2_700_000, ports: [3000] })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       writer.write({

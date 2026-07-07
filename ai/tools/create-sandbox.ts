@@ -48,9 +48,10 @@ export const createSandbox = ({ writer }: Params) => {
       })
 
       try {
-        // 30-min default (was 10 min) — a build + a few edits must fit comfortably inside the
-        // sandbox lifetime, or it dies mid-work and forces a full rebuild (Fable step 7).
-        const sandbox = await Sandbox.create({ timeout: timeout ?? 1_800_000, ports })
+        // 45-min default (the Vercel Sandbox max) — a build + a session of edits fits inside the
+        // lifetime; and if it still expires mid-session, the chat route transparently reopens it
+        // from the snapshot, so the user never has to rebuild.
+        const sandbox = await Sandbox.create({ timeout: timeout ?? 2_700_000, ports })
         const sandboxId = sandbox.sandboxId
 
         // Write base scaffold files — getScaffoldFiles INCLUDES src/main.tsx (the Vite entry).
