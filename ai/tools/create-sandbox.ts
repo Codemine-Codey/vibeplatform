@@ -58,7 +58,7 @@ export const createSandbox = ({ writer }: Params) => {
         // SCAFFOLD_FILES alone omitted it, so this path could 404 the entry and blank the app.
         let scaffoldOk = false
         try {
-          const allFiles = getScaffoldFiles('website').map((f) => ({
+          const allFiles = getScaffoldFiles().map((f) => ({
             path: f.path,
             content: Buffer.from(f.content, 'utf8'),
           }))

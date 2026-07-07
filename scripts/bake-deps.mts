@@ -1,12 +1,9 @@
-// One-time: bake node_modules for each project type into the public assets bucket.
+// One-time: bake the unified node_modules tarball into the public assets bucket.
 // Run: npx tsx --env-file=.env.local scripts/bake-deps.mts
-// Re-run whenever a scaffold's dependencies change.
+// Re-run whenever scaffold dependencies change (scaffold.ts makePackageJson).
+// ONE tarball covers all project types (website + webapp + game deps merged).
 import { bakeDeps } from '../lib/baked-deps'
 
-console.log('=== Baking WEB (websites/apps) ===')
-const webUrl = await bakeDeps()
-console.log('✅ web:', webUrl, '\n')
-
-console.log('=== Baking GAME ===')
-const gameUrl = await bakeDeps('game')
-console.log('✅ game:', gameUrl)
+console.log('=== Baking unified node_modules (website + webapp + game) ===')
+const url = await bakeDeps()
+console.log('✅ Done:', url)

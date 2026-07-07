@@ -1236,7 +1236,7 @@ async function reopenFromSnapshot(
     const sandbox = await Sandbox.create({ timeout: 2_700_000, ports: [3000] })
     const ok = await restoreSnapshotInto(sandbox, project.snapshot_path)
     if (!ok) return null
-    const baked = await restoreBakedDeps(sandbox, project.skill as Skill).catch(() => false)
+    const baked = await restoreBakedDeps(sandbox).catch(() => false)
     try {
       const install = await sandbox.runCommand({
         detached: true, cmd: 'bash',
@@ -1350,15 +1350,11 @@ async function runPipeline({
     }, 45_000)
   }
 
-  // Write the SKILL-SPECIFIC scaffold ALWAYS (both warm and cold). This is the critical
-  // fix (2026-07-06): the warm pool writes only the base SCAFFOLD_FILES — it CANNOT include
-  // src/main.tsx because that file is skill-dependent (game vs non-game) and the skill isn't
-  // known at pre-warm time. So a WARM sandbox had NO main.tsx → the Vite entry 404'd →
-  // nothing mounted → the whole "spotted an issue / rebuild everything" spiral. Writing
-  // getScaffoldFiles(skill) here adds main.tsx (+ any skill files); re-writing the base
-  // files on a warm sandbox is harmless and cheap.
+  // Write the unified scaffold (warm and cold). Warm sandboxes already have these files
+  // but re-writing is harmless and cheap — it guarantees main.tsx and App.tsx are present
+  // even if the warm entry was created from SCAFFOLD_FILES (the old base set).
   try {
-    const scaffoldBuffers = getScaffoldFiles(skill).map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
+    const scaffoldBuffers = getScaffoldFiles().map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
     // Write with ONE retry — a partial/transient write of the scaffold is the root of the
     // "main.tsx 404 / NotFound doesn't exist" class, so we make its presence non-negotiable.
     try {
@@ -1372,7 +1368,7 @@ async function runPipeline({
       // Restore the BAKED node_modules (fast extract) then a reconcile install for any
       // package the AI adds — far quicker than a cold install. Runs in the background.
       ;(async () => {
-        const baked = await restoreBakedDeps(sandbox, skill).catch(() => false)
+        const baked = await restoreBakedDeps(sandbox).catch(() => false)
         const installCmd = baked
           ? 'command -v bun >/dev/null 2>&1 && bun install --no-save || pnpm install --prefer-offline'
           : 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'
@@ -1393,7 +1389,7 @@ async function runPipeline({
   })
 
   // ── Step 2: Build pipeline addendum ─────────────────────────────────────
-  const scaffoldFiles = getScaffoldFiles(skill)
+  const scaffoldFiles = getScaffoldFiles()
   const scaffoldPaths = scaffoldFiles.map(f => f.path).join(', ')
   // Unique seed per generation — ensures the model makes distinct creative choices
   // even when two users submit the same prompt. Injected into context so it
@@ -1442,7 +1438,7 @@ async function runPipeline({
   const pipelineTools: Record<string, any> = skill === 'website'
     ? {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, skill }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
         getUnsplashBatch: getUnsplashBatch(),
         generateImageBatch: generateImageBatch(),
         planProject: capturePlan,
@@ -1450,7 +1446,7 @@ async function runPipeline({
       }
     : {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, skill }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
         planProject: capturePlan,
         lookupReference: lookupReference(),
       }

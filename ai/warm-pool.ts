@@ -1,5 +1,5 @@
 import { Sandbox } from '@vercel/sandbox'
-import { SCAFFOLD_FILES } from './tools/scaffold'
+import { getScaffoldFiles } from './tools/scaffold'
 
 interface WarmEntry {
   sandbox: Sandbox
@@ -26,7 +26,7 @@ async function addOne() {
   try {
     const sandbox = await Sandbox.create({ timeout: SANDBOX_TIMEOUT_MS, ports: [3000] })
     await sandbox.writeFiles(
-      SCAFFOLD_FILES.map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
+      getScaffoldFiles().map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
     )
     const entry: WarmEntry = { sandbox, sandboxId: sandbox.sandboxId, createdAt: Date.now(), ready: false }
     pool.push(entry)
