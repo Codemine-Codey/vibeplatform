@@ -44,7 +44,7 @@ import {
   installMissingModules,
   repairFile,
 } from '@/lib/sandbox-util'
-import { createProjectRow, snapshotProject, updateProjectRow, getProjectBySandboxId, incrementProjectTokens } from '@/lib/projects-db'
+import { createProjectRow, snapshotProject, updateProjectRow, getProjectBySandboxId, incrementProjectTokens, restoreSnapshotInto } from '@/lib/projects-db'
 import { tokenStore } from '@/lib/token-context'
 import { ensureValidCss } from '@/lib/css-guard'
 import { trimStaleReadResults } from '@/lib/trim-history'
@@ -1093,9 +1093,28 @@ async function runAgenticLoop({
   // instead of rebuilding. The file list is included when known; when it isn't,
   // the AI is told to discover files with grepCode/readFiles — it must NEVER
   // create a new sandbox or regenerate the project just because the list is absent.
+  // Ensure a LIVE sandbox for edits. If the stored one has TERMINATED (past its hard timeout),
+  // transparently reopen it from the Supabase snapshot into a fresh sandbox and use that id for
+  // the rest of the turn — so the AI edits instead of hitting a dead workspace and telling the
+  // user to "rebuild" (which wipes their project).
+  let editSandboxId: string | null = null
+  if (isEdit) {
+    const { sandboxId } = getProjectContext(messages)
+    if (sandboxId) {
+      editSandboxId = sandboxId
+      let alive = false
+      try { await Sandbox.get({ sandboxId }); alive = true } catch { alive = false }
+      if (!alive) {
+        const reopened = await reopenFromSnapshot(sandboxId, writer).catch(() => null)
+        if (reopened) editSandboxId = reopened
+      }
+    }
+  }
+
   let resolvedSystemPrompt = systemPrompt
   if (isEdit) {
-    const { sandboxId, filePaths } = getProjectContext(messages)
+    const { filePaths } = getProjectContext(messages)
+    const sandboxId = editSandboxId
     if (sandboxId) {
       resolvedSystemPrompt +=
         `\n\n## YOUR CURRENT PROJECT\n` +
@@ -1167,7 +1186,7 @@ async function runAgenticLoop({
   // caught it. Run the type-check gate HERE, awaited, so the edit is fixed before the turn
   // ends — clean + fast, no post-preview loop. tsc is ~20s and catches the whole class.
   if (isEdit) {
-    const { sandboxId } = getProjectContext(messages)
+    const sandboxId = editSandboxId
     if (sandboxId) {
       try {
         const sandbox = await Sandbox.get({ sandboxId })
@@ -1182,7 +1201,7 @@ async function runAgenticLoop({
   // latest edits — resume is lossless) and add this turn's tokens. Background;
   // the user already has the streamed response.
   if (isEdit) {
-    const { sandboxId } = getProjectContext(messages)
+    const sandboxId = editSandboxId
     if (sandboxId) {
       void (async () => {
         try {
@@ -1200,6 +1219,48 @@ async function runAgenticLoop({
   }
 }
 
+
+// Transparently reopen a project whose sandbox has TERMINATED (past its hard timeout) into a
+// fresh sandbox restored from the Supabase snapshot — so an EDIT never dead-ends on "workspace
+// expired / say rebuild" (which destroys the user's project). Restores files + baked deps, starts
+// the dev server, and emits the new sandbox + URL to the client. Returns the new sandboxId (the
+// AI + its edit tools use it this turn) or null if there's no snapshot to restore from.
+async function reopenFromSnapshot(
+  oldSandboxId: string,
+  writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
+): Promise<string | null> {
+  const project = await getProjectBySandboxId(oldSandboxId).catch(() => null)
+  if (!project || !project.snapshot_path) return null
+  try {
+    writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { status: 'loading' } })
+    const sandbox = await Sandbox.create({ timeout: 1_800_000, ports: [3000] })
+    const ok = await restoreSnapshotInto(sandbox, project.snapshot_path)
+    if (!ok) return null
+    const baked = await restoreBakedDeps(sandbox, project.skill as Skill).catch(() => false)
+    try {
+      const install = await sandbox.runCommand({
+        detached: true, cmd: 'bash',
+        args: ['-c', baked
+          ? 'command -v bun >/dev/null 2>&1 && bun install --no-save || pnpm install --prefer-offline'
+          : 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'],
+      })
+      await Promise.race([install.wait(), new Promise<void>((_, rej) => setTimeout(() => rej(new Error('t')), 120_000))])
+    } catch { /* non-fatal */ }
+    try {
+      await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'] })
+    } catch { /* non-fatal */ }
+    const url = sandbox.domain(3000)
+    await waitForDevServer(url)
+    writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { sandboxId: sandbox.sandboxId, projectId: project.id, status: 'done' } })
+    writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
+    await updateProjectRow(project.id, { sandbox_id: sandbox.sandboxId, preview_url: url }).catch(() => {})
+    console.warn(`[reopen] restored terminated sandbox ${oldSandboxId} -> ${sandbox.sandboxId} from snapshot`)
+    return sandbox.sandboxId
+  } catch (e) {
+    console.warn('[reopen] failed:', e instanceof Error ? e.message : e)
+    return null
+  }
+}
 
 // ── Server-side generation pipeline ──────────────────────────────────────────
 // All tool decisions (createSandbox, pnpm install, pnpm dev, getSandboxURL) are
