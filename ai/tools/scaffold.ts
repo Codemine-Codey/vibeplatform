@@ -1413,6 +1413,45 @@ const GAME_ONLY_FILES: Array<{ path: string; content: string }> = [
   { path: 'src/components/game/engine.ts', content: GAME_ENGINE_TS },
 ]
 
+// FILE-BASED ROUTER (scaffold-owned, read-only for website/webapp — Fable step 2/G14).
+// Every src/pages/*.tsx is auto-routed by filename: Home.tsx → "/", About.tsx → "/about",
+// Menu.tsx → "/menu". Optional global chrome lives in src/components/Layout.tsx
+// (Nav + {children} + Footer); if absent, pages render bare (no crash). The model ONLY adds
+// page files + Layout and NEVER writes this file — which is exactly where the recurring
+// App.tsx errors were born (unescaped quotes, missing newline after the router import, route/
+// import mismatches). Games are excluded: they render <App/> bare with no router, so they
+// keep writing their own App.tsx (see getScaffoldFiles).
+export const APP_TSX_ROUTER = `import { Routes, Route } from 'react-router-dom'
+import type { ComponentType, ReactNode } from 'react'
+import NotFound from './components/NotFound'
+
+const pageModules = import.meta.glob('./pages/*.tsx', { eager: true }) as Record<string, { default: ComponentType }>
+const layoutModules = import.meta.glob('./components/Layout.tsx', { eager: true }) as Record<string, { default: ComponentType<{ children: ReactNode }> }>
+
+const routes = Object.entries(pageModules)
+  .map(([file, mod]) => {
+    const name = (file.split('/').pop() || '').replace(/\\.tsx$/, '')
+    const lower = name.toLowerCase()
+    const path = lower === 'home' || lower === 'index' ? '/' : '/' + lower
+    return { path, Component: mod && mod.default }
+  })
+  .filter((r) => Boolean(r.Component))
+
+const Layout = Object.values(layoutModules)[0] && Object.values(layoutModules)[0].default
+
+export default function App() {
+  const content = (
+    <Routes>
+      {routes.map((r) => (
+        <Route key={r.path} path={r.path} element={<r.Component />} />
+      ))}
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  )
+  return Layout ? <Layout>{content}</Layout> : content
+}
+`
+
 export function getScaffoldFiles(skill: Skill): Array<{ path: string; content: string }> {
   const mainTsx = { path: 'src/main.tsx', content: makeMainTsx(skill === 'game') }
   if (skill === 'game') {
@@ -1426,7 +1465,8 @@ export function getScaffoldFiles(skill: Skill): Array<{ path: string; content: s
       mainTsx,
     ]
   }
-  return [...SCAFFOLD_FILES, mainTsx]
+  // Website/webapp: ship the read-only file-router App.tsx so the model never writes routing.
+  return [...SCAFFOLD_FILES, mainTsx, { path: 'src/App.tsx', content: APP_TSX_ROUTER }]
 }
 
 // Deterministic set of every scaffold file path — used by the import-closure

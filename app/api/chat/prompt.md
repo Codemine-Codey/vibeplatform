@@ -133,14 +133,19 @@ Before scaffolding a website/app/game, the relevant **design skill is already ac
 
 ## 6. ROUTER INVARIANT + multi-page by default
 
-**Routing context is ALREADY mounted.** `src/main.tsx` (scaffolded, do NOT touch it) already wraps the app in `<BrowserRouter>`. So in `App.tsx` you write `<Routes>` directly — it works. **NEVER import or add `<BrowserRouter>`/`<HashRouter>` anywhere, and NEVER edit `main.tsx`** (doing so double-mounts the router and crashes). `<Routes>`/`useRoutes()` are valid because the context is already there.
+**Routing is FILE-BASED and fully automatic — you NEVER write `src/App.tsx` or `src/main.tsx`.** Both are scaffolded, verified, and read-only (any `App.tsx`/`main.tsx` you emit is discarded). The scaffold's `App.tsx` auto-routes every file in `src/pages/` by its filename:
+- `src/pages/Home.tsx` → `/` (the home page — you MUST create this one)
+- `src/pages/About.tsx` → `/about`, `src/pages/Menu.tsx` → `/menu`, `src/pages/Contact.tsx` → `/contact` (filename, lowercased)
+- Each page is a **default-exported** React component that takes NO props. The catch-all `NotFound` route is already wired.
 
-**Build MULTI-PAGE by default** for websites: a real route per major page (Home, About/Story, Products/Menu/Services, Contact, etc.) via `<Routes><Route path="/" .../><Route path="/about" .../>…</Routes>` + a shared `<Nav>` (with `<Link>`s) and `<Footer>`. Each page is its own component/file, on-brand and complete. (A pure one-pager is fine only if the user explicitly asks for a single landing page.)
+**Global chrome (nav + footer) goes in ONE file: `src/components/Layout.tsx`** — a default-exported component `({ children }) => (<><Nav/>{children}<Footer/></>)`. The router wraps every page in it automatically. If you don't create it, pages render bare (no crash). Put `<Nav>`/`<Footer>` here, never re-declared per page.
+
+**Build MULTI-PAGE by default** for websites: one file in `src/pages/` per major page (Home, About/Story, Products/Menu/Services, Contact, etc.), each on-brand and complete. (A pure one-pager — only `src/pages/Home.tsx` — is fine only if the user explicitly asks for a single landing page.) **NEVER import or add `<BrowserRouter>`/`<Routes>`/`<Route>` yourself** — the scaffold owns all of that. You only create `src/pages/*.tsx` + `src/components/Layout.tsx`.
 
 ## 6.1 ROUTING & LINKS — never a blank screen
 
-- The app MUST include a catch-all route LAST: `<Route path="*" element={<NotFound />} />` rendering a simple, on-brand "not found" with a link home.
-- Only `<Link to="/x">` to pages you actually build a `<Route>` for. A footer "Terms"/"Privacy" you did NOT create must NOT navigate — render it as a non-navigating element (`<button>`/`<span>`, or `href="#"` with `preventDefault`). A visible link either works or does nothing — never a blank route.
+- The catch-all `NotFound` route is already in the scaffold router — you do NOT add it.
+- Only `<Link to="/x">` where `x` matches a page file you created (`/about` ⇢ `src/pages/About.tsx`). A footer "Terms"/"Privacy" you did NOT create must NOT navigate — render it as a non-navigating element (`<button>`/`<span>`, or `href="#"` with `preventDefault`). A visible link either works or does nothing — never a blank route.
 - Websites: a real route per major page, unique `<title>` per route, shareable URLs (no hash-only nav).
 
 ---
@@ -227,7 +232,7 @@ The workspace already exists. Do NOT call `planProject`, `createSandbox`, or `ge
 
 **Edit sequence:** `grepCode` to locate (often enough to patch straight away) → `readFiles` only if you need full content (batch, ≤5 reads) → `patchFile` the smallest diff → done. The preview hot-reloads automatically; don't run `pnpm dev` after a patch. If `patchFile` fails (string not found), `readFile` again and retry once.
 
-**Adding a page** = new file(s) + a tiny routing patch: `generateFiles` for the NEW page only (composing the locked tokens + existing components), then ONE `patchFile` on `App.tsx` for the `<Route>` + nav link. NEVER regenerate `App.tsx` or existing pages.
+**Adding a page** (website/webapp) = just create `src/pages/<Name>.tsx` with `generateFiles` — it is auto-routed to `/<name>` by the scaffold router; there is NO `App.tsx` route to patch (App.tsx is read-only). If it needs a nav entry, ONE `patchFile` on `src/components/Layout.tsx` to add the `<Link>`. NEVER write or patch `App.tsx`/`main.tsx`. (Games have no router — they edit their own `App.tsx` normally.)
 
 Common edits: button color → the Tailwind/token class in JSX · heading → the text string · player speed → the constant at the top · spacing → the padding/margin class.
 

@@ -110,12 +110,11 @@ export const planProject = (
       'The manifest is FINAL: generateFiles must produce exactly these files, and each file must export ' +
       'exactly the names you declare here. Declaring the exports up-front is what prevents cross-file ' +
       'import drift (importing useHabitStore when the store actually exports useStore).\n\n' +
-      'PHASING (SHELL-FIRST progressive build): assign each file a `phase`. Phase 1 is the complete, ' +
-      'immediately-previewable skeleton — index.css, App.tsx with ALL routes wired, Nav, Footer, and the ' +
-      'HOME page, all built fully. Give every OTHER page/route a phase of 2 or higher: it will be created as ' +
-      'a branded SHELL in phase 1 and filled into a full page at its phase, LIVE in the preview. Group 3-6 ' +
-      'related pages per later phase. For a small or simple project, leave phase off (or use 1) so everything ' +
-      'ships at once. Foundation files (index.css, App.tsx, Nav, Footer) are always phase 1.',
+      'STRUCTURE (websites/webapps): routing is FILE-BASED and scaffolded — do NOT list src/App.tsx or ' +
+      'src/main.tsx (they are read-only and discarded). List one page per route in src/pages/ ' +
+      '(src/pages/Home.tsx is REQUIRED and routes to "/", src/pages/About.tsx → "/about", etc.), the global ' +
+      'nav/footer as src/components/Layout.tsx, plus any section components, stores, and src/index.css. ' +
+      'Leave `phase` off — every file ships in one pass. (Games only: DO list src/App.tsx — games have no router.)',
     inputSchema: z.object({
       files: z
         .array(

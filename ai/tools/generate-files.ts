@@ -266,9 +266,11 @@ interface Params {
   // only generates the REAL phase-1 files — the core of the fast-first-preview win. Empty
   // on single-phase builds.
   getShells?: () => Array<{ path: string; content: string }>
+  // Skill of the current project — decides App.tsx read-only enforcement (sites vs games).
+  skill?: 'website' | 'webapp' | 'game'
 }
 
-export const generateFiles = ({ writer, modelId, designContext, existingPaths, abortSignal, getShells }: Params) =>
+export const generateFiles = ({ writer, modelId, designContext, existingPaths, abortSignal, getShells, skill }: Params) =>
   tool({
     description,
     inputSchema: z.object({
@@ -304,7 +306,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
         return richError.message
       }
 
-      const writeFiles = getWriteFiles({ sandbox, toolCallId, writer })
+      const writeFiles = getWriteFiles({ sandbox, toolCallId, writer, skill })
       const uploaded: File[] = []
 
       // ── Server-stamped shells (Fable #1) ─────────────────────────────────────

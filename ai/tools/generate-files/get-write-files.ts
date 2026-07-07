@@ -19,6 +19,9 @@ interface Params {
   sandbox: Sandbox
   toolCallId: string
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
+  // Skill decides whether src/App.tsx is read-only: website/webapp ship the scaffold
+  // file-router App.tsx (never overwritten); games write their own App.tsx (no router).
+  skill?: 'website' | 'webapp' | 'game'
 }
 
 const VITE_CONFIG_NAMES = new Set([
@@ -102,7 +105,9 @@ function ensureViteAllowedHosts(content: string): string {
   )
 }
 
-export function getWriteFiles({ sandbox, toolCallId, writer }: Params) {
+export function getWriteFiles({ sandbox, toolCallId, writer, skill }: Params) {
+  // Sites get the read-only scaffold router; games keep writing their own App.tsx.
+  const appReadonly = skill !== 'game'
   return async function writeFiles(params: {
     written: string[]
     files: File[]
@@ -112,7 +117,8 @@ export function getWriteFiles({ sandbox, toolCallId, writer }: Params) {
     // protected scaffold file. The verified version already on the sandbox wins — the model
     // can only ADD files (pages/components/data) and edit index.css/package.json.
     const files = params.files.filter((file) => {
-      if (READONLY_SCAFFOLD_PATHS.has(file.path)) {
+      const isReadonly = READONLY_SCAFFOLD_PATHS.has(file.path) || (appReadonly && file.path === 'src/App.tsx')
+      if (isReadonly) {
         console.warn(`[write-files] blocked overwrite of read-only scaffold file: ${file.path}`)
         return false
       }

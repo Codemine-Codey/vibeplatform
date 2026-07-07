@@ -1381,7 +1381,7 @@ async function runPipeline({
   const pipelineTools: Record<string, any> = skill === 'website'
     ? {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, skill }),
         getUnsplashBatch: getUnsplashBatch(),
         generateImageBatch: generateImageBatch(),
         planProject: capturePlan,
@@ -1389,7 +1389,7 @@ async function runPipeline({
       }
     : {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
+        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, skill }),
         planProject: capturePlan,
         lookupReference: lookupReference(),
       }
