@@ -1297,9 +1297,15 @@ async function runPipeline({
   // getScaffoldFiles(skill) here adds main.tsx (+ any skill files); re-writing the base
   // files on a warm sandbox is harmless and cheap.
   try {
-    await sandbox.writeFiles(
-      getScaffoldFiles(skill).map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
-    )
+    const scaffoldBuffers = getScaffoldFiles(skill).map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
+    // Write with ONE retry — a partial/transient write of the scaffold is the root of the
+    // "main.tsx 404 / NotFound doesn't exist" class, so we make its presence non-negotiable.
+    try {
+      await sandbox.writeFiles(scaffoldBuffers)
+    } catch (firstErr) {
+      console.warn('[scaffold] first write failed, retrying once:', firstErr instanceof Error ? firstErr.message : firstErr)
+      await sandbox.writeFiles(scaffoldBuffers)
+    }
     // Deps: cold sandboxes install now (warm ones already installed during pre-warm).
     if (!hadWarmSandbox) {
       // Restore the BAKED node_modules (fast extract) then a reconcile install for any

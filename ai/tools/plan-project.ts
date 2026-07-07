@@ -64,38 +64,14 @@ export function normalizeManifest(
   raw: Array<{ path: string; exports: string[]; phase?: number }>,
   extraPackages: string[] = []
 ): NormalizedManifest {
-  // 1. Default missing/invalid phases to 1.
-  const files: ManifestFile[] = raw.map((f) => ({
-    path: f.path,
-    exports: f.exports,
-    phase: typeof f.phase === 'number' && f.phase >= 1 ? Math.floor(f.phase) : 1,
-  }))
-
-  // 2. Force foundation + chrome to phase 1 (the shell-first invariant's anchor).
-  for (const f of files) {
-    if (FOUNDATION_RE.test(f.path) || CHROME_RE.test(f.path)) f.phase = 1
-  }
-
-  // 2b. PHASING DISABLED (2026-07-06) — reverted to ONE-SHOT generation. Phasing + server
-  // shells regressed real builds (shelled App.tsx, broke the mount). Lovable's real lever is
-  // the SCAFFOLD (which we already ship) + generating only the ~10-15 project files in one
-  // pass, gated silently by typecheck/build. So every manifest stays single-phase: the model
-  // generates all files at once. (isEnrichablePage/AUTO_PHASE_* kept but unused.)
-  void isEnrichablePage
-
-  // 3. Renumber distinct phases to a contiguous 1..N (so gaps like 1,3,5 → 1,2,3).
-  const distinct = [...new Set(files.map((f) => f.phase))].sort((a, b) => a - b)
-  const remap = new Map(distinct.map((p, i) => [p, i + 1]))
-  for (const f of files) f.phase = remap.get(f.phase) ?? 1
-  let phaseCount = distinct.length
-
-  // 4. Collapse to a single phase for small projects or trivial phasing — the
-  //    current single-pass behavior, which must keep working exactly as before.
-  const laterCount = files.filter((f) => f.phase > 1).length
-  if (phaseCount <= 1 || files.length <= SMALL_PROJECT_FILES || laterCount < MIN_ENRICHMENT_FILES) {
-    for (const f of files) f.phase = 1
-    phaseCount = 1
-  }
+  // PHASING FULLY DISABLED (2026-07-06, Fable step 1) — ONE-SHOT only. Ignore the model's
+  // `phase` hints ENTIRELY (a stray tag was re-enabling multi-phase → ghost "Phase 1" UX +
+  // enrichment narrations). Every file is phase 1; the model generates all files in one pass.
+  // Reliability comes from the scaffold owning error-prone code + the silent in-memory gate,
+  // not from phasing. (FOUNDATION_RE/CHROME_RE/isEnrichablePage/AUTO_PHASE_* kept but unused.)
+  void isEnrichablePage; void FOUNDATION_RE; void CHROME_RE; void SMALL_PROJECT_FILES; void MIN_ENRICHMENT_FILES
+  const files: ManifestFile[] = raw.map((f) => ({ path: f.path, exports: f.exports, phase: 1 }))
+  const phaseCount = 1
 
   return { files, phaseCount, multiPhase: phaseCount > 1, extraPackages }
 }

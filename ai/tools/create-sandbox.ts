@@ -1,7 +1,7 @@
 import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import type { DataPart } from '../messages/data-parts'
 import { Sandbox } from '@vercel/sandbox'
-import { SCAFFOLD_FILES } from './scaffold'
+import { getScaffoldFiles } from './scaffold'
 import { getRichError } from './get-rich-error'
 import { tool } from 'ai'
 import description from './create-sandbox.md'
@@ -48,13 +48,16 @@ export const createSandbox = ({ writer }: Params) => {
       })
 
       try {
-        const sandbox = await Sandbox.create({ timeout: timeout ?? 600000, ports })
+        // 30-min default (was 10 min) — a build + a few edits must fit comfortably inside the
+        // sandbox lifetime, or it dies mid-work and forces a full rebuild (Fable step 7).
+        const sandbox = await Sandbox.create({ timeout: timeout ?? 1_800_000, ports })
         const sandboxId = sandbox.sandboxId
 
-        // Write base scaffold files
+        // Write base scaffold files — getScaffoldFiles INCLUDES src/main.tsx (the Vite entry).
+        // SCAFFOLD_FILES alone omitted it, so this path could 404 the entry and blank the app.
         let scaffoldOk = false
         try {
-          const allFiles = SCAFFOLD_FILES.map((f) => ({
+          const allFiles = getScaffoldFiles('website').map((f) => ({
             path: f.path,
             content: Buffer.from(f.content, 'utf8'),
           }))

@@ -1,21 +1,8 @@
-import { SparklesIcon } from 'lucide-react'
-import { ToolHeader } from '../tool-header'
-import { ToolMessage } from '../tool-message'
-
-// Professional, user-facing rendering. The full technical error (stack trace,
-// PostCSS detail, file/line) is still sent to the AI via the message data and
-// transformMessages — it is just hidden from the chat so the experience stays
-// clean. We never show raw stack traces to the user.
+// INVISIBLE SELF-HEAL (Fable step 5): the technical error is still routed to the AI (via the
+// message data + transformMessages) and fixed in the background, but the heal is NOT rendered
+// in chat. Lovable never shows "spotted a display issue / fixing it now" — the preview iframe
+// simply refreshes once the fix lands. Rendering nothing keeps the experience honest and calm;
+// the generic "working" status already tells the user something is in progress.
 export function ReportErrors() {
-  return (
-    <ToolMessage>
-      <ToolHeader>
-        <SparklesIcon className="w-3.5 h-3.5" />
-        <span>Polishing your preview</span>
-      </ToolHeader>
-      <div className="relative min-h-5 text-sm text-muted-foreground">
-        Spotted a small display issue — fixing it now.
-      </div>
-    </ToolMessage>
-  )
+  return null
 }

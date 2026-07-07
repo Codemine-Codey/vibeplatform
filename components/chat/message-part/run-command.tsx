@@ -1,5 +1,5 @@
 import type { DataPart } from '@/ai/messages/data-parts'
-import { CheckIcon, SquareChevronRightIcon, XIcon } from 'lucide-react'
+import { CheckIcon, SquareChevronRightIcon } from 'lucide-react'
 import { Spinner } from './spinner'
 import { ToolHeader } from '../tool-header'
 import { ToolMessage } from '../tool-message'
@@ -35,35 +35,33 @@ function getStatusLabel(message: DataPart['run-command']): string {
   if (message.status === 'running') return label + '...'
   // Friendly background steps always read as completed — repairs are best-effort
   // and a "failed" here would alarm the user over something already handled.
+  // NEVER surface "failed" (Fable step 5): every command failure is handled by the pipeline's
+  // silent repair/fallback, so a red "— failed" in chat only alarms the user over something
+  // already being fixed. A finished step always reads as "— done"; anything else reads as
+  // in-progress. Genuinely unrecoverable states are handled by the pipeline's terminal message.
   if (isFriendlyPhrase(message.command)) {
     if (message.status === 'done' || message.status === 'error') return label + ' — done'
     return label
   }
-  if (message.status === 'done' && (!message.exitCode || message.exitCode === 0)) return label + ' — done'
-  if (message.status === 'done' && message.exitCode === 1) return label + ' — failed'
-  if (message.status === 'error') return label + ' — failed'
+  if (message.status === 'done' || message.status === 'error') return label + ' — done'
   return label
 }
 
 export function RunCommand({ message }: { message: DataPart['run-command'] }) {
-  const isError =
-    (message.exitCode !== undefined && message.exitCode > 0) ||
-    message.status === 'error'
+  // No error state is surfaced (Fable step 5) — the card only ever reads "Working" or "Done".
+  // Command failures are absorbed by the pipeline's silent repair; showing a red X here would
+  // alarm the user over something already handled.
   const isActive = ['executing', 'waiting', 'running'].includes(message.status)
 
   return (
     <ToolMessage>
       <ToolHeader>
         <SquareChevronRightIcon className="w-3.5 h-3.5" />
-        {isActive ? 'Working' : isError ? 'Errored' : 'Done'}
+        {isActive ? 'Working' : 'Done'}
       </ToolHeader>
       <div className="relative pl-6 min-h-5">
         <Spinner className="absolute left-0 top-0" loading={isActive}>
-          {isError ? (
-            <XIcon className="w-4 h-4 text-red-700" />
-          ) : (
-            <CheckIcon className="w-4 h-4" />
-          )}
+          <CheckIcon className="w-4 h-4" />
         </Spinner>
         <span>{getStatusLabel(message)}</span>
       </div>

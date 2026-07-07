@@ -11,6 +11,36 @@ import { SCAFFOLD_PATH_SET } from './scaffold'
 import { tool } from 'ai'
 import description from './generate-files.md'
 import z from 'zod/v3'
+import * as ts from 'typescript'
+
+// ── In-memory SYNTAX GATE (Fable step 3) ──────────────────────────────────────
+// Parse a generated TS/TSX file with the TypeScript compiler API (no build, no sandbox,
+// ~5-10ms/file, runs inside the Vercel function). Catches the exact error classes we keep
+// shipping — an unescaped apostrophe in a string, a missing newline after an import — so a
+// syntactically-broken file can be repaired (or blocked) BEFORE it ever reaches the build or
+// the user's preview. Returns human-readable syntax error messages (empty = clean).
+function syntaxErrors(path: string, content: string): string[] {
+  if (!/\.(ts|tsx|mts|cts)$/.test(path)) return []
+  try {
+    const res = ts.transpileModule(content, {
+      compilerOptions: {
+        jsx: ts.JsxEmit.Preserve,
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        isolatedModules: true,
+      },
+      reportDiagnostics: true,
+      fileName: path.endsWith('.tsx') ? path : path,
+    })
+    return (res.diagnostics ?? [])
+      .filter((d) => d.category === ts.DiagnosticCategory.Error)
+      .map((d) => ts.flattenDiagnosticMessageText(d.messageText, ' '))
+      .filter((m, i, a) => a.indexOf(m) === i)
+      .slice(0, 6)
+  } catch {
+    return []
+  }
+}
 
 // Read a text file from the sandbox (streamed). Returns null if absent/unreadable —
 // used by the CSS-closure pass to read the CURRENT index.css + persistent utilities.
@@ -378,6 +408,51 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
         } catch {
           // retry failure is non-fatal
         }
+      }
+
+      // ── SYNTAX GATE (Fable step 3) — compiler-checked in memory, before the build ──
+      // Every generated TS/TSX file is parsed with the TypeScript compiler. Any file with a
+      // SYNTAX error (the recurring unescaped-quote / missing-newline classes) is batch-
+      // repaired with the EXACT compiler messages, then re-checked (≤2 rounds). A syntactically
+      // broken file therefore never reaches the vite build or the user's preview — deterministic,
+      // no "spotted a display issue" self-heal. Skips scaffold files (read-only, already valid).
+      try {
+        for (let round = 0; round < 2; round++) {
+          const broken = uploaded
+            .filter((f) => !SCAFFOLD_PATH_SET.has(f.path))
+            .map((f) => ({ f, errs: syntaxErrors(f.path, f.content) }))
+            .filter((x) => x.errs.length > 0)
+          if (broken.length === 0) break
+          const issueText = broken
+            .map((x) => `// ${x.f.path}\n${x.errs.map((e) => '- ' + e).join('\n')}`)
+            .join('\n\n')
+          console.warn(`[syntax-gate] round ${round}: repairing ${broken.length} file(s) with syntax errors: ${broken.map((x) => x.f.path).join(', ')}`)
+          const fixMessages = [
+            ...messages,
+            {
+              role: 'user' as const,
+              content:
+                'These files have TypeScript SYNTAX errors and will NOT compile. Rewrite each one COMPLETELY to fix ' +
+                'EXACTLY the errors listed — most often an unescaped apostrophe/quote inside a string (use \\\' or a ' +
+                'different quote style) or a missing line break after an import. Keep every feature and all other code ' +
+                'identical; change only what is needed to make it parse.\n\n' + issueText,
+            },
+          ]
+          try {
+            const it = getContents({ messages: fixMessages, modelId, paths: broken.map((x) => x.f.path), designContext, abortSignal: boundedSignal(150_000) })
+            for await (const chunk of it) {
+              if (chunk.files.length > 0) {
+                const err = await writeFiles({ ...chunk, written: uploaded.map((f) => f.path) })
+                if (!err) for (const nf of chunk.files) { const i = uploaded.findIndex((u) => u.path === nf.path); if (i >= 0) uploaded[i] = nf; else uploaded.push(nf) }
+              }
+            }
+          } catch (e) {
+            console.warn('[syntax-gate] repair call failed (non-fatal):', e instanceof Error ? e.message : e)
+            break
+          }
+        }
+      } catch (e) {
+        console.warn('[syntax-gate] pass failed (non-fatal):', e instanceof Error ? e.message : e)
       }
 
       // ── Import-closure pass: generate any imported file that wasn't created ──

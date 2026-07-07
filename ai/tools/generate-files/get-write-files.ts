@@ -3,8 +3,17 @@ import type { File } from './get-contents'
 import type { Sandbox } from '@vercel/sandbox'
 import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import { getRichError } from '../get-rich-error'
-import { mergePackageJson } from '../scaffold'
+import { mergePackageJson, SCAFFOLD_PATH_SET } from '../scaffold'
 import { ensureValidCss } from '@/lib/css-guard'
+
+// Scaffold files the model must NEVER overwrite — the verified, error-prone infrastructure
+// (entry, router glue, configs, NotFound/blocks/utils fallbacks). Letting the model rewrite
+// these is the root of the "scaffold files don't exist / got clobbered" failures. index.css
+// and package.json are the deliberate exceptions: the model owns brand CSS (PostCSS-validated
+// below) and its package.json is merged (never replaced) with the scaffold deps.
+const READONLY_SCAFFOLD_PATHS: ReadonlySet<string> = new Set(
+  [...SCAFFOLD_PATH_SET].filter((p) => p !== 'src/index.css' && p !== 'package.json')
+)
 
 interface Params {
   sandbox: Sandbox
@@ -99,6 +108,18 @@ export function getWriteFiles({ sandbox, toolCallId, writer }: Params) {
     files: File[]
     paths: string[]
   }) {
+    // READ-ONLY SCAFFOLD ENFORCEMENT (Fable step 2/4): drop any attempt to overwrite a
+    // protected scaffold file. The verified version already on the sandbox wins — the model
+    // can only ADD files (pages/components/data) and edit index.css/package.json.
+    const files = params.files.filter((file) => {
+      if (READONLY_SCAFFOLD_PATHS.has(file.path)) {
+        console.warn(`[write-files] blocked overwrite of read-only scaffold file: ${file.path}`)
+        return false
+      }
+      return true
+    })
+    params = { ...params, files }
+
     const paths = params.written.concat(params.files.map((file) => file.path))
     writer.write({
       id: toolCallId,
