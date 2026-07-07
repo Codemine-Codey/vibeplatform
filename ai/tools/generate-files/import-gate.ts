@@ -25,6 +25,12 @@ const SUBSTITUTIONS: Array<[RegExp, string]> = [
   // Vite equivalent — VITE_* vars resolve, anything else is undefined (no crash). Always
   // a safe rewrite, and it deterministically kills the blank-screen-from-process.env class.
   [/\bprocess\.env\b/g, 'import.meta.env'],
+  // Scaffold block-component import path normalization. The AI sometimes writes the
+  // bare directory path without /index — Vite resolves it but TypeScript doesn't,
+  // causing blank previews on the type-check path. Rewrite to explicit index.
+  [/(from\s*['"])(@\/components\/blocks)(['"])/g, '$1$2/index$3'],
+  // Game engine path — both spellings resolve identically.
+  [/(from\s*['"])(@\/components\/game\/engine)\.js(['"])/g, '$1$2$3'],
 ]
 
 export function applySubstitutions(content: string): string {
