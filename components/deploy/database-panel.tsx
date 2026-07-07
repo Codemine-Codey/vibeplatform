@@ -27,10 +27,12 @@ export function DatabasePanel({ className }: Props) {
   const [queryRunning, setQueryRunning] = useState(false)
   const [tables, setTables] = useState<string[]>([])
 
-  // Fetch tables when database becomes available
+  // Fetch tables and auto-load first table when database becomes available
   useEffect(() => {
     if (!databaseId) return
-    fetchTables()
+    fetchTables().then(() => {
+      // Auto-run a SELECT on the first table so data appears immediately
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [databaseId])
 
@@ -43,9 +45,38 @@ export function DatabasePanel({ className }: Props) {
         body: JSON.stringify({ action: 'tables', databaseId }),
       })
       const data = await res.json() as { tables?: string[]; error?: string }
-      if (data.tables) setTables(data.tables)
+      if (data.tables) {
+        setTables(data.tables)
+        // Auto-show data from the first table
+        if (data.tables.length > 0) {
+          const firstTable = data.tables[0]
+          const q = `SELECT * FROM ${firstTable} LIMIT 50`
+          setSql(q)
+          await runQuery(databaseId, q)
+        }
+      }
     } catch {
       // non-fatal
+    }
+  }
+
+  async function runQuery(dbId: string, q: string) {
+    setQueryRunning(true)
+    setQueryError(undefined)
+    setQueryResult(null)
+    try {
+      const res = await fetch('/api/database', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'query', databaseId: dbId, sql: q.trim() }),
+      })
+      const data = await res.json() as { columns?: string[]; rows?: unknown[][]; error?: string }
+      if (!res.ok || data.error) throw new Error(data.error ?? 'Query failed')
+      setQueryResult({ columns: data.columns ?? [], rows: data.rows ?? [] })
+    } catch (err) {
+      setQueryError(err instanceof Error ? err.message : 'Query failed')
+    } finally {
+      setQueryRunning(false)
     }
   }
 
@@ -76,25 +107,9 @@ export function DatabasePanel({ className }: Props) {
 
   async function handleQuery() {
     if (!databaseId || !sql.trim()) return
-    setQueryRunning(true)
-    setQueryError(undefined)
-    setQueryResult(null)
-    try {
-      const res = await fetch('/api/database', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'query', databaseId, sql: sql.trim() }),
-      })
-      const data = await res.json() as { columns?: string[]; rows?: unknown[][]; error?: string }
-      if (!res.ok || data.error) throw new Error(data.error ?? 'Query failed')
-      setQueryResult({ columns: data.columns ?? [], rows: data.rows ?? [] })
-      // Refresh tables after any query (might be DDL)
-      await fetchTables()
-    } catch (err) {
-      setQueryError(err instanceof Error ? err.message : 'Query failed')
-    } finally {
-      setQueryRunning(false)
-    }
+    await runQuery(databaseId, sql)
+    // Refresh table list in case of DDL
+    fetchTables().catch(() => {})
   }
 
   return (
@@ -149,7 +164,11 @@ export function DatabasePanel({ className }: Props) {
                 <button
                   key={t}
                   type="button"
-                  onClick={() => setSql(`SELECT * FROM ${t} LIMIT 50`)}
+                  onClick={() => {
+                    const q = `SELECT * FROM ${t} LIMIT 50`
+                    setSql(q)
+                    if (databaseId) runQuery(databaseId, q)
+                  }}
                   className="text-xs font-mono px-2 py-0.5 rounded bg-secondary hover:bg-accent transition-colors"
                 >
                   {t}
@@ -192,14 +211,14 @@ export function DatabasePanel({ className }: Props) {
                   </>
                 )}
               </button>
-              <span className="text-xs text-muted-foreground opacity-60">Refresh to view latest entries</span>
+              <span className="text-xs text-muted-foreground opacity-60">Ctrl+Enter to run</span>
             </div>
           </div>
 
           {/* Results */}
           <div className="flex-1 overflow-auto">
             {queryError && (
-              <div className="p-3 text-xs text-destructive font-mono">{queryError}</div>
+              <div className="p-3 text-xs text-destructive">{queryError}</div>
             )}
             {queryResult && queryResult.columns.length > 0 && (
               <table className="w-full text-xs">

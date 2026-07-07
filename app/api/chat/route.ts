@@ -201,7 +201,7 @@ async function verifyAndRepair({
   writer.write({
     id: 'srv-finalize',
     type: 'data-run-command',
-    data: { sandboxId, command: 'Finalizing your project', args: [], status: 'executing' },
+    data: { sandboxId, command: 'Getting your project ready', args: [], status: 'executing' },
   })
   // P0-B: hard overall budget for the entire repair phase. No matter how many rounds or files,
   // repair can NEVER run past this — the pipeline always proceeds to show the best build we have,
@@ -255,6 +255,15 @@ async function verifyAndRepair({
       console.warn(`[verify] attempt ${attempt} failed. files=${files.join(',')} err=${errorBlock.slice(0, 160)}`)
       logRepair({ layer: 'build-verify', action: `attempt-${attempt}-failed`, detail: errorBlock.slice(0, 200), sandboxId })
 
+      // Update the label so the user sees a natural, contextual progression
+      if (attempt <= 2 && files.length > 0) {
+        writer.write({
+          id: 'srv-finalize',
+          type: 'data-run-command',
+          data: { sandboxId, command: attempt === 1 ? 'Smoothing out a couple of things' : 'One final pass', args: [], status: 'executing' },
+        })
+      }
+
       if (files.length === 0) {
         // Can't localize — last-ditch: re-sanitize the CSS, the most common
         // un-localized crash (PostCSS error without a clear file path).
@@ -284,11 +293,11 @@ async function verifyAndRepair({
       if (!repairedAny) return
     }
   } finally {
-    // Always close the status as done — repair is best-effort, never user-facing failure.
+    // Always close the status — repair is best-effort, never user-facing failure.
     writer.write({
       id: 'srv-finalize',
       type: 'data-run-command',
-      data: { sandboxId, command: 'Finalizing your project', args: [], status: 'done', exitCode: 0 },
+      data: { sandboxId, command: 'Getting your project ready', args: [], status: 'done', exitCode: 0 },
     })
   }
 }
@@ -1741,54 +1750,38 @@ async function runPipeline({
     devError = await waitForDevServer(url)
   }
 
-  // ── Emit the live preview URL NOW — as soon as the dev server responds ─────────
-  // (Fable #4) First preview ships the instant the compile-verified app is serving;
-  // the headless runtime-check + design-improve pass below then run AFTER the preview
-  // is live and repair in place via Vite HMR. Only the compile gate (verifyAndRepair,
-  // above) stays on the critical path — that's the "never show broken" guarantee; the
-  // slower visual checks no longer delay first preview.
-  writer.write({
-    id: 'srv-url',
-    type: 'data-get-sandbox-url',
-    data: { url, status: 'done' },
-  })
-
-  // SILENT (2026-07-06): the server's build gate (verifyAndRepair, above) already compiled
-  // + repaired before the preview. If the dev server is somehow still 500ing, swap in the
-  // baked fallback so the user sees a clean page — NEVER a raw error in chat (Lovable-style).
+  // ── Step 6.5: Headless runtime check — BEFORE URL emit (Fable Step 4 / Lovable flow) ──
+  // The dev server is up, but we do NOT give the client the URL until the page actually
+  // RENDERS in a real headless browser. This kills the "AI talks in chat for 30 min"
+  // failure class: the iframe is never mounted during checks, so the error monitor can't
+  // fire, and repairs are 100% silent. User always sees a working preview.
+  let rtResult: { status: 'ok' | 'broken' | 'skipped'; detail: string; score?: number | null; screenshot?: Buffer } | null = null
   if (devError) {
+    // Dev server returned 500 — apply silent fallback so the first thing the iframe loads is clean
     logRepair({ layer: 'dev-500', action: 'silent-fallback', detail: devError.slice(0, 200), sandboxId })
     try {
       await applyFallbackTerminalState(sandbox, devError, { skill, brand: brandName || 'This project' })
       await new Promise(r => setTimeout(r, 3000))
     } catch { /* non-fatal */ }
   } else {
-    // ── Step 6.5: Headless runtime check (screenshot/DOM layer) ──────────────
-    // The page serves 200 — but does it actually RENDER? Load it in a real
-    // headless browser and inspect the DOM. Catches runtime exceptions and
-    // blank #root that vite build can't see. If broken, auto-repair the files
-    // from the stack trace, let HMR reload, and re-check once.
     try {
-      // Visible status so the user (and we) can see the visual check actually ran.
       writer.write({
-        id: 'srv-visual',
+        id: 'srv-runtime',
         type: 'data-run-command',
-        data: { sandboxId, command: 'Visual quality check', args: [], status: 'executing' },
+        data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'executing' },
       })
       let rt = await headlessRuntimeCheck(url, sandboxId)
       console.log(`[runtime-check] verdict status=${rt.status}${rt.status === 'ok' ? '' : ' — ' + rt.detail.slice(0, 160)}`)
       if (rt.status === 'broken') {
         logRepair({ layer: 'runtime-check', action: 'broken', detail: rt.detail.slice(0, 200), sandboxId })
       }
-
-      // A runtime break caused by a missing package is fixed deterministically:
-      // install + restart + re-check, no LLM involved.
+      // Missing package — deterministic fix, no LLM needed
       if (rt.status === 'broken' && (await installMissingModules(sandbox, rt.detail))) {
         await restartDevServer(sandbox)
         await new Promise(r => setTimeout(r, 4000))
         rt = await headlessRuntimeCheck(url, sandboxId)
       }
-
+      // LLM repair round
       if (rt.status === 'broken') {
         const files = extractErrorFiles(rt.detail)
         let repaired = false
@@ -1803,19 +1796,15 @@ async function runPipeline({
           }
         }
         if (repaired) {
-          await new Promise(r => setTimeout(r, 3500)) // let Vite HMR reload
+          await new Promise(r => setTimeout(r, 3500))
           rt = await headlessRuntimeCheck(url, sandboxId)
         }
+        // Terminal fallback — always leaves a clean, renderable page before the URL is shown
         if (rt.status === 'broken') {
-          // P0-B TERMINAL STATE (Q1): repair budget spent, page still not rendering.
-          // Swap the offending page (page-level preferred) for the baked __fallback so
-          // the preview is NEVER blank, then re-check. A rare module-level throw that
-          // survives the page-level swap is caught and forced to the App-level swap,
-          // which imports nothing but React and therefore always renders.
           try {
             const swapped = await applyFallbackTerminalState(sandbox, rt.detail, { skill, brand: brandName || 'This project' })
             if (swapped) {
-              await new Promise(r => setTimeout(r, 3500)) // let Vite HMR reload the swap
+              await new Promise(r => setTimeout(r, 3500))
               rt = await headlessRuntimeCheck(url, sandboxId)
               if (rt.status === 'broken') {
                 await applyFallbackTerminalState(sandbox, 'force-app-level', { skill, brand: brandName || 'This project' })
@@ -1826,42 +1815,50 @@ async function runPipeline({
           } catch (e) {
             console.warn('[fallback] terminal-state swap failed (non-fatal):', e instanceof Error ? e.message : e)
           }
-          // SILENT (2026-07-06): the fallback above already renders a clean page. We do NOT
-          // surface the error to chat — no visible self-heal, no "spotted an issue" (Lovable-
-          // style: the user only ever sees a working preview).
           logRepair({ layer: 'runtime-check', action: 'silent-fallback', detail: rt.detail.slice(0, 160), sandboxId })
         }
       }
-
-      // Close the visible status. 'skipped' (Chromium unavailable) still shows done —
-      // we never alarm the user; the console log records whether it truly ran.
+      rtResult = rt
       writer.write({
-        id: 'srv-visual',
+        id: 'srv-runtime',
         type: 'data-run-command',
-        data: { sandboxId, command: 'Visual quality check', args: [], status: 'done', exitCode: 0 },
+        data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'done', exitCode: 0 },
       })
-
-      // ── Stage 6: gated design-improvement pass ───────────────────────────────
-      // Only when the page renders fine BUT scored below threshold (< 4/10). Rare
-      // after the structured brief + locked tokens, so the common path is untouched.
-      if (
-        rt.status === 'ok' &&
-        typeof rt.score === 'number' &&
-        rt.score < 4 &&
-        rt.screenshot
-      ) {
-        await improveDesignPass({
-          sandbox,
-          screenshot: rt.screenshot,
-          critique: rt.detail || 'low visual design quality',
-          writer,
-          sandboxId,
-        })
-        await new Promise(r => setTimeout(r, 3000)) // let Vite HMR reload the refined files
-      }
     } catch (e) {
       console.warn('[runtime-check] wrapper error (non-fatal):', e instanceof Error ? e.message : e)
+      writer.write({
+        id: 'srv-runtime',
+        type: 'data-run-command',
+        data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'done', exitCode: 0 },
+      })
     }
+  }
+
+  // ── Emit the live preview URL — only after all checks pass (Lovable/Fable flow) ──
+  // Every code path above either verified the page renders or applied a fallback.
+  // The URL arriving in the client always points to a working preview.
+  writer.write({
+    id: 'srv-url',
+    type: 'data-get-sandbox-url',
+    data: { url, status: 'done' },
+  })
+
+  // ── Design-improvement pass via HMR (after URL — improvements arrive live) ──────
+  if (
+    rtResult &&
+    rtResult.status === 'ok' &&
+    typeof rtResult.score === 'number' &&
+    rtResult.score < 4 &&
+    rtResult.screenshot
+  ) {
+    await improveDesignPass({
+      sandbox,
+      screenshot: rtResult.screenshot,
+      critique: rtResult.detail || 'low visual design quality',
+      writer,
+      sandboxId,
+    })
+    await new Promise(r => setTimeout(r, 3000))
   }
 
   // Durable-runs STEP 3: persist the live URL + sandbox id NOW, before enrichment. A

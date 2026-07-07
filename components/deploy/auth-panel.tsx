@@ -89,39 +89,33 @@ Please add login and signup functionality to the app using these exact endpoints
       <div className={cn('flex flex-col h-full overflow-auto', className)}>
         <div className="flex flex-col gap-4 p-4">
           <div className="flex items-center gap-2">
-            <CheckCircle2Icon className="w-4 h-4 text-green-500 shrink-0" />
-            <span className="text-sm font-medium">Auth Active</span>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <p className="text-xs text-muted-foreground">Auth API base</p>
-            <code className="text-xs font-mono bg-secondary px-2 py-1.5 rounded-sm break-all">{authWorkerUrl}/{authAppId}</code>
+            <CheckCircle2Icon className="w-4 h-4 text-emerald-500 shrink-0" />
+            <span className="text-sm font-medium">Login & signup is active</span>
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <p className="text-xs text-muted-foreground">Endpoints</p>
             {[
-              ['POST /signup', 'body: { email, password }'],
-              ['POST /login', 'body: { email, password }'],
-              ['GET /me', 'header: Authorization: Bearer <token>'],
-              ['logout', 'clear token from localStorage'],
-            ].map(([ep, desc]) => (
-              <div key={ep} className="flex flex-col bg-secondary rounded-sm px-2 py-1.5">
-                <code className="text-xs font-mono">{ep}</code>
+              ['Sign up', 'New users can create an account with email + password'],
+              ['Log in', 'Returning users can log back into their account'],
+              ['My account', 'Users can view their own profile and data'],
+              ['Log out', 'Clears their session from the browser'],
+            ].map(([label, desc]) => (
+              <div key={label} className="flex flex-col bg-secondary rounded-sm px-3 py-2">
+                <span className="text-xs font-medium">{label}</span>
                 <span className="text-xs text-muted-foreground">{desc}</span>
               </div>
             ))}
           </div>
 
           {aiWorking && (
-            <p className="text-xs text-muted-foreground">Adding login/signup to your app...</p>
+            <p className="text-xs text-muted-foreground animate-pulse">Adding login to your app...</p>
           )}
 
           <div className="border-t border-primary/10 pt-3 flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 text-xs font-medium">
                 <UsersIcon className="w-3.5 h-3.5" />
-                Users ({users.length})
+                Signed-up users ({users.length})
               </div>
               <button
                 type="button"
@@ -135,19 +129,19 @@ Please add login and signup functionality to the app using these exact endpoints
             {users.length > 0 ? (
               <div className="flex flex-col gap-1">
                 {users.map((u) => (
-                  <div key={u.id} className="flex items-center justify-between bg-secondary rounded-sm px-2 py-1.5">
+                  <div key={u.id} className="flex items-center justify-between bg-secondary rounded-sm px-3 py-2">
                     <div className="flex flex-col">
                       <span className="text-xs font-medium">{u.email}</span>
                       {u.name && <span className="text-xs text-muted-foreground">{u.name}</span>}
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      {new Date(u.created_at).toLocaleDateString()}
+                      Joined {new Date(u.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                     </span>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">No users yet — click Refresh to check</p>
+              <p className="text-xs text-muted-foreground">No signups yet. Try it in your app preview.</p>
             )}
           </div>
         </div>
