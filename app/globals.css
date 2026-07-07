@@ -3,6 +3,19 @@
 @import 'tw-animate-css';
 @source "../node_modules/streamdown/dist/*.js";
 
+/* Invisible scrollbars across the builder UI (light + dark) — content still scrolls,
+   the bar is just hidden for a clean, app-like surface. The generated preview runs in a
+   separate iframe document, so its own scrollbars are unaffected. */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge/IE */
+}
+*::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent;
+}
+
 :root {
   --background: rgb(250, 249, 247);
   --foreground: rgb(10, 10, 10);
