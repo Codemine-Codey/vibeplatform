@@ -169,14 +169,22 @@ function transformMessages(messages: ChatUIMessage[]): ChatUIMessage[] {
 // engine that would crash in the sandbox. Alias kept for the call sites below.
 const sanitizeCss = ensureValidCss
 
-// Fix backslash-escaped quotes in TSX/JSX that cause Vite parse errors:
-// `\"` is invalid inside JSX attribute strings and produces "Expecting Unicode
-// escape sequence \uXXXX". In JS expression context `\"` === `"`, so this is
-// always safe. Applied to every TSX/JSX file that goes through repairFile().
+// Post-repair TSX/JSX sanitizer — mirrors the generation-time sanitizeContent fixes
+// so that repaired files are also clean. Applied before every sandbox.writeFiles call.
 function sanitizeTsx(path: string, content: string): string {
-  if (/\.(tsx?|jsx?)$/.test(path) && content.includes('\\"')) {
-    return content.replace(/\\"/g, '"')
-  }
+  if (!/\.(tsx?|jsx?)$/.test(path)) return content
+  // Fix backslash-escaped quotes (Vite parse error: "Expecting Unicode escape \uXXXX")
+  if (content.includes('\\"')) content = content.replace(/\\"/g, '"')
+  // Fix wrong import specifiers (same rewrite table as sanitizeContent in get-contents.ts)
+  content = content
+    .replace(/from\s+['"]motion\/react['"]/g, "from 'framer-motion'")
+    .replace(/from\s+['"]motion['"]/g, "from 'framer-motion'")
+    .replace(/from\s+['"]@phosphor-icons\/react['"]/g, "from 'lucide-react'")
+    .replace(/from\s+['"]@radix-ui\/react-icons['"]/g, "from 'lucide-react'")
+    .replace(/from\s+['"]@tabler\/icons-react['"]/g, "from 'lucide-react'")
+    .replace(/from\s+['"]@heroicons\/react(\/[^'"]+)?['"]/g, "from 'lucide-react'")
+    .replace(/process\.env\.NEXT_PUBLIC_(\w+)/g, 'import.meta.env.VITE_$1')
+    .replace(/process\.env\.REACT_APP_(\w+)/g, 'import.meta.env.VITE_$1')
   return content
 }
 

@@ -137,14 +137,45 @@ function sanitizeContent(path: string, raw: string): string | null {
       /(^|\n)\s*(\/\/|\/\*)/.test(head) ||
       /^['"]use (client|strict)['"]/.test(content.trimStart())
     if (!looksLikeCode) return null // corrupted beyond a prefix (e.g. lost its imports) → regenerate
-    // Fix backslash-escaped quotes inside JSX attribute strings: `\"` is invalid in JSX
-    // and causes Vite parse errors ("Expecting Unicode escape sequence \uXXXX").
-    // In JSX attribute context `\"` must be `"` (or the attribute must use single quotes).
-    // In JS expression context `\"` is merely a needless escape → `"` is identical.
-    // Safe to replace unconditionally in TSX/JSX files.
+    // ── JSX backslash-escape fix ───────────────────────────────────────────────
+    // `\"` inside JSX attribute strings crashes Vite: "Expecting Unicode escape
+    // sequence \uXXXX". In JS expression context `\"` === `"` anyway. Always safe.
     if (content.includes('\\"')) {
       content = content.replace(/\\"/g, '"')
     }
+
+    // ── Import drift fixer ────────────────────────────────────────────────────
+    // Silently rewrite well-known wrong imports to their correct in-scaffold
+    // equivalents. These are the most common AI training-data mistakes:
+    //   motion/react  →  framer-motion  (the AI SDK renamed it; we use old name)
+    //   "motion" bare →  framer-motion
+    //   @phosphor-icons/react  →  lucide-react  (not installed)
+    //   @radix-ui/react-icons  →  lucide-react  (not installed standalone)
+    //   @tabler/icons-react    →  lucide-react  (not installed)
+    //   @heroicons/react       →  lucide-react  (not installed)
+    //   next/image, next/link, next/font  →  strip (this is Vite, not Next.js)
+    //   process.env.NEXT_PUBLIC_ →  import.meta.env.VITE_  (Next.js pattern)
+    //   process.env.REACT_APP_   →  import.meta.env.VITE_  (CRA pattern)
+    content = content
+      .replace(/from\s+['"]motion\/react['"]/g, "from 'framer-motion'")
+      .replace(/from\s+['"]motion['"]/g, "from 'framer-motion'")
+      .replace(/from\s+['"]@phosphor-icons\/react['"]/g, "from 'lucide-react'")
+      .replace(/from\s+['"]@radix-ui\/react-icons['"]/g, "from 'lucide-react'")
+      .replace(/from\s+['"]@tabler\/icons-react['"]/g, "from 'lucide-react'")
+      .replace(/from\s+['"]@heroicons\/react(\/[^'"]+)?['"]/g, "from 'lucide-react'")
+      .replace(/process\.env\.NEXT_PUBLIC_(\w+)/g, 'import.meta.env.VITE_$1')
+      .replace(/process\.env\.REACT_APP_(\w+)/g, 'import.meta.env.VITE_$1')
+
+    // Strip Next.js-only imports that crash Vite (no equivalent — remove silently)
+    content = content
+      .replace(/^import\s+\w+\s+from\s+['"]next\/image['"]\s*;?\s*\n?/gm, '')
+      .replace(/^import\s+\{[^}]*\}\s+from\s+['"]next\/navigation['"]\s*;?\s*\n?/gm, '')
+      .replace(/^import\s+\{[^}]*\}\s+from\s+['"]next\/font\/google['"]\s*;?\s*\n?/gm, '')
+
+    // Strip Express/Node server imports (these never run in a Vite sandbox)
+    content = content
+      .replace(/^import\s+express\s+from\s+['"]express['"]\s*;?\s*\n?/gm, '')
+      .replace(/^const\s+express\s*=\s*require\(['"]express['"]\)\s*;?\s*\n?/gm, '')
   }
   return content
 }
