@@ -26,14 +26,25 @@ Every nav item that isn't "Home" MUST be a real page file (`src/pages/About.tsx`
 
 The ONLY valid `#anchor` usage: in-page skip links (jump to a form, jump to a FAQ accordion on the SAME page). Never between "pages" in the nav.
 
-## 2. BANNED — the AI tells that scream "generated" (zero tolerance)
-- **Purple/violet/indigo gradient** on white or dark — the #1 tell. Use the brief's palette.
-- The **default "safe premium" warm beige+brass+oxblood** (#f5f1ea / #b08947 / #1a1714) unless the brand truly is that.
-- **Three identical cards in a row.** Replace with: 2-col zig-zag, bento grid, asymmetric split, stepped/numbered list, or horizontal scroll.
+## 2. BANNED — signals that scream "AI-generated" (zero tolerance, with examples)
+
+- **Purple/violet/indigo gradient** on white or dark — the #1 tell.
+  ❌ `background: linear-gradient(to bottom, #6366f1, #fff)` ✅ use the brief's actual palette
+- **Default "safe premium" warm beige+brass+oxblood** (#f5f1ea / #b08947 / #1a1714) unless the brand truly is that.
+- **Three identical cards in a row** — the single most common AI layout crime.
+  ❌ `grid-cols-3` with three equal feature cards ✅ 2-col zig-zag, bento mosaic, asymmetric split, stepped list, horizontal scroll
 - **Centered hero + dark mesh gradient + tiny tagline under the CTA** (when VARIANCE > 5).
+  ❌ Full-width dark bg + centered H1 + colored gradient blob ✅ asymmetric split, editorial type-forward, full-bleed image with overlay
 - **Em-dashes as visual separators**; section-number eyebrows ("001 · Features") on more than 1 in 3 sections.
-- **Fake product UI built from divs** → use a real Unsplash image or omit. **Generic content** ("Jane Doe", "Acme", "Lorem ipsum", "Elevate/Seamless/Unleash", "Dedicated to excellence").
-- **Inter / Roboto / system-ui as the DISPLAY face.** Pure black `#000`. Neon outer-glows. Oversaturated accents.
+- **Fake product UI built from divs** → use a real Unsplash image or omit entirely.
+- **Generic filler content**: "Jane Doe", "Acme Corp", "Lorem ipsum", "Elevate your workflow", "Dedicated to excellence", "Unleash your potential"
+  ❌ Generic tagline ✅ Specific, brand-true copy tied to real features or real menu items
+- **Inter / Roboto / system-ui as the DISPLAY face.** Pick a Google Font that fits the brand personality.
+  ❌ `font-family: Inter, sans-serif` as both display and body ✅ distinctive display face (e.g. Playfair for editorial, Space Grotesk for modern, Fraunces for premium) + clean body
+- **Neon outer-glows on restaurant/lifestyle/luxury brands.** Neon is a tech aesthetic.
+  ❌ `text-shadow: 0 0 20px #ff0, 0 0 40px #ff0` on a sushi restaurant ✅ warm grain texture, high-contrast image overlays, muted accent lighting
+- **SaaS macrostructure on non-SaaS brands** — feature grids, pricing tables, and "social proof logos" for a restaurant.
+  ❌ "Features / Pricing / Testimonials" layout for a café ✅ "Atmosphere / Menu preview / Story / Visit us" layout
 
 ## 3. Color — tokens only, contrast always
 - Set the brief's palette as CSS variables in `src/index.css` `:root`. In components use ONLY token classes (`bg-background`, `text-foreground`, `bg-card`, `text-muted-foreground`, `bg-primary`, `text-accent`, `border-border`). NEVER hardcode hex or `text-white`/`bg-black`/`text-slate-900` for brand surfaces.
