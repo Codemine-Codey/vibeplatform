@@ -1845,7 +1845,24 @@ async function runPipeline({
         data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'done', exitCode: 0 },
       })
     } catch (e) {
-      console.warn('[runtime-check] wrapper error (non-fatal):', e instanceof Error ? e.message : e)
+      // Chromium failed to launch (e.g. memory limit in serverless). Fall back to a simple
+      // HTTP check — at minimum verify the dev server returns 200 with non-empty HTML.
+      // If even the HTTP check fails, apply the fallback terminal state before showing URL.
+      console.warn('[runtime-check] wrapper error — trying HTTP fallback:', e instanceof Error ? e.message : e)
+      try {
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), 8000)
+        const httpResp = await fetch(url, { signal: ctrl.signal }).catch(() => null)
+        clearTimeout(timer)
+        if (!httpResp || !httpResp.ok) {
+          // HTTP check failed — apply fallback so user doesn't see a dead iframe
+          await applyFallbackTerminalState(sandbox, 'chromium-unavailable', { skill, brand: brandName || 'This project' })
+          await new Promise(r => setTimeout(r, 3000))
+          logRepair({ layer: 'runtime-check', action: 'http-fallback-applied', detail: 'chromium launch failed + HTTP non-200', sandboxId })
+        }
+      } catch {
+        /* truly non-fatal — proceed */
+      }
       writer.write({
         id: 'srv-runtime',
         type: 'data-run-command',

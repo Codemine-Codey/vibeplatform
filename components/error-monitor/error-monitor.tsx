@@ -96,11 +96,14 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
   // self-heals fast. Dedup + 15s cooldown prevent fix loops.
   const browserSeen = useRef<Set<string>>(new Set())
   const lastBrowserFix = useRef<number>(0)
-  // HARD session cap — total auto-fix attempts across BOTH paths. Without this, each fix
-  // that spawns a NEW error key reports again forever (the 12-minute self-heal loop). After
-  // this many, we stop auto-fixing so an iteration can never outrun a generation.
+  // Track when the preview URL first arrived so we wait for the page to stabilize
+  // before firing any error reports (avoids false positives on cold-load)
+  const previewFirstSeenAt = useRef<number>(0)
+  // HARD session cap — 1 silent fix attempt total. If it doesn't resolve after one
+  // pass, leave the preview as-is rather than looping. Lovable-style: one silent
+  // repair, then done. More loops create worse UX than a minor visual glitch.
   const sessionFixCount = useRef<number>(0)
-  const MAX_SESSION_FIXES = 3
+  const MAX_SESSION_FIXES = 1
   useEffect(() => {
     return useSandboxStore.subscribe((state) => {
       if (fixErrors === false) return
@@ -110,17 +113,26 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
       if (!latest) return
       const key = latest.data.slice(0, 160)
       if (browserSeen.current.has(key)) return
-      if (sessionFixCount.current >= MAX_SESSION_FIXES) return // hard cap — stop looping
+      if (sessionFixCount.current >= MAX_SESSION_FIXES) return // hard cap — stop after 1 fix
       const now = Date.now()
-      if (now - lastBrowserFix.current < 15000) return
+      // Track when we first see the preview URL so we can apply a stabilization delay.
+      // The sandbox URL command signals the preview is live.
+      const urlCmd = state.commands.find((c) => c.cmdId === 'srv-url' || c.cmdId?.startsWith('srv-url'))
+      if (urlCmd && !previewFirstSeenAt.current) {
+        previewFirstSeenAt.current = now
+      }
+      // Wait 20s after preview appears before firing any browser-error fix — the page needs
+      // time for its initial render, React effects, and any async data loads to settle.
+      // This eliminates false positives on transient cold-start errors.
+      if (previewFirstSeenAt.current && now - previewFirstSeenAt.current < 20000) return
+      if (now - lastBrowserFix.current < 30000) return
       browserSeen.current.add(key)
       lastBrowserFix.current = now
       sessionFixCount.current += 1
       setTimeout(() => {
         try {
-          // data-report-errors renders as a clean "Polishing your preview" message
-          // (report-errors.tsx) — the raw error is HIDDEN from the user but the full
-          // detail + fix instructions are still sent to the AI via transformMessages.
+          // data-report-errors renders as null (invisible) — the raw error is sent to the AI
+          // via transformMessages but NEVER shown to the user. Lovable-style silent repair.
           sendMessage({
             role: 'user',
             parts: [
@@ -128,6 +140,7 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
                 type: 'data-report-errors',
                 data: {
                   summary:
+                    "SILENT FIX — do NOT write any text. Call patch_file immediately.\n\n" +
                     "The preview isn't displaying right. Read the relevant files and patch the bug (don't regenerate the whole project). " +
                     'Common causes: a component returning nothing, an undefined variable during render, a bad import, a hook misuse, or malformed CSS (unbalanced parentheses / missing semicolon in a gradient).\n\nError detail:\n' +
                     latest.data,
