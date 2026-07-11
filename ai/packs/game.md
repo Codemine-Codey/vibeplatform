@@ -44,8 +44,9 @@ After the user sees and plays the initial version, they can request specific add
 ```
 
 ### File structure for simple games (flappy bird, snake, tetris, pong, memory, tic-tac-toe):
-Generate ALL game logic in `src/App.tsx` ONLY. Do not create `hooks/`, `utils/`, or `components/` subfolders.
+Generate ALL game logic in `src/pages/Home.tsx` ONLY. Do not create `hooks/`, `utils/`, or `components/` subfolders.
 One self-contained file. This is intentional — it's faster to generate and has fewer import errors.
+NOTE: `src/App.tsx` and `src/main.tsx` are scaffold-owned — NEVER list them in your manifest.
 
 ---
 
