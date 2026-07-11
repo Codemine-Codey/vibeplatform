@@ -43,14 +43,23 @@ export function AuthPanel({ className }: Props) {
 
       const apiBase = `${data.authUrl}/${data.appId}`
       // Auto-trigger the AI to add login/signup to the app — no copy-paste needed.
+      // IMPORTANT: tell the AI to hardcode the URL as a constant — VITE_AUTH_API is NOT
+      // injected into the sandbox .env, so import.meta.env.VITE_AUTH_API would be undefined.
       chat.sendMessage({
-        text: `Auth is now enabled for this project. The auth API base is ${apiBase} with these endpoints:
-- POST ${apiBase}/signup — body: { email, password } — returns { token, user }
-- POST ${apiBase}/login — body: { email, password } — returns { token, user }
-- GET ${apiBase}/me — header: Authorization: Bearer <token> — returns { user }
-Logout is client-side: remove the token from localStorage.
+        text: `Auth is now enabled. Add login and signup to this app using these exact endpoints:
 
-Please add login and signup functionality to the app using these exact endpoints. Store the JWT token in localStorage, send it as "Authorization: Bearer <token>", add a login/signup page or modal, protect relevant routes/data, and show the logged-in user's email where appropriate.`,
+const AUTH_BASE = '${apiBase}'
+
+- POST \${AUTH_BASE}/signup — body: { email, password } — returns { token, user }
+- POST \${AUTH_BASE}/login  — body: { email, password } — returns { token, user }
+- GET  \${AUTH_BASE}/me     — header: Authorization: Bearer <token> — returns { user }
+
+Rules:
+- Declare AUTH_BASE as a module-level const in your auth utility file (src/lib/auth.ts or similar). Use this literal string — never import.meta.env.VITE_AUTH_API (that env var is not set).
+- Store the JWT token in localStorage under the key "cm_token".
+- Send it as Authorization: Bearer <token> on every authenticated request.
+- Add a Login/Signup page or modal. Protect relevant routes/data. Show the logged-in user's email in the nav or header.
+- Logout: remove the key from localStorage, redirect to home.`,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Auth setup failed')

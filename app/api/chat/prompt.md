@@ -325,47 +325,51 @@ async function saveData(table: string, data: Record<string, unknown>) {
 
 ### 4.2 Authentication (when auth is enabled)
 
-The platform injects two additional env vars when auth is active:
-- `import.meta.env.VITE_AUTH_API` — auth service base URL
-- `import.meta.env.VITE_AUTH_APP_ID` — this project's auth app ID
+When the user enables auth, you receive a message that contains the literal `AUTH_BASE` URL for this project. **Use it as a hardcoded constant** — do NOT use `import.meta.env.VITE_AUTH_API` (that env var is not set in the sandbox). Copy the AUTH_BASE value from the message exactly.
 
 ```typescript
-const AUTH = import.meta.env.VITE_AUTH_API
-const APP = import.meta.env.VITE_AUTH_APP_ID
+// src/lib/auth.ts  ← create this file
+// AUTH_BASE is provided in the activation message — paste the literal URL here.
+const AUTH_BASE = 'https://codemine-auth.workers.dev/YOUR_APP_ID' // ← replace with value from message
 
-// Sign up
-const res = await fetch(`${AUTH}/${APP}/signup`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ email, password }),
-})
-const { token, user } = await res.json()
-localStorage.setItem('cm_token', token)
+export async function signUp(email: string, password: string) {
+  const res = await fetch(`${AUTH_BASE}/signup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  if (!res.ok) throw new Error((await res.json() as { error?: string }).error ?? 'Sign up failed')
+  const { token, user } = await res.json() as { token: string; user: { id: string; email: string } }
+  localStorage.setItem('cm_token', token)
+  return user
+}
 
-// Log in
-const res = await fetch(`${AUTH}/${APP}/login`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ email, password }),
-})
+export async function logIn(email: string, password: string) {
+  const res = await fetch(`${AUTH_BASE}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  if (!res.ok) throw new Error((await res.json() as { error?: string }).error ?? 'Login failed')
+  const { token, user } = await res.json() as { token: string; user: { id: string; email: string } }
+  localStorage.setItem('cm_token', token)
+  return user
+}
 
-// Get current user (protected route)
-const res = await fetch(`${AUTH}/${APP}/me`, {
-  headers: { 'Authorization': `Bearer ${localStorage.getItem('cm_token')}` },
-})
-const { user } = await res.json()
+export async function getMe() {
+  const token = localStorage.getItem('cm_token')
+  if (!token) return null
+  const res = await fetch(`${AUTH_BASE}/me`, { headers: { Authorization: `Bearer ${token}` } })
+  if (!res.ok) { localStorage.removeItem('cm_token'); return null }
+  return (await res.json() as { user: { id: string; email: string } }).user
+}
 
-// Log out (client-side only — clear the token)
-localStorage.removeItem('cm_token')
+export function logOut() { localStorage.removeItem('cm_token') }
+export function getToken() { return localStorage.getItem('cm_token') }
+export function isLoggedIn() { return !!getToken() }
 ```
 
-**Auth state pattern** — use a React context or Zustand store:
-```typescript
-function getToken() { return localStorage.getItem('cm_token') }
-function isLoggedIn() { return !!getToken() }
-```
-
-Never store role or permission data in localStorage — it can be tampered with. Always re-verify from the `/me` endpoint.
+Never store role or permission data in localStorage — it can be tampered with. Always re-verify from `getMe()`.
 
 ### 4.3 AI inside the user's app
 
