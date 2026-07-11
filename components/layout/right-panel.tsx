@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   MonitorIcon, FolderOpenIcon, LoaderIcon, CloudIcon,
-  MaximizeIcon, SmartphoneIcon, ScanIcon,
+  MaximizeIcon, ScanIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Preview } from '@/app/preview'
@@ -13,7 +13,7 @@ import { useSandboxStore } from '@/app/state'
 import { CloudDashboard } from '@/components/cloud/cloud-dashboard'
 
 type Tab = 'preview' | 'files' | 'logs' | 'cloud'
-type ViewMode = 'fit' | 'mobile' | 'fullscreen'
+type ViewMode = 'fit' | 'fullscreen'
 
 // Deploy/Database/Auth are now sections INSIDE the unified Cloud dashboard, so the
 // top-level tabs are just Preview, Code, Cloud. Logs stays mounted (hidden) for the
@@ -107,20 +107,7 @@ export function RightPanel({ className }: Props) {
             >
               <ScanIcon className="w-3.5 h-3.5" />
             </button>
-            <button
-              type="button"
-              title="Mobile view"
-              onClick={() => handleViewMode('mobile')}
-              className={cn(
-                'flex items-center justify-center w-7 h-7 rounded-sm text-xs transition-colors',
-                viewMode === 'mobile'
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-              )}
-            >
-              <SmartphoneIcon className="w-3.5 h-3.5" />
-            </button>
-            <button
+<button
               type="button"
               title="Fullscreen — press Esc to exit"
               onClick={() => handleViewMode('fullscreen')}
@@ -143,43 +130,7 @@ export function RightPanel({ className }: Props) {
           </div>
         )}
         <div className={cn('absolute inset-0', activeTab !== 'preview' && 'hidden')}>
-          {viewMode === 'mobile' ? (
-            <div className="flex items-center justify-center h-full bg-secondary/50 overflow-hidden p-2">
-              {/* Phone bezel — fills the panel height (true 390/844 ratio, no distortion).
-                  Uses nearly all vertical space so it isn't tiny in a tall panel. */}
-              <div className="relative flex flex-col h-full aspect-[390/844] rounded-[2.5rem] border-[10px] border-zinc-800 shadow-2xl bg-zinc-900 overflow-hidden">
-                {/* Status bar with centered notch */}
-                <div className="relative h-6 shrink-0 bg-zinc-900 flex items-center justify-center">
-                  <div className="w-20 h-4 bg-black rounded-full" />
-                </div>
-                {/* Clean mobile iframe (NO browser chrome) — at ~370px the site renders
-                    its responsive mobile layout. Mobile-safe: touch scrolling + lazy +
-                    sandbox + hardware permissions. */}
-                {previewUrl ? (
-                  <div
-                    className="flex-1 w-full overflow-auto bg-white"
-                    style={{ WebkitOverflowScrolling: 'touch' }}
-                  >
-                    <iframe
-                      key={previewUrl}
-                      src={previewUrl}
-                      loading="lazy"
-                      sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                      allow="geolocation; camera; microphone"
-                      className="w-full h-full border-0 block"
-                      title="Mobile preview"
-                    />
-                  </div>
-                ) : (
-                  <div className="flex-1 flex items-center justify-center text-xs text-zinc-400">
-                    Preview will appear here
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <Preview className="h-full rounded-t-none" />
-          )}
+          <Preview className="h-full rounded-t-none" />
         </div>
         <div className={cn('absolute inset-0', activeTab !== 'files' && 'hidden')}>
           <FileExplorer className="h-full rounded-t-none" />

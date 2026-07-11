@@ -11,6 +11,21 @@ State the direction in one line ("premium spa: calm, editorial, restrained, warm
 - **MOTION**: luxury/wellness 2-4 · SaaS/restaurant 5-6 · agency/launch 7-9
 - **DENSITY**: airy editorial 2-4 · standard 5-6 · data-rich 7-9
 
+**Macrostructure by vertical (use the right one — they are NOT interchangeable):**
+- Restaurant/café/bar: "Atmosphere-first" — full-bleed food/interior photography as the hero, menu highlights with real dish names, ambiance texture (grain, warm overlays), a strong reservation or directions CTA. Navigation leads to real pages (/menu, /about, /contact).
+- SaaS/software: "Feature showcase" — product UI mockup in hero, feature grid or bento, pricing table, social proof logos. Never use this for food/hospitality.
+- Agency/creative: "Portfolio punch" — case study grid, bold type-forward hero, work samples. Not for restaurants.
+- E-commerce/retail: "Product catalog" — product imagery grid, collection previews, add-to-cart flow.
+- Personal/portfolio: "Minimal editorial" — large name, curated work, subtle transitions.
+
+## 1b. NAVIGATION — real pages only (hard ban on anchor-link nav)
+
+Every nav item that isn't "Home" MUST be a real page file (`src/pages/About.tsx`, `src/pages/Menu.tsx`, `src/pages/Contact.tsx`) routing to real URLs (`/about`, `/menu`, `/contact`). These are generated in Phase 2.
+
+**HARD BAN:** `<a href="#menu">`, `<a href="#about">`, `<Link to="/#features">` as navigation items — these are NOT pages. Users click them and stay on the same page with a scroll jump. This reads as broken/amateur to any visitor. Use `<Link to="/menu">` + real page files only.
+
+The ONLY valid `#anchor` usage: in-page skip links (jump to a form, jump to a FAQ accordion on the SAME page). Never between "pages" in the nav.
+
 ## 2. BANNED — the AI tells that scream "generated" (zero tolerance)
 - **Purple/violet/indigo gradient** on white or dark — the #1 tell. Use the brief's palette.
 - The **default "safe premium" warm beige+brass+oxblood** (#f5f1ea / #b08947 / #1a1714) unless the brand truly is that.
