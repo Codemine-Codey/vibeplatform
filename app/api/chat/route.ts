@@ -1445,7 +1445,7 @@ async function runPipeline({
   const fileCountGuidance = skill === 'website'
     ? `TARGET FILE COUNT: 7-9 files maximum. Combine related sections into their page file instead of splitting into small components. Only extract a component if it is reused across 2+ pages (e.g. Navbar, Footer). A Home.tsx can and should contain hero + features + testimonials + CTA all inline — do NOT split each section into its own file. Fewer files = faster build for the user.`
     : skill === 'game'
-    ? `TARGET FILE COUNT: 4-6 files maximum. Keep all game logic in one or two files.`
+    ? `TARGET FILE COUNT: 2 files only — src/pages/Home.tsx (ALL game logic) + src/index.css. No subfolders, no separate component or hook files. One self-contained file for the complete game.`
     : `TARGET FILE COUNT: 6-8 files maximum. Combine views and utilities where possible.`
 
   // Per-type reference-lookup guidance — when (and only when) to call lookupReference.
