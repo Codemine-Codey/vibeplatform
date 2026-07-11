@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { ModelMessage } from 'ai'
 import { getModelOptions } from '../../gateway'
 import { getMaxOutputTokens } from '../../constants'
-import { applySubstitutions } from './import-gate'
+import { applySubstitutions, auditLocalImports } from './import-gate'
 import { applyIconFix } from '../../gates/semantic-gate'
 
 export type File = {
@@ -303,8 +303,17 @@ export async function* getContents(
         for (const file of splitConcatenated(filePath, clean, allPaths)) {
           // Mark EVERY produced path written (incl. concatenated splits) so closure sees them.
           written.add(file.path)
+          const fixed = fixIcons(file.path, fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content)))))
+          // Audit @/ imports — log any that aren't in the scaffold or the declared manifest.
+          // This doesn't block generation (blocking here causes cascading failures), but it
+          // surfaces precise import mismatches to the console so verifyAndRepair has an exact
+          // error to work with instead of a vague "module not found" from the dev server.
+          const badImports = auditLocalImports(file.path, fixed, allPaths)
+          if (badImports.length > 0) {
+            console.warn(`[import-audit] ${file.path} has unknown @/ imports: ${badImports.join(', ')}`)
+          }
           yield {
-            files: [{ path: file.path, content: fixIcons(file.path, fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content))))) }],
+            files: [{ path: file.path, content: fixed }],
             paths: [file.path],
             written: [],
           }

@@ -91,7 +91,22 @@ The scaffold file tree below is what exists BEFORE you generate anything. Import
 @/components/ui/dialog       → Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger, DialogClose
 ```
 
-**These 9 are the ONLY pre-built UI components.** Do NOT import `@/components/ui/<anything-else>` — no accordion, tabs, tooltip, dropdown-menu, popover, table, sonner, form, checkbox, switch, slider, progress, avatar, toast, sheet, command, or any other name. Every UI control not in this list must be built by you in `src/components/`.
+**These 9 are the ONLY pre-built shadcn/ui components.** Do NOT import `@/components/ui/<anything-else>` — no accordion, tabs, tooltip, dropdown-menu, popover, table, sonner, form, checkbox, switch, slider, progress, avatar, toast, sheet, command, or any other name. Every UI control not in this list must be built by you in `src/components/`.
+
+**Additional scaffold @/ paths — these also always exist:**
+```
+@/components/blocks          → Section, Container, Reveal, Stagger, StaggerItem, Marquee, CountUp
+@/components/blocks/index    → (same as above — explicit index path)
+@/components/blocks/sections → Hero, Footer, FeatureGrid, CTASection, FAQ, PageHeader, StatCard, EmptyState
+@/components/game/engine     → useGameLoop, useHighScore, playTone, rectsOverlap, circlesHit, useShake, burst, stepParticles, SPEEDS, SPAWN
+@/components/NotFound        → default export NotFound
+@/styles/cm-ui.css           → CSS utility classes (import as side-effect)
+```
+
+**The COMPLETE allow-list of @/ import paths:**
+`@/lib/utils` · `@/components/ui/button` · `@/components/ui/card` · `@/components/ui/input` · `@/components/ui/label` · `@/components/ui/badge` · `@/components/ui/textarea` · `@/components/ui/separator` · `@/components/ui/select` · `@/components/ui/dialog` · `@/components/blocks` · `@/components/blocks/index` · `@/components/blocks/sections` · `@/components/game/engine` · `@/components/NotFound` + any path you declare yourself in `planProject`.
+
+**Do NOT import any other @/ path.** If you need a component, either use one from this list or create the file yourself in `planProject` and `generateFiles`.
 
 **Files you MUST NOT generate** (scaffold-owned, read-only, your version is discarded):
 - `src/main.tsx` — do not generate

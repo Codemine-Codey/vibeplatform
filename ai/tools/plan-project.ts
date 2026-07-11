@@ -161,6 +161,73 @@ export const planProject = (
         ),
     }),
     execute: async ({ files, extraPackages }) => {
+      // ── Pre-generation validation gate ────────────────────────────────────────
+      // Catch wrong paths and forbidden packages BEFORE a single file is written.
+      // Return a rejection string so the AI fixes the plan; never silently proceed
+      // with a broken manifest — that's what causes cascading import drift.
+
+      const FORBIDDEN_PATHS = [
+        /^server\.(js|ts|mjs|cjs)$/i,
+        /^express\.(js|ts)$/i,
+        /^api\/(index|server|app)\.(js|ts)$/i,
+        /^src\/main\.(tsx|jsx|ts|js)$/i,
+        /^src\/App\.(tsx|jsx)$/i,
+        /^vite\.config\.(ts|js|mjs)$/i,
+        /^tsconfig.*\.json$/i,
+        /^(index|app)\.(js|ts|mjs)$(?!.*src\/)/i,
+      ]
+      const FORBIDDEN_PACKAGES = new Set([
+        'express', 'koa', 'fastify', 'hapi', 'nest', '@nestjs/core',
+        'next', '@next/core', 'nuxt', '@nuxt/core',
+        'motion',                       // wrong framer-motion rebrand (use framer-motion)
+        'styled-components', '@emotion/react', '@emotion/styled',
+        '@mui/material', '@mui/core',
+        'antd', '@ant-design/icons',
+        'chakra-ui', '@chakra-ui/react',
+        'mantine', '@mantine/core',
+        'daisyui',
+        'bootstrap', 'react-bootstrap',
+      ])
+
+      const pathErrors: string[] = []
+      for (const f of files) {
+        for (const re of FORBIDDEN_PATHS) {
+          if (re.test(f.path)) {
+            pathErrors.push(`"${f.path}" — FORBIDDEN: ${
+              /server|express|api\//i.test(f.path)
+                ? 'no server-side files allowed. This is a Vite SPA. For backend calls use VITE_CODEMINE_API env var.'
+                : /main\.tsx|App\.tsx/i.test(f.path)
+                  ? 'scaffold-owned and read-only. Do not include in your manifest.'
+                  : 'scaffold-owned config file. Do not include in your manifest.'
+            }`)
+          }
+        }
+      }
+
+      const pkgErrors: string[] = []
+      for (const pkg of extraPackages ?? []) {
+        if (FORBIDDEN_PACKAGES.has(pkg)) {
+          pkgErrors.push(`"${pkg}" — FORBIDDEN: ${
+            /express|koa|fastify|hapi|nest/.test(pkg)
+              ? 'no server frameworks. This is a Vite SPA with no Node runtime.'
+              : /^next|nuxt/.test(pkg)
+                ? 'no SSR frameworks. Use React + Vite only.'
+                : /motion$/.test(pkg)
+                  ? 'use "framer-motion" instead.'
+                  : 'not compatible with the Codemine SPA stack.'
+          }`)
+        }
+      }
+
+      if (pathErrors.length > 0 || pkgErrors.length > 0) {
+        const lines: string[] = ['MANIFEST REJECTED — fix these before calling planProject again:']
+        if (pathErrors.length) lines.push('\nForbidden files:\n' + pathErrors.map(e => '  • ' + e).join('\n'))
+        if (pkgErrors.length) lines.push('\nForbidden packages:\n' + pkgErrors.map(e => '  • ' + e).join('\n'))
+        lines.push('\nRemove these from your manifest and call planProject again with the corrected list.')
+        return lines.join('\n')
+      }
+      // ── End validation ────────────────────────────────────────────────────────
+
       const manifest = normalizeManifest(files, extraPackages ?? [])
       onPlan?.(manifest)
 

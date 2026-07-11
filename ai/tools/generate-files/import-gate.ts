@@ -194,6 +194,67 @@ export const KNOWN_PACKAGES: Record<string, string> = {
   slugify: '^1.6.6',
 }
 
+// ── Scaffold @/ paths that ALWAYS exist (never generated, always resolvable) ──
+// Any @/ import NOT in this set AND not a path declared by the AI's own generateFiles
+// call is a hallucinated import that will break the build. Used by fixUnknownLocalImports.
+export const SCAFFOLD_AT_PATHS = new Set([
+  '@/lib/utils',
+  '@/components/ui/button',
+  '@/components/ui/card',
+  '@/components/ui/input',
+  '@/components/ui/label',
+  '@/components/ui/badge',
+  '@/components/ui/textarea',
+  '@/components/ui/separator',
+  '@/components/ui/select',
+  '@/components/ui/dialog',
+  '@/components/blocks',
+  '@/components/blocks/index',
+  '@/components/blocks/sections',
+  '@/components/game/engine',
+  '@/components/NotFound',
+])
+
+// Convert a generated file path (e.g. "src/store/useCart.ts") to its @/ alias
+// (e.g. "@/store/useCart"). Used to build the set of resolvable local paths.
+function toAtPath(filePath: string): string {
+  return '@/' + filePath.replace(/^src\//, '').replace(/\.(tsx|ts|jsx|js)$/, '')
+}
+
+// Extract all @/ import specifiers from a TypeScript/JSX file.
+function extractAtImports(content: string): string[] {
+  const out: string[] = []
+  const re = /(?:import|export)[^'"]*?from\s*['"](@\/[^'"]+)['"]/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(content)) !== null) out.push(m[1])
+  return out
+}
+
+// Post-generation guard: for each @/ import in a file that resolves to neither a
+// scaffold path nor a path the AI declared in this generation, log a warning.
+// Does NOT rewrite (that would break intent) — surfaces the miss so verifyAndRepair
+// has a precise error to fix. Called once per generated file before sandbox write.
+export function auditLocalImports(
+  filePath: string,
+  content: string,
+  generatedPaths: string[]  // all paths from this generateFiles call
+): string[] {
+  if (!/\.(tsx|ts|jsx|js)$/.test(filePath)) return []
+  const known = new Set([
+    ...SCAFFOLD_AT_PATHS,
+    ...generatedPaths.map(toAtPath),
+  ])
+  const bad: string[] = []
+  for (const spec of extractAtImports(content)) {
+    // Normalize: strip trailing /index for comparison
+    const normalized = spec.replace(/\/index$/, '')
+    if (!known.has(spec) && !known.has(normalized) && !known.has(spec + '/index')) {
+      bad.push(spec)
+    }
+  }
+  return bad
+}
+
 // Always present in every scaffold (react itself) — skip from pre-declare. NOT
 // react-router-dom: it's absent from games, so it must stay eligible for the
 // KNOWN_PACKAGES pre-declare when a game imports it.
