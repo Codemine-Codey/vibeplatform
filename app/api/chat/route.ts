@@ -1584,6 +1584,24 @@ async function runPipeline({
     }
   }
 
+  // ── Step 3.5: Stamp server-side shells for deferred pages ────────────────
+  // For multi-phase builds, every phase-2+ page gets a branded placeholder the
+  // server writes in microseconds (no model call). This ensures ALL route files
+  // exist immediately so vite build passes and the router resolves every link —
+  // even before enrichment fills in real content via HMR. Shells never appear
+  // in the chat; they silently replace themselves as each enrichment phase runs.
+  if (enrichManifest && enrichManifest.multiPhase) {
+    try {
+      const shells = stampShellsForManifest(enrichManifest.files, brandName ?? undefined)
+      if (shells.length > 0) {
+        await sandbox.writeFiles(shells.map((s) => ({ path: s.path, content: Buffer.from(s.content, 'utf8') })))
+        console.log(`[shells] stamped ${shells.length} phase-2+ shells before install`)
+      }
+    } catch (e) {
+      console.warn('[shells] stamp failed (non-fatal):', e instanceof Error ? e.message : e)
+    }
+  }
+
   // ── Step 4: Server finalizes install ─────────────────────────────────────
   // Background install from Step 1 should be nearly done. Re-running is fast
   // for already-installed packages. 90s timeout covers cold installs.

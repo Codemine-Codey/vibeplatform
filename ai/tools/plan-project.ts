@@ -60,19 +60,54 @@ function isEnrichablePage(path: string): boolean {
 
 // Mechanically normalize + validate a raw planner manifest into phases. Never throws;
 // always returns a coherent manifest (worst case: everything in phase 1 = today).
+//
+// Phasing strategy (server-enforced, not model-dependent):
+//  - Small projects (< SMALL_PROJECT_FILES) → single phase (fast, no overhead)
+//  - Large projects with enough non-home page files → phase 1 = foundation + home,
+//    phases 2..N = non-home page files (AUTO_PHASE_GROUP per phase)
+//  - Phase 2+ files are replaced by server-stamped shells in phase 1 so the build
+//    always passes and all routes resolve. Enrichment fills them in live via HMR.
 export function normalizeManifest(
   raw: Array<{ path: string; exports: string[]; phase?: number }>,
   extraPackages: string[] = []
 ): NormalizedManifest {
-  // PHASING FULLY DISABLED (2026-07-06, Fable step 1) — ONE-SHOT only. Ignore the model's
-  // `phase` hints ENTIRELY (a stray tag was re-enabling multi-phase → ghost "Phase 1" UX +
-  // enrichment narrations). Every file is phase 1; the model generates all files in one pass.
-  // Reliability comes from the scaffold owning error-prone code + the silent in-memory gate,
-  // not from phasing. (FOUNDATION_RE/CHROME_RE/isEnrichablePage/AUTO_PHASE_* kept but unused.)
-  void isEnrichablePage; void FOUNDATION_RE; void CHROME_RE; void SMALL_PROJECT_FILES; void MIN_ENRICHMENT_FILES
-  const files: ManifestFile[] = raw.map((f) => ({ path: f.path, exports: f.exports, phase: 1 }))
-  const phaseCount = 1
+  if (raw.length === 0) return { files: [], phaseCount: 1, multiPhase: false, extraPackages }
 
+  // Small projects: one shot is faster than phasing overhead
+  if (raw.length < SMALL_PROJECT_FILES) {
+    const files = raw.map((f) => ({ path: f.path, exports: f.exports, phase: 1 }))
+    return { files, phaseCount: 1, multiPhase: false, extraPackages }
+  }
+
+  // Find pages that can be deferred (non-home, non-foundation, non-chrome page files)
+  const enrichable = raw.filter((f) => isEnrichablePage(f.path))
+  const enrichableSet = new Set(enrichable.map((f) => f.path))
+
+  // Not enough enrichable pages → single phase
+  if (enrichable.length < AUTO_PHASE_MIN_PAGES || enrichable.length < MIN_ENRICHMENT_FILES) {
+    const files = raw.map((f) => ({ path: f.path, exports: f.exports, phase: 1 }))
+    return { files, phaseCount: 1, multiPhase: false, extraPackages }
+  }
+
+  // Phase 1: everything except enrichable non-home pages
+  const files: ManifestFile[] = []
+  for (const f of raw) {
+    if (!enrichableSet.has(f.path)) {
+      files.push({ path: f.path, exports: f.exports, phase: 1 })
+    }
+  }
+
+  // Phases 2..N: batch deferred pages AUTO_PHASE_GROUP at a time
+  let phaseNum = 2
+  for (let i = 0; i < enrichable.length; i += AUTO_PHASE_GROUP) {
+    const batch = enrichable.slice(i, i + AUTO_PHASE_GROUP)
+    for (const f of batch) {
+      files.push({ path: f.path, exports: f.exports, phase: phaseNum })
+    }
+    phaseNum++
+  }
+
+  const phaseCount = phaseNum - 1
   return { files, phaseCount, multiPhase: phaseCount > 1, extraPackages }
 }
 

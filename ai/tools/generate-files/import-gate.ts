@@ -31,6 +31,13 @@ const SUBSTITUTIONS: Array<[RegExp, string]> = [
   [/(from\s*['"])(@\/components\/blocks)(['"])/g, '$1$2/index$3'],
   // Game engine path — both spellings resolve identically.
   [/(from\s*['"])(@\/components\/game\/engine)\.js(['"])/g, '$1$2$3'],
+  // Localhost API fetch (dead in a deployed SPA) → same-origin path that won't
+  // cause ERR_CONNECTION_REFUSED. The AI sometimes generates
+  // fetch('http://localhost:PORT/api/contact') for contact forms — this crashes
+  // immediately. Rewriting to a relative /api/... path means the browser makes
+  // a same-origin request (returns 404) instead of a connection-refused crash.
+  // The headless check / silent-repair then catches and fixes the handler logic.
+  [/(fetch\s*\(\s*)['"`]https?:\/\/localhost(?::\d+)?\/([^'"`\s]+)['"`]/g, "$1'/$2'"],
 ]
 
 export function applySubstitutions(content: string): string {
