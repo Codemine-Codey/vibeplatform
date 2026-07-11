@@ -169,6 +169,17 @@ function transformMessages(messages: ChatUIMessage[]): ChatUIMessage[] {
 // engine that would crash in the sandbox. Alias kept for the call sites below.
 const sanitizeCss = ensureValidCss
 
+// Fix backslash-escaped quotes in TSX/JSX that cause Vite parse errors:
+// `\"` is invalid inside JSX attribute strings and produces "Expecting Unicode
+// escape sequence \uXXXX". In JS expression context `\"` === `"`, so this is
+// always safe. Applied to every TSX/JSX file that goes through repairFile().
+function sanitizeTsx(path: string, content: string): string {
+  if (/\.(tsx?|jsx?)$/.test(path) && content.includes('\\"')) {
+    return content.replace(/\\"/g, '"')
+  }
+  return content
+}
+
 // Restart the dev server after a fix that the running process can't pick up via
 // HMR (e.g. a newly installed package referenced by tailwind.config.js — jiti
 // caches the failed require). Kill anything holding port 3000, then start fresh.
@@ -293,7 +304,7 @@ async function verifyAndRepair({
         if (!content) continue
         const fixed = await repairFile(path, content, errorBlock)
         if (fixed && fixed !== content) {
-          const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : fixed
+          const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : sanitizeTsx(path, fixed)
           await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
           repairedAny = true
         }
@@ -1855,7 +1866,7 @@ async function runPipeline({
           if (!content) continue
           const fixed = await repairFile(path, content, rt.detail)
           if (fixed && fixed !== content) {
-            const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : fixed
+            const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : sanitizeTsx(path, fixed)
             await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
             repaired = true
           }

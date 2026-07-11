@@ -137,6 +137,14 @@ function sanitizeContent(path: string, raw: string): string | null {
       /(^|\n)\s*(\/\/|\/\*)/.test(head) ||
       /^['"]use (client|strict)['"]/.test(content.trimStart())
     if (!looksLikeCode) return null // corrupted beyond a prefix (e.g. lost its imports) → regenerate
+    // Fix backslash-escaped quotes inside JSX attribute strings: `\"` is invalid in JSX
+    // and causes Vite parse errors ("Expecting Unicode escape sequence \uXXXX").
+    // In JSX attribute context `\"` must be `"` (or the attribute must use single quotes).
+    // In JS expression context `\"` is merely a needless escape → `"` is identical.
+    // Safe to replace unconditionally in TSX/JSX files.
+    if (content.includes('\\"')) {
+      content = content.replace(/\\"/g, '"')
+    }
   }
   return content
 }
