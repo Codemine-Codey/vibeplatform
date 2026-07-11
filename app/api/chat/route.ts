@@ -1497,9 +1497,11 @@ async function runPipeline({
   // Generous step headroom so an optional loadSkill + a stray retry can NEVER
   // crowd out the required planProject -> generateFiles sequence (A5 caught a run
   // where the AI burned its budget before generating). generateFiles is the goal.
-  // website: text + (loadSkill?) + getUnsplashBatch + planProject + generateFiles + slack
+  // website (2-phase): createSandbox+unsplash + planProject + generateFiles(P1)
+  //   + install + dev + getSandboxURL + text + generateFiles(P2 sections) + patchFile = 10 nominal
+  //   +5 headroom for error-fix rounds → 15 total
   // app/game: text + (loadSkill?) + planProject + generateFiles + slack
-  const maxSteps = skill === 'website' ? 10 : 9 // +2 headroom for optional reference lookups
+  const maxSteps = skill === 'website' ? 15 : 9 // websites use 2-phase build (§12)
 
   const aiResult = streamText({
     ...getModelOptions(DEFAULT_MODEL),
