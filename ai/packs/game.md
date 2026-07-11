@@ -1,5 +1,32 @@
 # Game Skill Pack — Design & Code Patterns
 
+## FIRST PREVIEW RULE — GENERATE THE CORE LOOP ONLY
+
+**The first generation must produce a WORKING game in under 10 minutes.**
+To achieve this, generate ONLY the essential core loop:
+
+✅ INCLUDE in first generation:
+- Working player movement (keyboard + touch)
+- ONE enemy type with basic AI
+- One weapon / shooting mechanic (if applicable)
+- Basic collision detection
+- Score counter + high score (localStorage)
+- Start screen, game over screen, play-again button
+
+⛔ DO NOT INCLUDE in first generation (the user can ask for these via edit):
+- Multiple enemy types or wave patterns
+- Power-up systems
+- Boss fights or level progression
+- Multiple weapons or upgrade trees
+- Complex particle systems (basic hit/death particles are fine)
+- Background parallax or decorative layers
+- Sound effects beyond simple Web Audio tones
+
+Keep the initial game SIMPLE, FUN, and COMPLETE. A working game beats a feature-rich broken one.
+After the user sees and plays the initial version, they can request specific additions.
+
+---
+
 ## CRITICAL — THIS IS A PURE GAME, NOT A WEBSITE
 
 **The app IS the game. Full stop.**

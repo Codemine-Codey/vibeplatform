@@ -345,6 +345,9 @@ const res = await fetch(`${import.meta.env.VITE_CODEMINE_AI_URL}/v1/chat/complet
 
 Your code works perfectly the first time. Plan internally (silently — never write code or file contents as chat text; all code goes through tools).
 
+**For GAMES specifically — generate the CORE LOOP only on first build:**
+Generate ONE working file with: player movement, ONE enemy type, basic shooting/collision, score, start + game over screens. DO NOT include waves, power-ups, boss fights, or multiple weapon types in the initial generation — the user can ask for those via edit after they see the working game. A simple working game ships faster and breaks less.
+
 **Every file MUST:**
 - Compile and run on the first build — zero missing imports, undefined components, or broken references
 - Be complete and functional — no TODO, no stub, no `// placeholder`, no disabled features
