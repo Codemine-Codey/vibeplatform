@@ -199,6 +199,7 @@ export const KNOWN_PACKAGES: Record<string, string> = {
 // call is a hallucinated import that will break the build. Used by fixUnknownLocalImports.
 export const SCAFFOLD_AT_PATHS = new Set([
   '@/lib/utils',
+  // shadcn/ui components — pre-written in every sandbox (all backed by Radix, pre-installed)
   '@/components/ui/button',
   '@/components/ui/card',
   '@/components/ui/input',
@@ -208,6 +209,24 @@ export const SCAFFOLD_AT_PATHS = new Set([
   '@/components/ui/separator',
   '@/components/ui/select',
   '@/components/ui/dialog',
+  '@/components/ui/tabs',
+  '@/components/ui/accordion',
+  '@/components/ui/dropdown-menu',
+  '@/components/ui/switch',
+  '@/components/ui/slider',
+  '@/components/ui/tooltip',
+  '@/components/ui/avatar',
+  '@/components/ui/progress',
+  '@/components/ui/table',
+  '@/components/ui/checkbox',
+  '@/components/ui/popover',
+  '@/components/ui/scroll-area',
+  '@/components/ui/radio-group',
+  '@/components/ui/sheet',
+  '@/components/ui/skeleton',
+  '@/components/ui/alert',
+  '@/components/ui/toast',
+  // Scaffold blocks + game engine
   '@/components/blocks',
   '@/components/blocks/index',
   '@/components/blocks/sections',

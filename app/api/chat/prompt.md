@@ -80,7 +80,7 @@ If a package is NOT in §3.1 or §3.2: do NOT import it. Substitute with what we
 The scaffold file tree below is what exists BEFORE you generate anything. Import ONLY from these paths or from files you create yourself in the same `generateFiles` call.
 
 ```
-@/lib/utils          → cn (only export)
+@/lib/utils                  → cn (only export)
 @/components/ui/button       → Button, buttonVariants
 @/components/ui/card         → Card, CardHeader, CardContent, CardFooter, CardTitle, CardDescription
 @/components/ui/input        → Input
@@ -90,9 +90,26 @@ The scaffold file tree below is what exists BEFORE you generate anything. Import
 @/components/ui/separator    → Separator
 @/components/ui/select       → Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel
 @/components/ui/dialog       → Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger, DialogClose
+@/components/ui/tabs         → Tabs, TabsList, TabsTrigger, TabsContent
+@/components/ui/accordion    → Accordion, AccordionItem, AccordionTrigger, AccordionContent
+@/components/ui/dropdown-menu → DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuGroup, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuCheckboxItem, DropdownMenuShortcut
+@/components/ui/switch       → Switch
+@/components/ui/slider       → Slider
+@/components/ui/tooltip      → Tooltip, TooltipTrigger, TooltipContent, TooltipProvider
+@/components/ui/avatar       → Avatar, AvatarImage, AvatarFallback
+@/components/ui/progress     → Progress
+@/components/ui/table        → Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption
+@/components/ui/checkbox     → Checkbox
+@/components/ui/popover      → Popover, PopoverTrigger, PopoverContent
+@/components/ui/scroll-area  → ScrollArea, ScrollBar
+@/components/ui/radio-group  → RadioGroup, RadioGroupItem
+@/components/ui/sheet        → Sheet, SheetTrigger, SheetContent, SheetHeader, SheetFooter, SheetTitle, SheetDescription, SheetClose
+@/components/ui/skeleton     → Skeleton
+@/components/ui/alert        → Alert, AlertTitle, AlertDescription
+@/components/ui/toast        → toast (function — also import Toaster from 'sonner' and mount it in App)
 ```
 
-**These 9 are the ONLY pre-built shadcn/ui components.** Do NOT import `@/components/ui/<anything-else>` — no accordion, tabs, tooltip, dropdown-menu, popover, table, sonner, form, checkbox, switch, slider, progress, avatar, toast, sheet, command, or any other name. Every UI control not in this list must be built by you in `src/components/`.
+**These 27 are the ONLY pre-built shadcn/ui components.** Do NOT import `@/components/ui/<anything-else>` — no command, form, calendar, navigation-menu, menubar, context-menu, hover-card, alert-dialog, collapsible, or any other name not in the list above. Every UI control not in this list must be built by you in `src/components/`.
 
 **Additional scaffold @/ paths — these also always exist:**
 ```
@@ -105,7 +122,7 @@ The scaffold file tree below is what exists BEFORE you generate anything. Import
 ```
 
 **The COMPLETE allow-list of @/ import paths:**
-`@/lib/utils` · `@/components/ui/button` · `@/components/ui/card` · `@/components/ui/input` · `@/components/ui/label` · `@/components/ui/badge` · `@/components/ui/textarea` · `@/components/ui/separator` · `@/components/ui/select` · `@/components/ui/dialog` · `@/components/blocks` · `@/components/blocks/index` · `@/components/blocks/sections` · `@/components/game/engine` · `@/components/NotFound` + any path you declare yourself in `planProject`.
+`@/lib/utils` · `@/components/ui/button` · `@/components/ui/card` · `@/components/ui/input` · `@/components/ui/label` · `@/components/ui/badge` · `@/components/ui/textarea` · `@/components/ui/separator` · `@/components/ui/select` · `@/components/ui/dialog` · `@/components/ui/tabs` · `@/components/ui/accordion` · `@/components/ui/dropdown-menu` · `@/components/ui/switch` · `@/components/ui/slider` · `@/components/ui/tooltip` · `@/components/ui/avatar` · `@/components/ui/progress` · `@/components/ui/table` · `@/components/ui/checkbox` · `@/components/ui/popover` · `@/components/ui/scroll-area` · `@/components/ui/radio-group` · `@/components/ui/sheet` · `@/components/ui/skeleton` · `@/components/ui/alert` · `@/components/ui/toast` · `@/components/blocks` · `@/components/blocks/index` · `@/components/blocks/sections` · `@/components/game/engine` · `@/components/NotFound` + any path you declare yourself in `planProject`.
 
 **Do NOT import any other @/ path.** If you need a component, either use one from this list or create the file yourself in `planProject` and `generateFiles`.
 
@@ -132,6 +149,24 @@ These patterns WILL break the build. The post-generation fixer catches some but 
 - `__dirname`, `__filename` — Node globals, undefined in Vite
 - `"use client"`, `"use server"`, `next/*` — this is Vite, not Next.js
 - `ReactDOM.render()` — use React 18 createRoot (never touch main.tsx)
+
+**Forms / contact / inquiries — CANONICAL PATTERNS (non-negotiable):**
+- **No backend needed (restaurant contact, inquiry, booking, newsletter):** Use the toast-and-reset pattern. NEVER use `fetch()`, `axios`, or `XMLHttpRequest` for these. Pattern:
+  ```tsx
+  import { toast } from '@/components/ui/toast'
+  // ...in your form handler:
+  const onSubmit = async (data: FormData) => {
+    await new Promise(r => setTimeout(r, 600)) // brief loading feel
+    toast.success("Message sent! We'll be in touch soon.")
+    form.reset()
+  }
+  ```
+- **Backend needed (user login, data save, dashboard API):** Use `VITE_CODEMINE_API` env var as the base URL (always available). Pattern: `fetch(\`\${import.meta.env.VITE_CODEMINE_API}/your-endpoint\`, ...)`
+- **NEVER use `fetch('http://localhost:...')` or `fetch('http://127.0.0.1:...')`** — this will always fail at runtime with ERR_CONNECTION_REFUSED. No hardcoded localhost URLs anywhere.
+
+**Notifications:**
+- For toasts/notifications, use sonner directly: `import { toast } from 'sonner'` AND mount `<Toaster />` in `src/pages/Home.tsx` (or your root page): `import { Toaster } from 'sonner'` → `<Toaster />`
+- Alternatively use `@/components/ui/toast` which re-exports sonner's toast function
 
 **Import violations:**
 - `import { ... } from 'motion/react'` → use `'framer-motion'`

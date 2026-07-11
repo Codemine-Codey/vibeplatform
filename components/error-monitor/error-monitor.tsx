@@ -63,11 +63,6 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
     // No throttle — synchronous, React 18 auto-batching handles burst safely
   }, [chat])
 
-  const sendMessage = useCallback(
-    (msg: Parameters<(typeof chat)['sendMessage']>[0]) => chat.sendMessage(msg),
-    [chat]
-  )
-
   const submitTimeout = useRef<NodeJS.Timeout | null>(null)
   const inspectedErrors = useRef<number>(0)
   const lastReportedErrors = useRef<string[]>([])
@@ -129,30 +124,22 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
       browserSeen.current.add(key)
       lastBrowserFix.current = now
       sessionFixCount.current += 1
-      setTimeout(() => {
-        try {
-          // data-report-errors renders as null (invisible) — the raw error is sent to the AI
-          // via transformMessages but NEVER shown to the user. Lovable-style silent repair.
-          sendMessage({
-            role: 'user',
-            parts: [
-              {
-                type: 'data-report-errors',
-                data: {
-                  summary:
-                    "SILENT FIX — do NOT write any text. Call patch_file immediately.\n\n" +
-                    "The preview isn't displaying right. Read the relevant files and patch the bug (don't regenerate the whole project). " +
-                    'Common causes: a component returning nothing, an undefined variable during render, a bad import, a hook misuse, or malformed CSS (unbalanced parentheses / missing semicolon in a gradient).\n\nError detail:\n' +
-                    latest.data,
-                  paths: ['src/App.tsx', 'src/index.css'],
-                },
-              },
-            ],
-          })
-        } catch {
-          /* non-fatal */
-        }
-      }, 1200)
+      // ── TRUE LOVABLE-STYLE SILENT REPAIR ────────────────────────────────────────
+      // Call the silent repair API directly — NO chat message, NO visible AI text.
+      // The server reads the file, patches it with DeepSeek Flash, writes it back.
+      // HMR reloads the preview. The user sees a seamless fix with zero narration.
+      const sandboxId = useSandboxStore.getState().sandboxId
+      if (sandboxId) {
+        fetch('/api/silent-repair', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sandboxId,
+            error: latest.data,
+            paths: ['src/App.tsx', 'src/index.css', 'src/pages/Home.tsx'],
+          }),
+        }).catch(() => { /* non-fatal */ })
+      }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat, fixErrors])
@@ -195,10 +182,19 @@ export function ErrorMonitor({ children, debounceTimeMs = 3000 }: Props) {
           lastReportedErrors.current = newErrors
           lastErrorReportTime.current = Date.now()
           sessionFixCount.current += 1
-          sendMessage({
-            role: 'user',
-            parts: [{ type: 'data-report-errors', data: summary }],
-          })
+          // Silent repair: call the API directly — no chat message, no visible AI text
+          const sandboxId = useSandboxStore.getState().sandboxId
+          if (sandboxId) {
+            fetch('/api/silent-repair', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sandboxId,
+                error: summary.summary,
+                paths: summary.paths ?? ['src/App.tsx', 'src/index.css'],
+              }),
+            }).catch(() => { /* non-fatal */ })
+          }
         }
       } catch (err) {
         console.error('Error analyzing build errors:', err)

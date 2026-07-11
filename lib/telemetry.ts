@@ -19,6 +19,7 @@ export type RepairLayer =
   | 'checkpoint'        // snapshot saved / restored
   | 'deploy'            // CF Pages publish
   | 'phase-gate'        // STEP 2 progressive enrichment: phase build gate / rollback
+  | 'silent-repair'     // client-triggered silent repair via /api/silent-repair
 
 export function logRepair(event: {
   layer: RepairLayer
