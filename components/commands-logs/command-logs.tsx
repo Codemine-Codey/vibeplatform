@@ -23,6 +23,10 @@ export function CommandLogs({ command, onLog, onCompleted }: Props) {
   useEffect(() => {
     if (ref.current) return
 
+    // Virtual commands (cm-browser-console, srv-*, etc.) are populated directly
+    // via addLog() from the platform — no Vercel Sandbox API stream exists for them.
+    if (command.cmdId.startsWith('cm-') || command.cmdId.startsWith('srv-')) return
+
     const iterator = getCommandLogs(command.sandboxId, command.cmdId)
     ref.current = iterator
 
