@@ -296,6 +296,40 @@ LLMs default to clichés. Override these defaults proactively. Each rule has a c
   * **Palette-rotation rule:** if the previous premium-consumer project you generated used the beige+brass family, this one MUST use a different family. Do not ship the same warm-craft palette twice in a row.
   * **Override:** the beige+brass+espresso palette is acceptable ONLY when the brand brief explicitly names those colors, or when the brand identity is genuinely vintage / artisan / warm-craft AND you can articulate why this specific palette fits this specific brand. Default-reaching for it because "this is a cookware brief" is banned.
 
+### 4.2.A CURATED PALETTE PRESETS (oklch — concrete starting points, not defaults)
+
+oklch gives perceptually uniform colors — same `L` value at different hues genuinely looks the same brightness. Define palettes as CSS custom properties using `oklch()`. Pick the preset that fits the brief; never reuse the same preset on consecutive projects.
+
+**8 named presets:**
+
+```css
+/* 1. Noir & Gold — luxury, high-end F&B, fashion */
+:root { --bg:oklch(8% 0.01 240); --surface:oklch(14% 0.01 240); --text:oklch(96% 0.01 80); --accent:oklch(78% 0.12 85); --accent-fg:oklch(10% 0 0); }
+
+/* 2. Neon Mint — gaming, tech, crypto, dark SaaS */
+:root { --bg:oklch(12% 0.02 200); --surface:oklch(18% 0.02 200); --text:oklch(95% 0.01 200); --accent:oklch(82% 0.22 165); --accent-fg:oklch(10% 0 0); }
+
+/* 3. Cold Luxury — fintech, B2B software, premium SaaS */
+:root { --bg:oklch(98% 0.005 260); --surface:oklch(100% 0 0); --text:oklch(12% 0.01 260); --accent:oklch(42% 0.18 258); --accent-fg:oklch(98% 0 0); }
+
+/* 4. Terracotta Slate — artisan food, lifestyle, DTC */
+:root { --bg:oklch(96% 0.005 50); --surface:oklch(100% 0 0); --text:oklch(22% 0.02 260); --accent:oklch(58% 0.16 35); --accent-fg:oklch(98% 0 0); }
+
+/* 5. Forest Dark — outdoor, sustainability, wellness */
+:root { --bg:oklch(14% 0.03 150); --surface:oklch(20% 0.03 150); --text:oklch(94% 0.01 80); --accent:oklch(68% 0.14 140); --accent-fg:oklch(10% 0 0); }
+
+/* 6. Pure Monochrome + Pop — editorial, portfolio, minimal */
+:root { --bg:oklch(98% 0 0); --surface:oklch(96% 0 0); --text:oklch(10% 0 0); --accent:oklch(62% 0.28 145); --accent-fg:oklch(98% 0 0); }
+
+/* 7. Cobalt Cream — premium consumer, beauty, wellness */
+:root { --bg:oklch(97% 0.01 260); --surface:oklch(100% 0 0); --text:oklch(18% 0.02 260); --accent:oklch(48% 0.24 258); --accent-fg:oklch(98% 0 0); }
+
+/* 8. Olive Brick — heritage, craft, architecture */
+:root { --bg:oklch(95% 0.01 110); --surface:oklch(100% 0 0); --text:oklch(20% 0.02 80); --accent:oklch(50% 0.14 30); --accent-fg:oklch(97% 0 0); }
+```
+
+**Rule:** Name the chosen preset in the Design Read one-liner. If the brief names specific brand colors, map those to `--bg / --text / --accent` instead of a preset. Two consecutive projects MUST use different presets.
+
 ### 4.3 Layout Diversification
 * **ANTI-CENTER BIAS:** Centered Hero / H1 sections are avoided when `DESIGN_VARIANCE > 4`. Force "Split Screen" (50/50), "Left-aligned content / right-aligned asset", "Asymmetric white-space", or scroll-pinned structures.
 * **Override:** centered hero is OK for editorial / manifesto / launch-announcement briefs where the message itself is the design.

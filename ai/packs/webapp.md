@@ -202,28 +202,46 @@ const [open, setOpen] = useState<string | null>(null)
 ))}
 ```
 
-### Pricing Cards (for SaaS apps with upgrade flows)
+### Pricing Cards (for in-app upgrade/billing dialogs ONLY — not for marketing pages)
 ```tsx
-<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+{/* Use 2-col on most screens; featured plan breaks out visually, not by column count */}
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
   {plans.map(plan => (
-    <div key={plan.id} className={cn('rounded-2xl border p-6 flex flex-col gap-4',
-      plan.featured && 'border-primary bg-primary/5 ring-1 ring-primary/20')}>
-      {plan.featured && <span className="text-xs font-semibold text-primary uppercase tracking-widest">Most Popular</span>}
+    <div key={plan.id} className={cn(
+      'rounded-2xl border p-6 flex flex-col gap-4 transition-shadow',
+      plan.featured
+        ? 'border-primary bg-primary text-primary-foreground shadow-lg shadow-primary/20 sm:scale-[1.03]'
+        : 'hover:border-primary/30'
+    )}>
+      {plan.featured && (
+        <span className="text-xs font-semibold uppercase tracking-widest opacity-70">Most Popular</span>
+      )}
       <div>
         <p className="font-semibold">{plan.name}</p>
-        <p className="text-3xl font-black mt-1">{plan.price}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+        <p className="text-3xl font-black mt-1 tabular-nums">
+          {plan.price}
+          <span className={cn('text-sm font-normal', plan.featured ? 'opacity-70' : 'text-muted-foreground')}>/mo</span>
+        </p>
       </div>
       <ul className="space-y-2 flex-1 text-sm">
-        {plan.features.map(f => <li key={f} className="flex gap-2"><CheckIcon className="w-4 h-4 text-primary shrink-0 mt-0.5" />{f}</li>)}
+        {plan.features.map(f => (
+          <li key={f} className="flex gap-2 items-start">
+            <CheckIcon className={cn('w-4 h-4 shrink-0 mt-0.5', plan.featured ? 'opacity-80' : 'text-primary')} />
+            {f}
+          </li>
+        ))}
       </ul>
-      <button className={cn('w-full py-2.5 rounded-lg text-sm font-medium transition-opacity hover:opacity-90',
-        plan.featured ? 'bg-primary text-primary-foreground' : 'border border-input hover:bg-accent')}>
+      <button className={cn(
+        'w-full py-2.5 rounded-lg text-sm font-medium transition-all hover:opacity-90',
+        plan.featured ? 'bg-white text-primary' : 'bg-primary text-primary-foreground'
+      )}>
         {plan.cta}
       </button>
     </div>
   ))}
 </div>
 ```
+**Note:** 3-col pricing is banned everywhere (same as the website pack). Use 2-col max. Featured plan breaks out with `scale-[1.03]` + background flip — NOT with an extra column.
 
 ## Anti-Patterns to Avoid
 - No prop drilling past 2 levels — use context
