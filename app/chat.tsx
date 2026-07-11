@@ -252,11 +252,9 @@ export function Chat({ className }: Props) {
   validateAndSubmitRef.current = validateAndSubmitMessage
 
   // Auto-submit messages injected by other UI panels (e.g. "Add Database" button)
-  const pendingFiredRef = useRef<string | null>(null)
+  // Clear before submitting so Zustand state is null before next render — no double-fire possible.
   useEffect(() => {
     if (!pendingChatMessage || isWorking) return
-    if (pendingFiredRef.current === pendingChatMessage) return
-    pendingFiredRef.current = pendingChatMessage
     const msg = pendingChatMessage
     setPendingChatMessage(null)
     validateAndSubmitRef.current(msg)
