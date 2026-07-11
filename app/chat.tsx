@@ -211,17 +211,21 @@ export function Chat({ className }: Props) {
     setChatStatus(status)
   }, [status, setChatStatus])
 
+  // Keep a stable ref to validateAndSubmitMessage so the pending-message effect
+  // doesn't re-fire every time messages.length changes (which rebuilds the callback).
+  const validateAndSubmitRef = useRef(validateAndSubmitMessage)
+  validateAndSubmitRef.current = validateAndSubmitMessage
+
   // Auto-submit messages injected by other UI panels (e.g. "Add Database" button)
   const pendingFiredRef = useRef<string | null>(null)
   useEffect(() => {
     if (!pendingChatMessage || isWorking) return
-    // Guard against React StrictMode double-invoke firing the same message twice
     if (pendingFiredRef.current === pendingChatMessage) return
     pendingFiredRef.current = pendingChatMessage
     const msg = pendingChatMessage
     setPendingChatMessage(null)
-    validateAndSubmitMessage(msg)
-  }, [pendingChatMessage, isWorking, setPendingChatMessage, validateAndSubmitMessage])
+    validateAndSubmitRef.current(msg)
+  }, [pendingChatMessage, isWorking, setPendingChatMessage])
 
   return (
     <Panel className={className}>

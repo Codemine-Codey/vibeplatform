@@ -1,5 +1,4 @@
 import { tool } from 'ai'
-import { Sandbox } from '@vercel/sandbox'
 import z from 'zod/v3'
 import type { UIMessage, UIMessageStreamWriter } from 'ai'
 import type { DataPart } from '../messages/data-parts'
@@ -51,20 +50,6 @@ export const createDatabase = ({ writer }: Params) =>
       const databaseId = data.result.uuid
       const databaseName = data.result.name
 
-      // Inject env vars into sandbox so the app can reference DB_ID at build time
-      try {
-        const sandbox = await Sandbox.get({ sandboxId })
-        await sandbox.writeFiles([{
-          path: '.env.local',
-          content: Buffer.from(
-            `VITE_DB_ID=${databaseId}\nVITE_CF_ACCOUNT_ID=${CF_ACCOUNT_ID}\n`,
-            'utf8'
-          ),
-        }])
-      } catch {
-        // Non-fatal — database created successfully even if env write fails
-      }
-
       // Update the Database tab in the UI
       writer.write({
         id: toolCallId,
@@ -73,11 +58,22 @@ export const createDatabase = ({ writer }: Params) =>
       })
 
       return (
-        `Database created and connected.\n` +
-        `Name: ${databaseName}\nID: ${databaseId}\n\n` +
-        `VITE_DB_ID is injected into the sandbox at import.meta.env.VITE_DB_ID. ` +
-        `Now write the schema and the full data access layer. ` +
-        `Use the Cloudflare D1 REST API: POST https://api.cloudflare.com/client/v4/accounts/[ACCOUNT]/d1/database/${databaseId}/raw — the account value is available server-side only, do not hardcode it in client code. Instead write a thin fetch wrapper that calls a /api/db route you create in the project.`
+        `Database created and connected. Name: ${databaseName}\n\n` +
+        `IMPORTANT — how to write data from the SPA:\n` +
+        `The platform injects VITE_CODEMINE_API and VITE_PROJECT_ID into the app. ` +
+        `Use this EXACT pattern for ALL database writes (contact forms, saving records, etc.):\n\n` +
+        `const res = await fetch(\`\${import.meta.env.VITE_CODEMINE_API}/api/db/write\`, {\n` +
+        `  method: 'POST',\n` +
+        `  headers: { 'Content-Type': 'application/json' },\n` +
+        `  body: JSON.stringify({\n` +
+        `    projectId: import.meta.env.VITE_PROJECT_ID,\n` +
+        `    table: 'your_table_name',\n` +
+        `    data: { column1: value1, column2: value2 }\n` +
+        `  })\n` +
+        `})\n\n` +
+        `NEVER create a custom Express server or proxy. NEVER use fetch('http://localhost:...'). ` +
+        `NEVER put the database ID in client code. ` +
+        `Now write the SQL schema (CREATE TABLE statements) using runCommand with pnpm exec wrangler d1 execute ${databaseName} --remote --command "CREATE TABLE ..." and then implement the full data layer using the fetch pattern above.`
       )
     },
   })

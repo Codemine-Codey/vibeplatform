@@ -1018,7 +1018,17 @@ export async function POST(req: Request) {
             const createdId = created.id
             sandboxPromise
               .then(async (sb) => {
-                await sb.writeFiles([{ path: '.env', content: Buffer.from(`VITE_CODEMINE_AI_URL=${aiBase}/api/ai/proxy\nVITE_CODEMINE_AI_TOKEN=${created.aiToken}\n`, 'utf8') }])
+                // Inject all platform env vars the generated app may need:
+                // - AI proxy creds (VITE_CODEMINE_AI_URL / _TOKEN)
+                // - DB write proxy (VITE_CODEMINE_API / VITE_PROJECT_ID)
+                // - Auth creds injected separately by the auth/setup route when enabled
+                const envContent = [
+                  `VITE_CODEMINE_AI_URL=${aiBase}/api/ai/proxy`,
+                  `VITE_CODEMINE_AI_TOKEN=${created.aiToken}`,
+                  `VITE_CODEMINE_API=${aiBase}`,
+                  `VITE_PROJECT_ID=${createdId}`,
+                ].join('\n') + '\n'
+                await sb.writeFiles([{ path: '.env', content: Buffer.from(envContent, 'utf8') }])
                 // Persist sandbox_id EARLY (right after creation, minutes before the
                 // end-of-pipeline snapshot) so the project is resumable even if a long or
                 // interrupted generation never reaches the snapshot step. This alone makes
@@ -1260,6 +1270,16 @@ async function reopenFromSnapshot(
     } catch { /* non-fatal */ }
     const url = sandbox.domain(3000)
     await waitForDevServer(url)
+    // Re-inject platform env vars (VITE_CODEMINE_API / VITE_PROJECT_ID) in case this
+    // is an older project whose snapshot predates these vars, or in case the .env drifted.
+    const reOpenBase = process.env.CM_PUBLIC_BASE_URL || 'https://vibeplatform-rho.vercel.app'
+    sandbox.writeFiles([{
+      path: '.env.platform',
+      content: Buffer.from([
+        `VITE_CODEMINE_API=${reOpenBase}`,
+        `VITE_PROJECT_ID=${project.id}`,
+      ].join('\n') + '\n', 'utf8'),
+    }]).catch(() => {})
     writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { sandboxId: sandbox.sandboxId, projectId: project.id, status: 'done' } })
     writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
     await updateProjectRow(project.id, { sandbox_id: sandbox.sandboxId, preview_url: url }).catch(() => {})
