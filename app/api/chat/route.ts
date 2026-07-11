@@ -203,14 +203,14 @@ async function verifyAndRepair({
     type: 'data-run-command',
     data: { sandboxId, command: 'Getting your project ready', args: [], status: 'executing' },
   })
-  // P0-B: hard overall budget for the entire repair phase. No matter how many rounds or files,
-  // repair can NEVER run past this — the pipeline always proceeds to show the best build we have,
-  // never an endless "Finalizing…". Paired with repairFile's own 45s per-call ceiling.
-  const repairDeadline = Date.now() + 150_000
+  // P0-B: hard overall budget covering BOTH vite build rounds AND the typeCheckGate.
+  // Reduced to 90s so gen(~4min) + verify(<90s) stays well under the 10-min user target.
+  // Paired with repairFile's own 45s per-call ceiling.
+  const repairDeadline = Date.now() + 90_000
   try {
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
       if (Date.now() > repairDeadline) {
-        console.warn('[verify] repair budget (150s) exhausted — proceeding with current build')
+        console.warn('[verify] repair budget (90s) exhausted — proceeding with current build')
         break
       }
       // vite build only (no tsc — type errors don't blank the preview; CSS/import/
@@ -227,7 +227,7 @@ async function verifyAndRepair({
         })
         await Promise.race([
           cmd.wait(),
-          new Promise<void>((_, rej) => setTimeout(() => rej(new Error('build timeout')), 90_000)),
+          new Promise<void>((_, rej) => setTimeout(() => rej(new Error('build timeout')), 50_000)),
         ])
       } catch {
         /* timeout — read whatever was logged */
@@ -240,8 +240,9 @@ async function verifyAndRepair({
         // vite build passes (no CSS/import/syntax crash). NOW run a filtered type-check
         // to catch the contract class vite-build can't see — wrong props, missing
         // exports, undefined names, wrong arity (the KanbanBoardWrapper bug) — and repair
-        // them BEFORE the preview, not at runtime.
-        await typeCheckGate({ sandbox, sandboxId })
+        // them BEFORE the preview, not at runtime. Share the same deadline so it can never
+        // blow the budget independently.
+        await typeCheckGate({ sandbox, sandboxId, deadline: repairDeadline })
         return
       }
 
@@ -337,12 +338,18 @@ function contractTypeErrors(log: string): { files: string[]; block: string; tota
 // esbuild ignores (it strips types). Repairs the offending AI files for up to 2 rounds,
 // then proceeds (the runtime monitor is the final backstop). This is the deterministic
 // rail that turns "wrong props slip to runtime" into "wrong props fixed before preview".
-async function typeCheckGate({ sandbox, sandboxId }: { sandbox: Sandbox; sandboxId: string }): Promise<void> {
-  // Loop until tsc is GREEN (bounded rounds) — the preview is only shown after this
-  // returns, so a type-clean app is the only thing that reaches the user. Repairs run in
-  // PARALLEL each round to stay within the time budget (this replaces the slow,
-  // post-preview self-heal, so it's a net speed WIN, not extra minutes).
-  for (let round = 1; round <= 3; round++) {
+// deadline: shared with verifyAndRepair so the total verify phase is time-bounded.
+async function typeCheckGate({ sandbox, sandboxId, deadline }: { sandbox: Sandbox; sandboxId: string; deadline?: number }): Promise<void> {
+  // Skip if the shared deadline has already been consumed by vite build rounds.
+  if (deadline && Date.now() > deadline) {
+    console.warn('[tsc-gate] skipped — deadline already passed')
+    return
+  }
+  for (let round = 1; round <= 2; round++) {
+    if (deadline && Date.now() > deadline) {
+      console.warn(`[tsc-gate] deadline reached at round ${round} — stopping`)
+      return
+    }
     let log = ''
     try {
       const cmd = await sandbox.runCommand({
@@ -354,7 +361,7 @@ async function typeCheckGate({ sandbox, sandboxId }: { sandbox: Sandbox; sandbox
       })
       await Promise.race([
         cmd.wait(),
-        new Promise<void>((_, rej) => setTimeout(() => rej(new Error('tsc timeout')), 120_000)),
+        new Promise<void>((_, rej) => setTimeout(() => rej(new Error('tsc timeout')), 35_000)),
       ])
     } catch {
       /* timeout — read whatever was logged */
@@ -516,14 +523,11 @@ async function headlessRuntimeCheck(
       if (msg.type() === 'error') errors.push(String(msg.text()))
     })
 
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 20_000 }).catch(() => {})
-    // Let React mount + effects + state settle. Longer than a single frame so async
-    // re-render loops (e.g. an unstable store selector → "maximum update depth") have
-    // time to actually throw before we declare the page healthy. A light scroll nudges
-    // scroll-triggered effects/animations to run too.
-    await new Promise(r => setTimeout(r, 4000))
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 15_000 }).catch(() => {})
+    // Let React mount + effects settle. 2s is enough for update-depth loops to throw.
+    await new Promise(r => setTimeout(r, 2000))
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {})
-    await new Promise(r => setTimeout(r, 800))
+    await new Promise(r => setTimeout(r, 500))
 
     // P1-B: require MEANINGFUL PAINT, not merely "a node exists". Read the root's
     // child count, innerHTML length (the paint floor), total descendant element count,
@@ -585,8 +589,8 @@ async function headlessRuntimeCheck(
         page.on('pageerror', onErr)
         page.on('console', onConsole)
         const dest = new URL(href, url).toString()
-        await page.goto(dest, { waitUntil: 'networkidle2', timeout: 15_000 }).catch(() => {})
-        await new Promise(r => setTimeout(r, 1200))
+        await page.goto(dest, { waitUntil: 'networkidle2', timeout: 8_000 }).catch(() => {})
+        await new Promise(r => setTimeout(r, 600))
         // P1-B: same meaningful-paint floor per route (not just childElementCount>0).
         const rp = await page
           .evaluate(() => {
@@ -607,8 +611,8 @@ async function headlessRuntimeCheck(
         }
       }
       // Return to home so the screenshot below captures the entry page.
-      await page.goto(url, { waitUntil: 'networkidle2', timeout: 15_000 }).catch(() => {})
-      await new Promise(r => setTimeout(r, 800))
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 8_000 }).catch(() => {})
+      await new Promise(r => setTimeout(r, 500))
     } catch { /* per-route check is best-effort — never blocks the preview */ }
 
     // ── Game smoke test: a canvas game must ANIMATE + RESPOND to input ──────────
