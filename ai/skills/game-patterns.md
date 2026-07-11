@@ -59,9 +59,32 @@ Every one is cheap and transforms the feel. Use most of them:
 - **Trail/afterimage** on fast-moving entities. **Camera** ease-follow (lerp) the player, never hard-locked.
 
 ## 4. Controls — responsive + forgiving
-- Map BOTH keyboard and touch/pointer. Show controls on the start screen.
+
+⚠️ CRITICAL — controls not working is an instant user-abandon. Get this exactly right:
+
+**Keyboard**: ALWAYS register on `window`, never on the canvas element. `canvas.addEventListener('keydown')` silently does nothing — canvas elements don't receive key events unless explicitly focused. Use `window.addEventListener('keydown', handler)` inside `useEffect` with cleanup `return () => window.removeEventListener('keydown', handler)`. Test every key mapping before claiming done.
+
+**Touch**: Attach to the canvas div wrapper (or `window`). Handle `touchstart` and `touchend`. Call `e.preventDefault()` inside the handler (and pass `{ passive: false }` to addEventListener) to block scroll/zoom. On mobile, tap = jump/action.
+
+**useEffect pattern** (copy this exactly):
+```typescript
+useEffect(() => {
+  const onKey = (e: KeyboardEvent) => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') { /* jump */ e.preventDefault() }
+    if (e.code === 'ArrowDown') { /* duck */ e.preventDefault() }
+  }
+  const onTouch = (e: TouchEvent) => { /* same action */ e.preventDefault() }
+  window.addEventListener('keydown', onKey)
+  window.addEventListener('touchstart', onTouch, { passive: false })
+  return () => {
+    window.removeEventListener('keydown', onKey)
+    window.removeEventListener('touchstart', onTouch)
+  }
+}, [/* stable callbacks or empty */])
+```
+
 - **Input buffering**: a jump pressed just before landing should still fire. **Coyote time**: allow a jump a few frames after leaving a platform. Forgiveness feels good.
-- Large touch hit areas; `preventDefault` scroll/zoom/context-menu on the canvas. Immediate visual/audio feedback on every input.
+- Show controls on the start screen. Immediate visual/audio feedback on every input.
 
 ## 5. Feel & balance
 - **Game feel = responsiveness + juice + readability.** The player must always understand what's happening (clear silhouettes, contrast between player/enemies/background, telegraphed threats).
@@ -79,4 +102,5 @@ Every one is cheap and transforms the feel. Use most of them:
 - **Sprite-heavy 2D**: pixi.js (on-demand). **2D physics**: matter-js (on-demand).
 
 ## 8. Pre-ship self-check
+**Controls (check first — this is the most common failure):** keyboard on `window` not canvas · touch with `{ passive: false }` · Space/Up/Down/ArrowLeft/ArrowRight all tested · player visibly responds on key press.
 Core loop tight + responsive · explicit state machine · both controls mapped + shown · win AND lose reachable · difficulty ramps · ≥4 juice effects (shake/particles/hit-stop/sound/popups) · sound present + gated · high score persists · start + game-over screens polished · cohesive palette · 60fps (pooled particles, no per-frame alloc) · replay is one tap/key.
