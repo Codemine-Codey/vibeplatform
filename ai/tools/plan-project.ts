@@ -284,6 +284,47 @@ export const planProject = (
         }
       }
 
+      // ── Structural recipe gate (Lovable-style constraint) ────────────────────────
+      // Detects project type from manifest shape and enforces hard structural rules.
+      // These run BEFORE any file is written, so a bad manifest never costs tokens.
+      //
+      // Game detection: only one page (Home.tsx) or has src/components/game/ files.
+      // Games MUST use src/pages/Home.tsx only — no separate game components.
+      // Multiple files → multiple import relationships → import drift → build errors.
+      // One file = zero cross-file imports = zero import errors = ~4 min preview.
+      const hasGameComponents = files.some(f => /^src\/components\/game\//i.test(f.path))
+      const pageCount = files.filter(f => /^src\/pages\//i.test(f.path)).length
+      const isGame = hasGameComponents || pageCount <= 1
+
+      // Games: block component subfolders — ALL logic must live in src/pages/Home.tsx
+      if (isGame && hasGameComponents) {
+        return (
+          `MANIFEST REJECTED — game files must not use src/components/game/ subfolders.\n\n` +
+          `Put ALL game logic (canvas setup, game loop, state machine, collision, HUD, particles) ` +
+          `directly in src/pages/Home.tsx. This is a hard rule: one file = zero import errors = ` +
+          `faster preview for the user. src/index.css is the only other allowed file.\n\n` +
+          `Allowed files: src/index.css, src/pages/Home.tsx. Call planProject again with these 2 files only.`
+        )
+      }
+
+      const isWebsite = !isGame && pageCount >= 4
+      const maxFiles = isGame ? 2 : isWebsite ? 14 : 10
+      if (files.length > maxFiles) {
+        const typeName = isGame ? 'game' : isWebsite ? 'website' : 'webapp'
+        const guidance = isGame
+          ? 'src/index.css + src/pages/Home.tsx (ALL game logic in one file)'
+          : isWebsite
+          ? 'src/index.css + src/components/Layout.tsx + src/pages/Home.tsx + up to 11 additional pages/components'
+          : 'src/index.css + src/components/Layout.tsx + src/pages/Home.tsx + up to 7 components/stores/utilities'
+        return (
+          `MANIFEST REJECTED — too many files (${files.length} > ${maxFiles} max for a ${typeName}).\n\n` +
+          `Allowed: ${guidance}.\n\n` +
+          `Consolidate related logic into fewer files. Combine utility functions, merge small components, ` +
+          `and keep stores/hooks in single files. Call planProject again with ≤ ${maxFiles} files.`
+        )
+      }
+      // ── End structural recipe gate ────────────────────────────────────────────
+
       if (pathErrors.length > 0 || pkgErrors.length > 0) {
         const lines: string[] = ['MANIFEST REJECTED — fix these before calling planProject again:']
         if (pathErrors.length) lines.push('\nForbidden files:\n' + pathErrors.map(e => '  • ' + e).join('\n'))
@@ -291,7 +332,7 @@ export const planProject = (
         lines.push('\nRemove these from your manifest and call planProject again with the corrected list.')
         return lines.join('\n')
       }
-      // ── End validation ────────────────────────────────────────────────────────
+      // ── End path/package validation ───────────────────────────────────────────
 
       const manifest = normalizeManifest(files, extraPackages ?? [])
       onPlan?.(manifest)

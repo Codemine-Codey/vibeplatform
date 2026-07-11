@@ -43,11 +43,14 @@ After the user sees and plays the initial version, they can request specific add
                                    → DIE  → [Game Over Screen] → PLAY AGAIN → [Gameplay]
 ```
 
-### File structure for games:
-**Simple games** (pong, memory, tic-tac-toe, basic platformer): put ALL logic in `src/pages/Home.tsx`.
-**Richer games** (space shooter, RPG, multi-mechanic arcade): modular is fine — use `src/components/game/` for separate concerns (main loop, background, HUD, hooks), then mount from `src/pages/Home.tsx`.
-Either way: list ALL files in ONE `planProject` call and generate them in ONE `generateFiles` call. Never split across calls.
-Hard limit: **6 files maximum** (index.css + Home.tsx + up to 4 game module files). Quality over quantity.
+### File structure for games (SERVER-ENFORCED — the server will reject any other layout):
+- **REQUIRED**: `src/pages/Home.tsx` — ALL game logic lives here (canvas, game loop, state machine, collision, HUD, particles, sounds)
+- **REQUIRED**: `src/index.css` — global styles
+- **FORBIDDEN**: `src/components/game/` — no subfolders, no separate component files
+- **TOTAL**: 2 files only. The server will reject manifests with more or with game component files.
+
+This is intentional and non-negotiable: one file = zero cross-file imports = zero import errors = fast, reliable preview.
+A complete space shooter (canvas, particles, wave system, HUD, start/game-over screens) fits comfortably in ~500 lines of Home.tsx.
 NOTE: `src/App.tsx` and `src/main.tsx` are scaffold-owned — NEVER list them in your manifest.
 
 ---
