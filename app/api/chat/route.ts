@@ -103,10 +103,11 @@ function hasActiveSandbox(messages: ChatUIMessage[]): boolean {
 
 // Scans message history to extract sandboxId + every file generated so far.
 // Injected into edit-turn system prompt so AI knows exactly what files exist.
-function getProjectContext(messages: ChatUIMessage[]): { sandboxId: string | null; filePaths: string[] } {
+function getProjectContext(messages: ChatUIMessage[]): { sandboxId: string | null; filePaths: string[]; hasPartialBuild: boolean } {
   let sandboxId: string | null = null
   const seen = new Set<string>()
   const filePaths: string[] = []
+  let hasPartialBuild = false
 
   for (const msg of messages) {
     if (!Array.isArray(msg.parts)) continue
@@ -119,20 +120,23 @@ function getProjectContext(messages: ChatUIMessage[]): { sandboxId: string | nul
       }
       if (
         part.type === 'data-generating-files' &&
-        part.data?.status === 'done' &&
         Array.isArray(part.data?.paths)
       ) {
+        // Include ALL paths from generating-files — even if status wasn't 'done' (interrupted
+        // stream). Files written before a connection drop ARE on disk even though status=uploading.
         for (const p of part.data.paths as string[]) {
           if (!seen.has(p)) {
             seen.add(p)
             filePaths.push(p)
           }
         }
+        // Track if any generateFiles call didn't finish (status ≠ done → interrupted build)
+        if (part.data?.status !== 'done') hasPartialBuild = true
       }
     }
   }
 
-  return { sandboxId, filePaths }
+  return { sandboxId, filePaths, hasPartialBuild }
 }
 
 function transformMessages(messages: ChatUIMessage[]): ChatUIMessage[] {
@@ -1156,14 +1160,20 @@ async function runAgenticLoop({
   // generation never wrote. Explicitly allow it here for the MISSING files only, and tell the AI to
   // finish, not restart. (This is the stopgap; full event-log resume is the durable-runs workstream.)
   if (isEdit && /continue from where you left off/i.test(getLastUserText(messages))) {
+    const { filePaths: partialPaths, hasPartialBuild } = getProjectContext(messages)
     resolvedSystemPrompt +=
-      `\n\n## RESUMING AN INTERRUPTED BUILD (do NOT start over)\n` +
-      `The previous generation was cut off before finishing. FIRST use grepCode + readFiles to see what ` +
-      `already exists. Identify which expected files are MISSING or incomplete (a telltale sign: App.tsx ` +
-      `imports a page/component that does not exist yet, or a file is empty/short). CREATE those missing ` +
-      `files with generateFiles — allowed here for MISSING files ONLY — matching the existing files' ` +
-      `imports, design tokens, and style EXACTLY. Do NOT rewrite files that are already complete. Then ` +
-      `confirm the app builds and renders with no error.`
+      `\n\n## RESUMING AN INTERRUPTED BUILD — CRITICAL RULES\n` +
+      `The previous generation was cut off. The workspace STILL EXISTS with its files on disk.\n` +
+      (partialPaths.length > 0
+        ? `Files already on disk (verified from message history):\n` +
+          partialPaths.map(p => `- ${p}`).join('\n') + `\n\n` +
+          `These files ARE on disk. NEVER say "no files exist" — that is WRONG.\n`
+        : `No file list recorded (generation was cut off very early). Use readFiles on src/index.css ` +
+          `and src/pages/Home.tsx to check what is already there.\n`) +
+      `\nYour job: read the existing files (batch readFiles call), find the ones that are MISSING or ` +
+      `incomplete, then generateFiles ONLY for the missing ones — maintaining identical imports, design ` +
+      `tokens, and style to what is already there. Do NOT restart. Do NOT call createSandbox. ` +
+      (hasPartialBuild ? `Partial build detected — some files may be truncated; read them before deciding what to generate.` : '')
   }
 
   // Token accounting: create the stream INSIDE the token context so the metrics

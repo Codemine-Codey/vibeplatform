@@ -47,9 +47,13 @@ function FileRow({
     if (open && code === null && sandboxId) {
       setLoading(true)
       fetch(`/api/sandboxes/${sandboxId}/files?path=${encodeURIComponent(path)}`)
-        .then((r) => (r.ok ? r.text() : '// Could not load this file.'))
+        .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
         .then(setCode)
-        .catch(() => setCode('// Could not load this file.'))
+        .catch((status) => setCode(
+          status === 404
+            ? '// File no longer available — it may be from an earlier build attempt.'
+            : '// Unable to load file right now.'
+        ))
         .finally(() => setLoading(false))
     }
   }, [open, code, sandboxId, path])

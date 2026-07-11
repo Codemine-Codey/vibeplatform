@@ -1,14 +1,97 @@
 ---
 name: taste-design
-description: Anti-slop website/landing design law — read the brief, set dials, avoid AI-default aesthetics, ship art-directed multi-section layouts. The authoritative design contract for every website build (planner + file-writer).
+description: Anti-slop website/landing design law incorporating Hallmark design principles — macrostructures, heading discipline, nav/footer fingerprint avoidance, 58-gate slop test. The authoritative design contract for every website build.
 ---
 
-> Design law adapted from the open-source taste-skill (github.com/Leonxlnx/taste-skill, MIT (c) 2026 Leonxlnx).
-> PLATFORM OVERRIDES (these always win over anything below):
-> - NO <svg> anywhere — use Lucide React icons only.
-> - Minimum 5-7 distinct sections, each a DIFFERENT layout (no repeated 3-card rows).
-> - Use the brief's EXACT color tokens + font pairing. Headlines and body text MUST have strong contrast against their background — never near-background-color text.
-> - Real contextual copy only (no lorem, no "Acme", no "Jane Doe").
+> Design law adapted from the open-source taste-skill + Hallmark (github.com/nutlope/hallmark, MIT).
+> PLATFORM OVERRIDES (always win):
+> - NO <svg> — Lucide React icons only.
+> - NO 3-column card grids ever — this is the #1 AI tell. Use the macrostructures below instead.
+> - NO italic headings — upright (roman) only. Italic headings are an AI fingerprint.
+> - Minimum 5-7 distinct sections, EACH a DIFFERENT layout.
+> - Use the brief's EXACT color tokens + font pairing. Text MUST have strong contrast against background.
+> - Real contextual copy only — no lorem, no "Acme", no "Jane Doe", no "Crafted with passion".
+
+---
+
+## HALLMARK LAYER — STEP ZERO: COMMIT TO A MACROSTRUCTURE
+
+Before writing any code, pick ONE macrostructure from this list. Each has a specific structural shape — commit to it fully. Two different project briefs must produce structurally different sites, not color-swaps of the same template.
+
+**21 Named Macrostructures (pick the one that fits the brief):**
+
+1. **Editorial Column** — single wide column, generous white space, large serif headline, text-led
+2. **Split Hero** — viewport divided 50/50: copy left, full-height image/video right (or reversed)
+3. **Marquee Hero** — full-viewport background image/video, headline overlaid large with translucent scrim
+4. **Bento Grid** — asymmetric mosaic of unequal cards (2-col, 3-col, tall+short combos); NO equal-width 3-card rows
+5. **Long Document** — scroll-telling format, wide gutters, pull-quotes, section dividers; think editorial longform
+6. **Product Showcase** — sticky feature on one side, scrolling details list on the other (like Apple product pages)
+7. **Manifesto** — bold centered type, full-bleed section dividers, minimal imagery, statement-driven
+8. **Gallery Grid** — image-first masonry or irregular grid, minimal text, let visuals carry the weight
+9. **Timeline / Story** — vertical sequence with alternating sides, milestone markers, progressive reveal
+10. **Workbench** — utilitarian layout, monospace accents, tight grid, tool/app aesthetic
+11. **Catalogue** — product/listing rows, filterable, consistent cards but NOT 3-column; try 2-col or single-col
+12. **Hero + Alternating Rows** — big hero then alternating image+text rows (not grids), classic but executed well
+13. **Sticky Sidebar** — fixed left/right panel, scrolling content area; great for specs, menus, dashboards
+14. **Poster / Billboard** — single dominant graphic, minimal text, maximum visual impact
+15. **Accordion Depth** — compact sections that expand, layered info architecture
+16. **Card Mosaic** — varied-size cards in a true mosaic (portrait, landscape, square mixed), NO uniform rows
+17. **Scroll Experience** — parallax, scroll-driven animation, sections that transform as you scroll
+18. **Split Scroll** — two panels that scroll independently
+19. **Full-Bleed Photo Grid** — edge-to-edge photography in irregular grid; no white gutters
+20. **Studio Layout** — agency aesthetic: bold number labels, oversized type, asymmetric whitespace
+21. **Kinetic Type** — animation-led, text IS the design, minimal imagery
+
+**State your pick before writing code:** "Macrostructure: Split Hero. Fits the brief because [reason]."
+
+**Diversification rule:** If the previous project used the same macrostructure, pick a different one.
+
+---
+
+## HALLMARK LAYER — PRE-EMIT SELF-CRITIQUE
+
+Before returning the final result, score your output 1–5 on these axes. Anything below 3 must be revised:
+
+- **Variety** — do all sections look different, or is this the same card repeated?
+- **Specificity** — does this look like IT (this café, this brand, this personality), or could it be any café?
+- **Restraint** — did you add animations/gradients/shadows that don't serve communication?
+- **Hierarchy** — is there one clear dominant element per section?
+- **Contrast** — does text read clearly on every background?
+
+If you score yourself 1–2 on Variety or Specificity, you have AI slop. Revise before emitting.
+
+---
+
+## HALLMARK LAYER — CRITICAL ANTI-SLOP GATES
+
+These are automatic FAIL conditions (never ship output with any of these):
+
+**Heading discipline:**
+- NO italic headings. Ever. `font-style: normal` on all display and heading text. Italic in a heading is one of the most reliable AI tells. Italic is only for body copy emphasis.
+- NO `font-weight: 700` on every heading. Mix weights: use extra-bold (900) for hero, regular (400) for subheads.
+- NO hero headline longer than ~50 chars — rewrite shorter or it loses punch.
+
+**Section structure:**
+- NO eyebrow labels like "01 · FEATURES" or "02 / WHY US" — these section number patterns are an AI tell. Use them only when content is genuinely ordered (numbered steps, timeline).
+- NO "tag-left / heading-right" hanging header pattern — the two-column layout where the section label sits left and the heading sits right. It's gate 54 in the Hallmark slop test. Just stack label → heading vertically.
+- Each section MUST have a distinctly different layout from the section above it.
+
+**Nav and footer fingerprints:**
+- **N1a** (wordmark + 2 inline links + button-right) is the #1 AI-generated nav. Only use it when genuinely appropriate for simple 2-destination sites.
+- **Ft3** (4 columns of links + social row + copyright) is the #1 AI-generated footer. Avoid it. Use: single centered copyright + social icons; or a big editorial full-width footer; or a split footer with newsletter; not 4 generic columns.
+
+**Color and typography:**
+- NO hardcoded hex values in components — always use CSS custom properties (`--color-primary`, etc.)
+- NEVER set text the same hue as its background (low chroma ≠ safe — L contrast matters)
+- ALWAYS use two distinct Google Fonts: one display/headline, one body. No single-font pages unless the mono aesthetic IS the design concept.
+- Never use Inter or Poppins as the display face — too generic. Choose something with personality.
+
+**Images and copy:**
+- NO fake "lorem ipsum", no "Jane Doe", no "John Smith", no invented testimonials with stock headshots
+- NO "crafted with passion", "where dreams come true", "excellence in everything" — write real specific copy
+- NO 3D illustrations with gradient blobs unless the brief explicitly calls for it
+
+---
 
 # tasteskill: Anti-Slop Frontend Skill
 
