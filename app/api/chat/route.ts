@@ -44,7 +44,7 @@ import {
   installMissingModules,
   repairFile,
 } from '@/lib/sandbox-util'
-import { createProjectRow, snapshotProject, updateProjectRow, getProjectBySandboxId, incrementProjectTokens, restoreSnapshotInto } from '@/lib/projects-db'
+import { createProjectRow, getProject, snapshotProject, updateProjectRow, getProjectBySandboxId, incrementProjectTokens, restoreSnapshotInto } from '@/lib/projects-db'
 import { tokenStore } from '@/lib/token-context'
 import { ensureValidCss } from '@/lib/css-guard'
 import { trimStaleReadResults } from '@/lib/trim-history'
@@ -101,10 +101,11 @@ function hasActiveSandbox(messages: ChatUIMessage[]): boolean {
   )
 }
 
-// Scans message history to extract sandboxId + every file generated so far.
+// Scans message history to extract sandboxId + projectId + every file generated so far.
 // Injected into edit-turn system prompt so AI knows exactly what files exist.
-function getProjectContext(messages: ChatUIMessage[]): { sandboxId: string | null; filePaths: string[]; hasPartialBuild: boolean } {
+function getProjectContext(messages: ChatUIMessage[]): { sandboxId: string | null; projectId: string | null; filePaths: string[]; hasPartialBuild: boolean } {
   let sandboxId: string | null = null
+  let projectId: string | null = null
   const seen = new Set<string>()
   const filePaths: string[] = []
   let hasPartialBuild = false
@@ -117,6 +118,8 @@ function getProjectContext(messages: ChatUIMessage[]): { sandboxId: string | nul
         part.data?.sandboxId
       ) {
         sandboxId = part.data.sandboxId
+        // projectId is included in the event since Phase 2 — use the most recent one.
+        if (part.data?.projectId) projectId = part.data.projectId as string
       }
       if (
         part.type === 'data-generating-files' &&
@@ -136,7 +139,7 @@ function getProjectContext(messages: ChatUIMessage[]): { sandboxId: string | nul
     }
   }
 
-  return { sandboxId, filePaths, hasPartialBuild }
+  return { sandboxId, projectId, filePaths, hasPartialBuild }
 }
 
 function transformMessages(messages: ChatUIMessage[]): ChatUIMessage[] {
@@ -1125,14 +1128,15 @@ async function runAgenticLoop({
   // the rest of the turn — so the AI edits instead of hitting a dead workspace and telling the
   // user to "rebuild" (which wipes their project).
   let editSandboxId: string | null = null
-  if (isEdit) {
-    const { sandboxId } = getProjectContext(messages)
+  const projectCtx = isEdit ? getProjectContext(messages) : null
+  if (isEdit && projectCtx) {
+    const { sandboxId, projectId: ctxProjectId } = projectCtx
     if (sandboxId) {
       editSandboxId = sandboxId
       let alive = false
       try { await Sandbox.get({ sandboxId }); alive = true } catch { alive = false }
       if (!alive) {
-        const reopened = await reopenFromSnapshot(sandboxId, writer).catch(() => null)
+        const reopened = await reopenFromSnapshot(sandboxId, writer, ctxProjectId).catch(() => null)
         if (reopened) editSandboxId = reopened
       }
     }
@@ -1140,7 +1144,7 @@ async function runAgenticLoop({
 
   let resolvedSystemPrompt = systemPrompt
   if (isEdit) {
-    const { filePaths } = getProjectContext(messages)
+    const { filePaths } = projectCtx ?? getProjectContext(messages)
     const sandboxId = editSandboxId
     if (sandboxId) {
       resolvedSystemPrompt +=
@@ -1160,7 +1164,7 @@ async function runAgenticLoop({
   // generation never wrote. Explicitly allow it here for the MISSING files only, and tell the AI to
   // finish, not restart. (This is the stopgap; full event-log resume is the durable-runs workstream.)
   if (isEdit && /continue from where you left off/i.test(getLastUserText(messages))) {
-    const { filePaths: partialPaths, hasPartialBuild } = getProjectContext(messages)
+    const { filePaths: partialPaths, hasPartialBuild } = projectCtx ?? getProjectContext(messages)
     resolvedSystemPrompt +=
       `\n\n## RESUMING AN INTERRUPTED BUILD — CRITICAL RULES\n` +
       `The previous generation was cut off. The workspace STILL EXISTS with its files on disk.\n` +
@@ -1260,9 +1264,16 @@ async function runAgenticLoop({
 // AI + its edit tools use it this turn) or null if there's no snapshot to restore from.
 async function reopenFromSnapshot(
   oldSandboxId: string,
-  writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
+  writer: UIMessageStreamWriter<UIMessage<never, DataPart>>,
+  projectIdFallback?: string | null,
 ): Promise<string | null> {
-  const project = await getProjectBySandboxId(oldSandboxId).catch(() => null)
+  // Try by sandbox_id first. If the row was updated (e.g. after a manual resume via
+  // SandboxState dialog), sandbox_id now points to the new sandbox — fall back to a
+  // direct project-id lookup so the snapshot is still found.
+  let project = await getProjectBySandboxId(oldSandboxId).catch(() => null)
+  if (!project && projectIdFallback) {
+    project = await getProject(projectIdFallback).catch(() => null)
+  }
   if (!project || !project.snapshot_path) return null
   try {
     writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { status: 'loading' } })
