@@ -55,6 +55,18 @@ const PAGE_TOP_FLAT_RE = /^src\/([A-Z][a-z][^/]+)\.(tsx|jsx)$/
 const AUTO_PHASE_MIN_PAGES = 3      // fewer non-home pages than this → monolithic is fast enough
 const AUTO_PHASE_GROUP = 4          // pages enriched per later phase (spec: 3-6)
 
+// Deferrable visual components (SPA fallback phasing). Components in src/components/ that
+// are NOT chrome (Layout/Nav/Header/Footer) can be stamped as skeleton stubs in Phase 1 and
+// filled in during enrichment — same guarantee as page-level phasing, but for SPA webapps
+// that don't use a multi-page router (the common case for dashboards, trackers, etc.).
+const COMPONENT_DEFERRABLE_RE = /^src\/components\/[^/]+\.(tsx|jsx)$/i
+const MIN_DEFERRABLE_COMPONENTS = 3   // worth splitting only if we can defer ≥ 3 components
+
+function isDeferrableComponent(path: string): boolean {
+  if (CHROME_RE.test(path)) return false
+  return COMPONENT_DEFERRABLE_RE.test(path)
+}
+
 function isEnrichablePage(path: string): boolean {
   if (FOUNDATION_RE.test(path) || CHROME_RE.test(path)) return false
   if (HOME_LIKE_RE.test(path)) return false
@@ -87,8 +99,22 @@ export function normalizeManifest(
   const enrichable = raw.filter((f) => isEnrichablePage(f.path))
   const enrichableSet = new Set(enrichable.map((f) => f.path))
 
-  // Not enough enrichable pages → single phase
+  // Not enough enrichable pages → try component-based phasing fallback before giving up.
+  // Webapps often use SPA architecture (all in src/components/ with one Home page) instead
+  // of multi-route pages. Defer visual components to Phase 2 with skeleton stubs — same
+  // guarantee as page phasing, same HMR enrichment — so the preview fires in ~4 min
+  // regardless of whether the AI chose pages or components.
   if (enrichable.length < AUTO_PHASE_MIN_PAGES || enrichable.length < MIN_ENRICHMENT_FILES) {
+    const deferrableComponents = raw.filter((f) => isDeferrableComponent(f.path))
+    if (deferrableComponents.length >= MIN_DEFERRABLE_COMPONENTS) {
+      const deferSet = new Set(deferrableComponents.map((f) => f.path))
+      const files: ManifestFile[] = raw.map((f) => ({
+        path: f.path,
+        exports: f.exports,
+        phase: deferSet.has(f.path) ? 2 : 1,
+      }))
+      return { files, phaseCount: 2, multiPhase: true, extraPackages }
+    }
     const files = raw.map((f) => ({ path: f.path, exports: f.exports, phase: 1 }))
     return { files, phaseCount: 1, multiPhase: false, extraPackages }
   }

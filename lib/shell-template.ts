@@ -63,12 +63,39 @@ export function stampShell(opts: {
 `
 }
 
+// Stamp a minimal skeleton stub for a deferred visual COMPONENT (not a page). Components
+// are rendered inside other components, not as standalone routes, so they just need to
+// export a valid default function that accepts any props without TS errors. The animated
+// placeholder div inherits the design system's muted color so it blends naturally until
+// the real component loads via HMR during Phase 2 enrichment.
+export function stampComponentShell(opts: {
+  path: string
+  exports: string[]
+}): string {
+  const sig = exportSignature(opts.exports)
+  const fnName = /^[A-Za-z_]\w*$/.test(sig.name) ? sig.name : 'Component'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return `${sig.keyword} ${fnName}(_props?: any) {
+  return <div className="animate-pulse rounded-xl bg-muted/40 h-40 w-full" />
+}
+`
+}
+
 // Stamp all deferred-phase shells for a manifest. Returns files ready for sandbox.writeFiles.
+// Detects page vs. component files by path pattern and uses the appropriate shell type:
+// pages get the full branded placeholder; components get a minimal animated skeleton stub.
+const PAGE_LIKE_PATH_RE = /(^|\/)(pages|routes|views|screens)\/|Page\.(tsx|jsx)$|View\.(tsx|jsx)$|^src\/[A-Z][a-z][^/]+\.(tsx|jsx)$/
 export function stampShellsForManifest(
   files: Array<{ path: string; exports: string[]; phase: number }>,
   brandName?: string
 ): Array<{ path: string; content: string }> {
   return files
     .filter((f) => f.phase > 1)
-    .map((f) => ({ path: f.path, content: stampShell({ path: f.path, exports: f.exports, brandName }) }))
+    .map((f) => {
+      const isPage = PAGE_LIKE_PATH_RE.test(f.path)
+      const content = isPage
+        ? stampShell({ path: f.path, exports: f.exports, brandName })
+        : stampComponentShell({ path: f.path, exports: f.exports })
+      return { path: f.path, content }
+    })
 }

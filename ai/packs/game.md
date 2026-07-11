@@ -43,9 +43,11 @@ After the user sees and plays the initial version, they can request specific add
                                    → DIE  → [Game Over Screen] → PLAY AGAIN → [Gameplay]
 ```
 
-### File structure for simple games (flappy bird, snake, tetris, pong, memory, tic-tac-toe):
-Generate ALL game logic in `src/pages/Home.tsx` ONLY. Do not create `hooks/`, `utils/`, or `components/` subfolders.
-One self-contained file. This is intentional — it's faster to generate and has fewer import errors.
+### File structure for games:
+**Simple games** (pong, memory, tic-tac-toe, basic platformer): put ALL logic in `src/pages/Home.tsx`.
+**Richer games** (space shooter, RPG, multi-mechanic arcade): modular is fine — use `src/components/game/` for separate concerns (main loop, background, HUD, hooks), then mount from `src/pages/Home.tsx`.
+Either way: list ALL files in ONE `planProject` call and generate them in ONE `generateFiles` call. Never split across calls.
+Hard limit: **6 files maximum** (index.css + Home.tsx + up to 4 game module files). Quality over quantity.
 NOTE: `src/App.tsx` and `src/main.tsx` are scaffold-owned — NEVER list them in your manifest.
 
 ---
