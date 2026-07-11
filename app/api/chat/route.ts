@@ -1483,7 +1483,7 @@ async function runPipeline({
     `If you need packages not in the scaffold, include package.json in your generateFiles paths.\n`
 
   const fileCountGuidance = skill === 'website'
-    ? `TARGET FILE COUNT: 7-9 files maximum. Combine related sections into their page file instead of splitting into small components. Only extract a component if it is reused across 2+ pages (e.g. Navbar, Footer). A Home.tsx can and should contain hero + features + testimonials + CTA all inline — do NOT split each section into its own file. Fewer files = faster build for the user.`
+    ? `WEBSITE BUILD SPLIT (mandatory — see §12): Phase 1 = EXACTLY 4 files (src/index.css, src/components/Layout.tsx, src/pages/Home.tsx, src/components/Phase2Sections.tsx placeholder). Phase 2 = all remaining section components + sub-pages. NEVER dump all files into one generateFiles call — that pattern is for GAMES only. The two-phase split is how the user sees a fast hero preview; collapsing to one call breaks the pipeline.`
     : skill === 'game'
     ? `TARGET FILE COUNT: 2 files ONLY — src/index.css + src/pages/Home.tsx. ALL game logic goes in Home.tsx. NO src/components/game/ subfolder. The server enforces this and will reject any other layout. A complete game fits in one file.`
     : `TARGET FILE COUNT: 6-8 files maximum. Combine views and utilities where possible.`
@@ -1524,14 +1524,13 @@ async function runPipeline({
         lookupReference: lookupReference(),
       }
 
-  // Generous step headroom so an optional loadSkill + a stray retry can NEVER
-  // crowd out the required planProject -> generateFiles sequence (A5 caught a run
-  // where the AI burned its budget before generating). generateFiles is the goal.
-  // website (2-phase): createSandbox+unsplash + planProject + generateFiles(P1)
-  //   + install + dev + getSandboxURL + text + generateFiles(P2 sections) + patchFile = 10 nominal
-  //   +5 headroom for error-fix rounds → 15 total
+  // Generous step headroom so an optional lookupReference + generateImageBatch + error-fix
+  // rounds can NEVER crowd out the required pipeline. generateFiles is the goal.
+  // website (2-phase): createSandbox+unsplash + lookupReference(x2) + generateImageBatch
+  //   + planProject + generateFiles(P1) + install + dev + getSandboxURL
+  //   + generateFiles(P2 sections) + patchFile + fix round = 14 nominal +6 headroom → 20
   // app/game: text + (loadSkill?) + planProject + generateFiles + slack
-  const maxSteps = skill === 'website' ? 15 : 9 // websites use 2-phase build (§12)
+  const maxSteps = skill === 'website' ? 20 : 9 // websites use 2-phase build (§12)
 
   const aiResult = streamText({
     ...getModelOptions(DEFAULT_MODEL),
