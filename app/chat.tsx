@@ -211,6 +211,41 @@ export function Chat({ className }: Props) {
     setChatStatus(status)
   }, [status, setChatStatus])
 
+  // Auto-resume on connection drop — if stream errors mid-generation (sandboxId exists,
+  // no preview URL yet), wait 4s then silently re-send "continue" without user action.
+  // Max 3 auto-retries so we don't loop forever on a real server error.
+  const autoResumeCount = useRef(0)
+  // Reset retry counter when a new sandbox is created (new project = fresh slate)
+  useEffect(() => { autoResumeCount.current = 0 }, [sandboxId])
+  const autoResumeRef = useRef(validateAndSubmitMessage)
+  autoResumeRef.current = validateAndSubmitMessage
+  const [resumeCountdown, setResumeCountdown] = useState<number | null>(null)
+
+  // Detect if a preview URL is showing — if it is, generation is done and we shouldn't resume
+  const previewUrl = useSandboxStore((s) => s.url)
+
+  useEffect(() => {
+    if (!streamError || isWorking) return
+    // Only auto-resume during generation (sandbox exists, no preview URL yet)
+    if (!sandboxId || previewUrl) return
+    // Give up after 3 attempts
+    if (autoResumeCount.current >= 3) return
+
+    autoResumeCount.current += 1
+    setResumeCountdown(4)
+
+    const tick = setInterval(() => setResumeCountdown(n => (n !== null && n > 1 ? n - 1 : null)), 1000)
+    const resume = setTimeout(() => {
+      clearInterval(tick)
+      setResumeCountdown(null)
+      setStreamError(null)
+      autoResumeRef.current('Please continue from where you left off.')
+    }, 4000)
+
+    return () => { clearInterval(tick); clearTimeout(resume) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamError])
+
   // Keep a stable ref to validateAndSubmitMessage so the pending-message effect
   // doesn't re-fire every time messages.length changes (which rebuilds the callback).
   const validateAndSubmitRef = useRef(validateAndSubmitMessage)
@@ -276,22 +311,26 @@ export function Chat({ className }: Props) {
         </Conversation>
       )}
 
-      {/* Connection error — shows when stream drops mid-generation */}
+      {/* Connection error — auto-resumes during generation, manual button after it's done */}
       {streamError && !isWorking && (
         <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-destructive/8 border border-destructive/20 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="flex items-start gap-2">
-            <span className="inline-block w-2 h-2 rounded-full bg-destructive/70 shrink-0 mt-1" />
+            <span className="inline-block w-2 h-2 rounded-full bg-destructive/70 shrink-0 mt-1 animate-pulse" />
             <span className="text-xs font-mono text-foreground/70 leading-snug flex-1">
-              Connection interrupted — your generation may be incomplete.
+              {resumeCountdown !== null
+                ? `Connection dropped — resuming in ${resumeCountdown}s…`
+                : 'Connection interrupted — your generation may be incomplete.'}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => validateAndSubmitMessage('Please continue from where you left off.')}
-            className="self-start ml-4 text-xs font-medium text-foreground/80 underline underline-offset-2 hover:text-foreground transition-colors"
-          >
-            Continue generation →
-          </button>
+          {resumeCountdown === null && (
+            <button
+              type="button"
+              onClick={() => validateAndSubmitMessage('Please continue from where you left off.')}
+              className="self-start ml-4 text-xs font-medium text-foreground/80 underline underline-offset-2 hover:text-foreground transition-colors"
+            >
+              Continue generation →
+            </button>
+          )}
         </div>
       )}
 
