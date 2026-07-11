@@ -48,6 +48,10 @@ const MIN_ENRICHMENT_FILES = 3
 const PAGE_DIR_RE = /(^|\/)(pages|routes|views|screens)\//i
 const HOME_LIKE_RE = /(^|\/)(Home|Index|Landing|Main)(Page|View|Screen)?\.(tsx|jsx)$/i
 const PAGE_SUFFIX_RE = /(Page|View|Screen)\.(tsx|jsx)$/i
+// Flat PascalCase files directly in src/ — e.g. src/About.tsx, src/Gallery.tsx, src/Menu.tsx
+// These are common website page files generated at top level rather than in a pages/ dir.
+// Excludes lowercase (store.ts, utils.ts) + single-letter (App.tsx caught by FOUNDATION_RE).
+const PAGE_TOP_FLAT_RE = /^src\/([A-Z][a-z][^/]+)\.(tsx|jsx)$/
 const AUTO_PHASE_MIN_PAGES = 3      // fewer non-home pages than this → monolithic is fast enough
 const AUTO_PHASE_GROUP = 4          // pages enriched per later phase (spec: 3-6)
 
@@ -55,7 +59,7 @@ function isEnrichablePage(path: string): boolean {
   if (FOUNDATION_RE.test(path) || CHROME_RE.test(path)) return false
   if (HOME_LIKE_RE.test(path)) return false
   const base = path.split('/').pop() ?? ''
-  return PAGE_DIR_RE.test(path) || PAGE_SUFFIX_RE.test(base)
+  return PAGE_DIR_RE.test(path) || PAGE_SUFFIX_RE.test(base) || PAGE_TOP_FLAT_RE.test(path)
 }
 
 // Mechanically normalize + validate a raw planner manifest into phases. Never throws;
