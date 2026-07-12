@@ -1494,7 +1494,14 @@ async function runPipeline({
     `If you need packages not in the scaffold, include package.json in your generateFiles paths.\n`
 
   const fileCountGuidance = skill === 'website'
-    ? `WEBSITE BUILD SPLIT (mandatory — see §12): Phase 1 = EXACTLY 4 files (src/index.css, src/components/Layout.tsx, src/pages/Home.tsx, src/components/Phase2Sections.tsx placeholder). Phase 2 = all remaining section components + sub-pages. NEVER dump all files into one generateFiles call — that pattern is for GAMES only. The two-phase split is how the user sees a fast hero preview; collapsing to one call breaks the pipeline.`
+    ? `WEBSITE BUILD SPLIT (mandatory — see §12): Phase 1 = EXACTLY 4 files:\n` +
+      `  1. src/index.css — CSS vars + @import font ONLY (~40 lines, no component styles)\n` +
+      `  2. src/components/Layout.tsx — nav + footer only (~70 lines max)\n` +
+      `  3. src/pages/Home.tsx — hero section ONLY, strictly ≤100 lines. Zero sections below the hero — no features, no about, no testimonials. Import and render <Phase2Sections /> at the bottom. That is ALL.\n` +
+      `  4. src/components/Phase2Sections.tsx — EXACTLY: export default function Phase2Sections(){ return <div className="bg-background" style={{minHeight:'60vh'}} /> }\n` +
+      `Phase 1 must stream in under 90 seconds — keep each file minimal and tight.\n` +
+      `Phase 2 = all remaining section components + sub-pages in the SECOND generateFiles call.\n` +
+      `NEVER dump all files into one generateFiles call — that pattern is for GAMES only.`
     : skill === 'game'
     ? `TARGET FILE COUNT: 2 files ONLY — src/index.css + src/pages/Home.tsx. ALL game logic goes in Home.tsx. NO src/components/game/ subfolder. The server enforces this and will reject any other layout. A complete game fits in one file.`
     : `TARGET FILE COUNT: 6-8 files maximum. Combine views and utilities where possible.`
@@ -1525,12 +1532,24 @@ async function runPipeline({
   // the enrichment engine. This is a HARD server-side contract — prompt rules are
   // soft and the AI regularly violates them. Subsequent generateFiles calls pass
   // through unfiltered (the AI may never call them for websites, but they're safe).
+  // The 4 true Phase 1 paths the AI must write. Scaffold-owned files (package.json,
+  // vite.config.ts, tsconfig.json, etc.) are NOT in this set — the scaffold already
+  // wrote them. If the AI includes them, they get treated as deferred Phase 2 items
+  // so enrichment can silently ignore them (they already exist on disk).
   const PHASE1_CORE = new Set([
     'src/index.css', 'src/components/Layout.tsx', 'src/pages/Home.tsx',
-    'src/components/Phase2Sections.tsx', 'package.json', 'src/main.tsx',
-    'src/App.tsx', 'vite.config.ts', 'vite.config.js', 'tsconfig.json',
-    'tsconfig.app.json', 'index.html', 'tailwind.config.ts', 'tailwind.config.js',
-    'postcss.config.js', 'postcss.config.mjs',
+    'src/components/Phase2Sections.tsx',
+  ])
+  // Scaffold-owned: written at sandbox creation, AI must never regenerate them.
+  // Actively drop them if the AI includes them — saves write time, avoids clobbering.
+  const SCAFFOLD_OWNED = new Set([
+    'package.json', 'src/main.tsx', 'src/App.tsx',
+    'vite.config.ts', 'vite.config.js', 'tsconfig.json', 'tsconfig.app.json',
+    'tsconfig.node.json', 'index.html', 'tailwind.config.ts', 'tailwind.config.js',
+    'postcss.config.js', 'postcss.config.mjs', 'src/lib/utils.ts',
+    'src/styles/cm-ui.css', 'src/components/NotFound.tsx',
+    'src/components/__fallback.tsx', 'src/components/blocks/index.tsx',
+    'src/components/blocks/sections.tsx', 'public/_redirects', '.npmrc',
   ])
   let p1GFCalled = false
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1541,8 +1560,12 @@ async function runPipeline({
     execute: async (args: { sandboxId: string; paths: string[] }, ctx: unknown) => {
       if (!p1GFCalled) {
         p1GFCalled = true
-        const phase1Paths = args.paths.filter((p: string) => PHASE1_CORE.has(p))
-        const phase2Paths = args.paths.filter((p: string) => !PHASE1_CORE.has(p))
+        // Strip scaffold-owned files silently — they already exist, rewriting wastes time
+        const nonScaffold = args.paths.filter((p: string) => !SCAFFOLD_OWNED.has(p))
+        const phase1Paths = nonScaffold.filter((p: string) => PHASE1_CORE.has(p))
+        const phase2Paths = nonScaffold.filter((p: string) => !PHASE1_CORE.has(p))
+        const dropped = args.paths.filter((p: string) => SCAFFOLD_OWNED.has(p))
+        if (dropped.length > 0) console.log(`[phase1-hard] Dropped scaffold-owned files: ${dropped.join(', ')}`)
         if (phase2Paths.length > 0) {
           console.log(`[phase1-hard] AI sent ${args.paths.length} files; enforcing Phase 1 (${phase1Paths.length} files). Deferring to enrichment: ${phase2Paths.join(', ')}`)
           // Create a synthetic manifest so enrichment generates these deferred files
@@ -1559,7 +1582,7 @@ async function runPipeline({
           }
         }
         // Write only Phase 1 files; if none qualified (AI sent all Phase 2), use originals
-        const filteredPaths = phase1Paths.length > 0 ? phase1Paths : args.paths
+        const filteredPaths = phase1Paths.length > 0 ? phase1Paths : nonScaffold.length > 0 ? nonScaffold : args.paths
         return rawGF.execute({ ...args, paths: filteredPaths }, ctx)
       }
       return rawGF.execute(args, ctx)
@@ -1668,9 +1691,7 @@ async function runPipeline({
     try {
       const PHASE1_CORE = new Set([
         'src/index.css', 'src/components/Layout.tsx', 'src/pages/Home.tsx',
-        'src/components/Phase2Sections.tsx', 'package.json', 'src/main.tsx',
-        'src/App.tsx', 'vite.config.ts', 'vite.config.js', 'tsconfig.json',
-        'tsconfig.app.json', 'index.html',
+        'src/components/Phase2Sections.tsx',
       ])
       const steps = await Promise.race([
         aiResult.steps,
