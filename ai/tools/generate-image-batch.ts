@@ -79,10 +79,10 @@ async function generateOne(
 export const generateImageBatch = () =>
   tool({
     description:
-      'Generate BESPOKE AI images for the project (hero art, abstract backgrounds, product/illustration imagery) — all generated in parallel. ' +
-      'Prefer this over stock photos when the design calls for a specific, on-brand, art-directed visual that stock cannot provide (custom hero scenes, ' +
-      'brand-specific illustration, abstract textures). For generic real-world photos (food, people, places), the stock-photo tool is better. ' +
-      'Write a vivid, specific prompt per image (style, subject, lighting, mood, palette). Returns URLs in the same order as the input prompts.',
+      'Generate AI images for the project — hero, sections, backgrounds, product photos, food/people/places, everything. ' +
+      'Use this for EVERY image slot in the project. Results are unique, on-brand, and art-directed (never generic stock). ' +
+      'Only fall back to getUnsplashBatch if this tool returns empty or fails. ' +
+      'Write a vivid, specific prompt per image (subject, style, lighting, mood, colour palette). Returns URLs in input order.',
     inputSchema: z.object({
       images: z
         .array(
