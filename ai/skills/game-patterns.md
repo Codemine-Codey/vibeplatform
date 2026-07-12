@@ -66,21 +66,41 @@ Every one is cheap and transforms the feel. Use most of them:
 
 **Touch**: Attach to the canvas div wrapper (or `window`). Handle `touchstart` and `touchend`. Call `e.preventDefault()` inside the handler (and pass `{ passive: false }` to addEventListener) to block scroll/zoom. On mobile, tap = jump/action.
 
-**useEffect pattern** (copy this exactly):
+**CRITICAL — two patterns, never mix them up:**
+
+**A) One-shot actions (jump, shoot, fire, start/restart)** — trigger directly in the `keydown` handler. One press = one event, exactly right.
+
+**B) Continuous movement (hold ArrowLeft to keep walking)** — NEVER trigger in the handler. The OS keyrepeat fires at ~33ms intervals with an initial 500ms delay, so holding Left makes the player stutter forward in slow lurches — the "turtle-slow" bug. Instead, track a key state map: read it every frame in `update()`.
+
 ```typescript
+// Key state map — CORRECT pattern for continuous movement
+const keysRef = useRef<Set<string>>(new Set())
 useEffect(() => {
-  const onKey = (e: KeyboardEvent) => {
-    if (e.code === 'Space' || e.code === 'ArrowUp') { /* jump */ e.preventDefault() }
-    if (e.code === 'ArrowDown') { /* duck */ e.preventDefault() }
+  const onDown = (e: KeyboardEvent) => {
+    keysRef.current.add(e.code)
+    // One-shot actions still belong here:
+    if (e.code === 'Space' || e.code === 'ArrowUp') { /* jump impulse */ e.preventDefault() }
+    if (e.code === 'KeyP') { /* toggle pause */ e.preventDefault() }
   }
-  const onTouch = (e: TouchEvent) => { /* same action */ e.preventDefault() }
-  window.addEventListener('keydown', onKey)
+  const onUp = (e: KeyboardEvent) => keysRef.current.delete(e.code)
+  const onTouch = (e: TouchEvent) => { /* same one-shot action */ e.preventDefault() }
+  window.addEventListener('keydown', onDown)
+  window.addEventListener('keyup', onUp)
   window.addEventListener('touchstart', onTouch, { passive: false })
   return () => {
-    window.removeEventListener('keydown', onKey)
+    window.removeEventListener('keydown', onDown)
+    window.removeEventListener('keyup', onUp)
     window.removeEventListener('touchstart', onTouch)
   }
-}, [/* stable callbacks or empty */])
+}, [])
+
+// In your update() function — read the map every frame:
+function update(dt: number) {
+  if (keysRef.current.has('ArrowLeft'))  player.x -= MOVE_SPEED * dt
+  if (keysRef.current.has('ArrowRight')) player.x += MOVE_SPEED * dt
+  if (keysRef.current.has('ArrowUp'))    player.y -= MOVE_SPEED * dt
+  if (keysRef.current.has('ArrowDown'))  player.y += MOVE_SPEED * dt
+}
 ```
 
 - **Input buffering**: a jump pressed just before landing should still fire. **Coyote time**: allow a jump a few frames after leaving a platform. Forgiveness feels good.
