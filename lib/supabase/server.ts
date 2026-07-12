@@ -38,7 +38,14 @@ export function getAdminSupabase() {
 }
 
 // Convenience: the currently signed-in user (or null).
-export async function getCurrentUser() {
+// Also accepts Bearer token in Authorization header for server-to-server calls (e.g. test scripts).
+export async function getCurrentUser(req?: Request) {
+  const bearer = req?.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
+  if (bearer) {
+    const admin = getAdminSupabase()
+    const { data } = await admin.auth.getUser(bearer)
+    return data.user ?? null
+  }
   const sb = await getServerSupabase()
   const { data } = await sb.auth.getUser()
   return data.user ?? null

@@ -933,7 +933,7 @@ export async function POST(req: Request) {
   // AUTH GATE — generation creates a real sandbox VM and spends model tokens. Require a
   // signed-in user (no anonymous cost-abuse) + a per-user rate cap. BotID was removed
   // earlier (it silently blocked the POST); this is the real protection.
-  const authedUser = await getCurrentUser()
+  const authedUser = await getCurrentUser(req)
   if (!authedUser) {
     return new Response(JSON.stringify({ error: 'Please sign in to build.' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
   }
