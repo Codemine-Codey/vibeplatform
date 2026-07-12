@@ -1600,10 +1600,10 @@ async function runPipeline({
         // Phase 1 files are now on disk. Fire the dev server immediately while the AI
         // continues generating Phase 2 files (they'll land via Vite HMR). This moves
         // the URL emit from AFTER all Phase 2 generation (~8-10 min) to RIGHT NOW (~2 min).
-        // Only emit early when there are Phase 2 files deferred (otherwise the main pipeline
-        // handles it normally).
-        if (phase2Paths.length > 0) {
-          void (async () => {
+        // Always fires on the first generateFiles call — whether the AI deferred Phase 2
+        // (old prompt: one big call with mixed paths) or will call generateFiles again for
+        // Phase 2 (new prompt: two separate calls). Both cases the main pipeline is bypassed.
+        void (async () => {
             try {
               // Wait for background install before starting dev server
               if (bgInstallPromise) await bgInstallPromise
