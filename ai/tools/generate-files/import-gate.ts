@@ -281,6 +281,85 @@ export function auditLocalImports(
   return bad
 }
 
+// Hard pre-write fix: strip import lines whose @/ specifier is not in the scaffold
+// or the declared generated files. Converts a "module not found" build failure
+// (kills ALL rendering) into a "X is not defined" error (only the component using
+// that import breaks — verifyAndRepair can fix it precisely). Targets two cases:
+//   1. @/components/ui/<not-in-27> — the AI hallucinated a shadcn component that
+//      doesn't exist in the scaffold (alert-dialog, command, form, calendar, etc.)
+//   2. @/<path> that is neither scaffold nor in the generated file list
+// Multi-line imports (opening bracket on one line, closing on another) are handled
+// by scanning for the closing "}" + "from '@/...' line once an unclosed brace is seen.
+export function fixUnknownLocalImports(
+  filePath: string,
+  content: string,
+  generatedPaths: string[]
+): string {
+  if (!/\.(tsx|ts|jsx|js)$/.test(filePath)) return content
+  const known = new Set([
+    ...SCAFFOLD_AT_PATHS,
+    ...generatedPaths.map(toAtPath),
+  ])
+
+  function isKnown(spec: string): boolean {
+    const normalized = spec.replace(/\/index$/, '')
+    return known.has(spec) || known.has(normalized) || known.has(spec + '/index')
+  }
+
+  const lines = content.split('\n')
+  const out: string[] = []
+  let multilineBuffer: string[] = []
+  let inMultiline = false
+
+  for (const line of lines) {
+    if (inMultiline) {
+      multilineBuffer.push(line)
+      // Does this line close the import with a from '@/...' specifier?
+      const closeMatch = line.match(/\}\s*from\s+['"](@\/[^'"]+)['"]/)
+      if (closeMatch) {
+        inMultiline = false
+        const spec = closeMatch[1]
+        if (isKnown(spec)) {
+          out.push(...multilineBuffer)
+        } else {
+          console.warn(`[import-gate] stripped unknown multi-line @/ import: ${spec} from ${filePath}`)
+        }
+        multilineBuffer = []
+      }
+      // If line has no 'from' yet, keep accumulating (e.g. "  Foo," lines)
+      continue
+    }
+
+    // Single-line: import { X } from '@/...' or import X from '@/...'
+    const singleMatch = line.match(/^\s*(?:import|export)\b.+?from\s+['"](@\/[^'"]+)['"]/)
+    if (singleMatch) {
+      const spec = singleMatch[1]
+      if (isKnown(spec)) {
+        out.push(line)
+      } else {
+        console.warn(`[import-gate] stripped unknown @/ import: ${spec} from ${filePath}`)
+        // Don't push — drops the line
+      }
+      continue
+    }
+
+    // Start of a multi-line import: "import {" with no closing } on the same line
+    const multilineStart = line.match(/^\s*(?:import|export)\s+(?:type\s+)?\{/)
+    if (multilineStart && !line.includes('}')) {
+      inMultiline = true
+      multilineBuffer = [line]
+      continue
+    }
+
+    out.push(line)
+  }
+
+  // Unclosed multiline at EOF (shouldn't happen in valid TS but guard it)
+  if (multilineBuffer.length > 0) out.push(...multilineBuffer)
+
+  return out.join('\n')
+}
+
 // Always present in every scaffold (react itself) — skip from pre-declare. NOT
 // react-router-dom: it's absent from games, so it must stay eligible for the
 // KNOWN_PACKAGES pre-declare when a game imports it.

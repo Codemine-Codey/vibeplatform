@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { ModelMessage } from 'ai'
 import { getModelOptions } from '../../gateway'
 import { getMaxOutputTokens } from '../../constants'
-import { applySubstitutions, auditLocalImports } from './import-gate'
+import { applySubstitutions, auditLocalImports, fixUnknownLocalImports } from './import-gate'
 import { applyIconFix } from '../../gates/semantic-gate'
 
 export type File = {
@@ -343,16 +343,18 @@ export async function* getContents(
           // Mark EVERY produced path written (incl. concatenated splits) so closure sees them.
           written.add(file.path)
           const fixed = fixIcons(file.path, fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content)))))
-          // Audit @/ imports — log any that aren't in the scaffold or the declared manifest.
-          // This doesn't block generation (blocking here causes cascading failures), but it
-          // surfaces precise import mismatches to the console so verifyAndRepair has an exact
-          // error to work with instead of a vague "module not found" from the dev server.
-          const badImports = auditLocalImports(file.path, fixed, allPaths)
+          // Hard pre-write gate: strip any @/ imports that don't resolve to a scaffold
+          // path or a file in this generation batch. Converts "module not found" (kills
+          // ALL rendering) into "X is not defined" (only breaks the component using it),
+          // giving verifyAndRepair a precise, fixable target instead of a fatal cascade.
+          const gated = fixUnknownLocalImports(file.path, fixed, allPaths)
+          // Log any remaining unknown imports for telemetry (should be zero after fix)
+          const badImports = auditLocalImports(file.path, gated, allPaths)
           if (badImports.length > 0) {
-            console.warn(`[import-audit] ${file.path} has unknown @/ imports: ${badImports.join(', ')}`)
+            console.warn(`[import-audit] ${file.path} still has unknown @/ imports after gate: ${badImports.join(', ')}`)
           }
           yield {
-            files: [{ path: file.path, content: fixed }],
+            files: [{ path: file.path, content: gated }],
             paths: [file.path],
             written: [],
           }
