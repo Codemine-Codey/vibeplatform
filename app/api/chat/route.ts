@@ -1679,7 +1679,7 @@ async function runPipeline({
       ])
       const allGenPaths: string[] = []
       for (const step of steps) {
-        for (const tc of (step.toolCalls as Array<{ toolName: string; args: { paths?: string[] } }> ?? [])) {
+        for (const tc of ((step.toolCalls as unknown) as Array<{ toolName: string; args: { paths?: string[] } }> ?? [])) {
           if (tc.toolName === 'generateFiles' && Array.isArray(tc.args?.paths)) {
             allGenPaths.push(...tc.args.paths)
           }
