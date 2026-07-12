@@ -190,15 +190,29 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
         '*'
       )
     } catch {}
+    // Auto-recover once — transient errors (HMR race, async first-load) clear on reload.
+    // Use sessionStorage so a persistent error only gets one reload attempt, not an infinite loop.
+    try {
+      if (!sessionStorage.getItem('_cm_err_recovered')) {
+        sessionStorage.setItem('_cm_err_recovered', '1')
+        setTimeout(() => window.location.reload(), 2500)
+      }
+    } catch {}
   }
   render() {
     if (this.state.error) {
+      let alreadyTried = false
+      try { alreadyTried = sessionStorage.getItem('_cm_err_recovered') === '1' } catch {}
       return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', fontFamily: 'system-ui, sans-serif', background: '#fafafa', color: '#111' }}>
           <div style={{ maxWidth: '26rem', textAlign: 'center' }}>
             <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>✨</div>
-            <h1 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.5rem' }}>Putting the final touches on this page</h1>
-            <p style={{ fontSize: '0.9rem', opacity: 0.65 }}>One moment — refreshing automatically.</p>
+            <h1 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+              {alreadyTried ? 'Something went wrong' : 'Putting the final touches on this page'}
+            </h1>
+            <p style={{ fontSize: '0.9rem', opacity: 0.65 }}>
+              {alreadyTried ? 'Type "fix the error" in the chat to repair it.' : 'One moment — refreshing automatically.'}
+            </p>
           </div>
         </div>
       )
