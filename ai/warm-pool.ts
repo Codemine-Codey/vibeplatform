@@ -14,7 +14,7 @@ const POOL_SIZE = 2
 // timeout (below); evict from the pool after 8 min idle so an assigned one still has ≥22 min
 // of runtime for the build + edits — never the ~1-min-left sandbox that timed builds out at 10m.
 const MAX_AGE_MS = 8 * 60 * 1000
-const SANDBOX_TIMEOUT_MS = 45 * 60 * 1000
+const SANDBOX_TIMEOUT_MS = 20 * 60 * 1000
 
 let pool: WarmEntry[] = []
 let warming = 0 // number of in-progress warm operations
@@ -59,8 +59,10 @@ function fillPool() {
 }
 
 export function getWarmEntry(): WarmEntry | null {
-  // Evict expired entries
+  // Evict expired entries — stop them immediately so provisioned memory billing ends
   const now = Date.now()
+  const evicted = pool.filter(e => now - e.createdAt > MAX_AGE_MS)
+  evicted.forEach(e => e.sandbox.stop().catch(() => {}))
   pool = pool.filter(e => now - e.createdAt <= MAX_AGE_MS)
 
   // Only hand out a sandbox whose deps finished installing. If none are ready yet,
