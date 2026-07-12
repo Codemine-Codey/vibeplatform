@@ -266,9 +266,14 @@ interface Params {
   // only generates the REAL phase-1 files — the core of the fast-first-preview win. Empty
   // on single-phase builds.
   getShells?: () => Array<{ path: string; content: string }>
+  // Fast-path for Phase 1: skip retry / syntax-gate / import-closure / footgun / empty-render.
+  // Phase 1 files are tiny (≤4 files, simple CSS + nav + hero + placeholder). Vite handles
+  // TS errors at runtime; the headless check post-URL catches remaining issues. Cuts ~150s
+  // from Phase 1 so early-emit fires right after the 4 files land (~80s) instead of ~250s.
+  skipQualityGates?: boolean
 }
 
-export const generateFiles = ({ writer, modelId, designContext, existingPaths, abortSignal, getShells }: Params) =>
+export const generateFiles = ({ writer, modelId, designContext, existingPaths, abortSignal, getShells, skipQualityGates }: Params) =>
   tool({
     description,
     inputSchema: z.object({
@@ -391,6 +396,12 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
         })
         console.error('[generateFiles] getContents error:', richError.message)
       }
+
+      // ── Quality gates — skipped for Phase 1 fast-path (skipQualityGates=true) ──────
+      // Phase 1 has ≤4 tiny files; Vite tolerates TS errors at runtime; headless check
+      // post-URL catches remaining issues. Skipping saves ~150s (the gap between last
+      // file upload and the "done" event that triggers early-emit).
+      if (!skipQualityGates) {
 
       // Retry any files that were missed (JSON parse failure, empty content, etc.)
       const writtenPaths = new Set(uploaded.map(f => f.path))
@@ -606,6 +617,8 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       } catch (e) {
         console.warn('[empty-render] pass failed (non-fatal):', e instanceof Error ? e.message : e)
       }
+
+      } // end: if (!skipQualityGates)
 
       // ── Router mount guarantee (deterministic) ───────────────────────────────
       // If the app routes but a regenerated main.tsx lost its <BrowserRouter>, inject it

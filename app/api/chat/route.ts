@@ -1561,6 +1561,10 @@ async function runPipeline({
   let earlyEmitUrl = ''
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawGF = generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }) as any
+  // Phase 1 fast-path: skip retry/syntax-gate/closure/footgun/empty-render AI calls.
+  // Phase 1 has ≤4 tiny files; these gates are the 166s gap between file upload and rawGF "done".
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const phase1GF = generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, skipQualityGates: true }) as any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const guardedGF: any = skill !== 'website' ? rawGF : {
     ...rawGF,
@@ -1590,7 +1594,7 @@ async function runPipeline({
         }
         // Write only Phase 1 files; if none qualified (AI sent all Phase 2), use originals
         const filteredPaths = phase1Paths.length > 0 ? phase1Paths : nonScaffold.length > 0 ? nonScaffold : args.paths
-        const p1Result = await rawGF.execute({ ...args, paths: filteredPaths }, ctx)
+        const p1Result = await phase1GF.execute({ ...args, paths: filteredPaths }, ctx)
 
         // ── EARLY URL EMIT ─────────────────────────────────────────────────────
         // Phase 1 files are now on disk. Fire the dev server immediately while the AI
