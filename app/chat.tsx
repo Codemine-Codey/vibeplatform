@@ -232,7 +232,9 @@ export function Chat({ className }: Props) {
     if (autoResumeCount.current >= 3) return
 
     autoResumeCount.current += 1
-    setResumeCountdown(4)
+    // Progressive backoff: attempt 1 = 15s, attempt 2 = 30s, attempt 3 = 60s
+    const delayMs = autoResumeCount.current === 1 ? 15000 : autoResumeCount.current === 2 ? 30000 : 60000
+    setResumeCountdown(delayMs / 1000)
 
     const tick = setInterval(() => setResumeCountdown(n => (n !== null && n > 1 ? n - 1 : null)), 1000)
     const resume = setTimeout(() => {
@@ -240,7 +242,7 @@ export function Chat({ className }: Props) {
       setResumeCountdown(null)
       setStreamError(null)
       autoResumeRef.current('Please continue from where you left off.')
-    }, 4000)
+    }, delayMs)
 
     return () => { clearInterval(tick); clearTimeout(resume) }
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1643,6 +1643,30 @@ async function runPipeline({
     }
   }
 
+  // ── Step 3.6: Website Phase2Sections.tsx guarantee ──────────────────────
+  // If the AI violated the 4-file Phase 1 rule (dumped all pages in one call
+  // and omitted Phase2Sections.tsx), Home.tsx's import would fail the build and
+  // cascade into a 3-round repair loop that can exhaust the 800s function budget.
+  // Server guarantees the placeholder exists before install runs — zero LLM cost.
+  if (skill === 'website') {
+    const PHASE2_PLACEHOLDER = 'src/components/Phase2Sections.tsx'
+    try {
+      const existing = await readSandboxFile(sandbox, PHASE2_PLACEHOLDER)
+      if (!existing || existing.trim().length < 20) {
+        await sandbox.writeFiles([{
+          path: PHASE2_PLACEHOLDER,
+          content: Buffer.from(
+            `export default function Phase2Sections() {\n  return <div className="bg-background" style={{ minHeight: '60vh' }} />\n}\n`,
+            'utf8'
+          ),
+        }])
+        console.log('[website-guard] stamped missing Phase2Sections.tsx placeholder')
+      }
+    } catch (e) {
+      console.warn('[website-guard] Phase2Sections stamp failed (non-fatal):', e instanceof Error ? e.message : e)
+    }
+  }
+
   // ── Step 4: Server finalizes install ─────────────────────────────────────
   // Background install from Step 1 should be nearly done. Re-running is fast
   // for already-installed packages. 90s timeout covers cold installs.
