@@ -567,15 +567,16 @@ Rule: load AT MOST what you need. Never loop on skill loads.
 2. `createSandbox` (port 3000) + `getUnsplashBatch` in the SAME step (all websites need photos).
 3. `planProject` — label every file as either "Phase 1" or "Phase 2". Phase 1 = 4 files. Phase 2 = all the rest.
 4. `generateFiles` — **EXACTLY THESE 4 PATHS, NO MORE, NO FEWER:**
-   - `src/index.css` — full brand tokens + Google font `@import`
-   - `src/components/Layout.tsx` — complete nav + footer. Nav links MUST use `<Link to="/about">` etc. (real routes, never `<a href="#section">` anchors)
-   - `src/pages/Home.tsx` — hero section ONLY (full design, Unsplash image, full JSX+CSS). At the BOTTOM: `import Phase2Sections from '@/components/Phase2Sections'` and render `<Phase2Sections />` as the last child
+   - `src/index.css` — CSS variables + Google font `@import` ONLY. No component styles. ≤50 lines.
+   - `src/components/Layout.tsx` — nav + footer ONLY. ≤80 lines. No section components here.
+   - `src/pages/Home.tsx` — **HERO SECTION ONLY. ≤100 lines strictly.** One background image, heading, subheading, CTA. NOTHING ELSE — no features, no about, no testimonials, no pricing. The ONLY content beyond the hero wrapper is: `import Phase2Sections from '@/components/Phase2Sections'` and `<Phase2Sections />` as the last child.
    - `src/components/Phase2Sections.tsx` — ONLY this placeholder, nothing else:
      ```tsx
      export default function Phase2Sections() {
        return <div className="bg-background" style={{ minHeight: '60vh' }} />
      }
      ```
+   **Do NOT include package.json, vite.config.ts, tsconfig.json, src/App.tsx, src/main.tsx in this call — they are pre-written by the platform and must not be regenerated.**
 5. `runCommand('pnpm install')`.
 6. `runCommand('pnpm run dev')`.
 7. `getSandboxURL` — **call this IMMEDIATELY after dev is ready. Do NOT wait for Phase 2.**
