@@ -1519,11 +1519,59 @@ async function runPipeline({
   const planBox: { manifest: NormalizedManifest | null } = { manifest: null }
   const capturePlan = planProject({ onPlan: (m) => { planBox.manifest = m } })
 
+  // ── HARD Phase 1 contract (website only) ────────────────────────────────────
+  // Regardless of what paths the AI sends to generateFiles on its first call, the
+  // server enforces that ONLY Phase 1 core files are written. Page files beyond
+  // Home.tsx (e.g. Lookbook.tsx, Product.tsx, About.tsx) are silently deferred to
+  // the enrichment engine. This is a HARD server-side contract — prompt rules are
+  // soft and the AI regularly violates them. Subsequent generateFiles calls pass
+  // through unfiltered (the AI may never call them for websites, but they're safe).
+  const PHASE1_CORE = new Set([
+    'src/index.css', 'src/components/Layout.tsx', 'src/pages/Home.tsx',
+    'src/components/Phase2Sections.tsx', 'package.json', 'src/main.tsx',
+    'src/App.tsx', 'vite.config.ts', 'vite.config.js', 'tsconfig.json',
+    'tsconfig.app.json', 'index.html', 'tailwind.config.ts', 'tailwind.config.js',
+    'postcss.config.js', 'postcss.config.mjs',
+  ])
+  let p1GFCalled = false
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawGF = generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }) as any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const guardedGF: any = skill !== 'website' ? rawGF : {
+    ...rawGF,
+    execute: async (args: { sandboxId: string; paths: string[] }, ctx: unknown) => {
+      if (!p1GFCalled) {
+        p1GFCalled = true
+        const phase1Paths = args.paths.filter((p: string) => PHASE1_CORE.has(p))
+        const phase2Paths = args.paths.filter((p: string) => !PHASE1_CORE.has(p))
+        if (phase2Paths.length > 0) {
+          console.log(`[phase1-hard] AI sent ${args.paths.length} files; enforcing Phase 1 (${phase1Paths.length} files). Deferring to enrichment: ${phase2Paths.join(', ')}`)
+          // Create a synthetic manifest so enrichment generates these deferred files
+          if (!planBox.manifest) {
+            planBox.manifest = {
+              files: [
+                ...phase1Paths.map((p: string) => ({ path: p, phase: 1, exports: ['default'] })),
+                ...phase2Paths.map((p: string) => ({ path: p, phase: 2, exports: ['default'] })),
+              ],
+              phaseCount: 2,
+              multiPhase: true,
+              extraPackages: [],
+            }
+          }
+        }
+        // Write only Phase 1 files; if none qualified (AI sent all Phase 2), use originals
+        const filteredPaths = phase1Paths.length > 0 ? phase1Paths : args.paths
+        return rawGF.execute({ ...args, paths: filteredPaths }, ctx)
+      }
+      return rawGF.execute(args, ctx)
+    },
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pipelineTools: Record<string, any> = skill === 'website'
     ? {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
+        generateFiles: guardedGF,
         getUnsplashBatch: getUnsplashBatch(),
         generateImageBatch: generateImageBatch(),
         planProject: capturePlan,
@@ -1531,7 +1579,7 @@ async function runPipeline({
       }
     : {
         loadSkill: loadSkill(),
-        generateFiles: generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }),
+        generateFiles: rawGF,
         planProject: capturePlan,
         lookupReference: lookupReference(),
       }
