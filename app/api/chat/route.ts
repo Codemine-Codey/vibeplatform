@@ -1960,25 +1960,39 @@ async function runPipeline({
     devError = await waitForDevServer(url)
   }
 
-  // ── Step 6.5: Headless runtime check — BEFORE URL emit (Fable Step 4 / Lovable flow) ──
-  // The dev server is up, but we do NOT give the client the URL until the page actually
-  // RENDERS in a real headless browser. This kills the "AI talks in chat for 30 min"
-  // failure class: the iframe is never mounted during checks, so the error monitor can't
-  // fire, and repairs are 100% silent. User always sees a working preview.
-  let rtResult: { status: 'ok' | 'broken' | 'skipped'; detail: string; score?: number | null; screenshot?: Buffer } | null = null
+  // Handle dev-500 silently before URL emit: apply a branded fallback page.
   if (devError) {
-    // Dev server returned 500 — apply silent fallback so the first thing the iframe loads is clean
     logRepair({ layer: 'dev-500', action: 'silent-fallback', detail: devError.slice(0, 200), sandboxId })
     try {
       await applyFallbackTerminalState(sandbox, devError, { skill, brand: brandName || 'This project' })
       await new Promise(r => setTimeout(r, 3000))
     } catch { /* non-fatal */ }
-  } else {
+  }
+
+  // ── Emit preview URL now — client sees the project immediately ────────────────────
+  // Step 6.5 (headless check) runs right below and delivers any fixes via Vite HMR,
+  // saving 2-5 min vs the old flow that blocked the URL on Chromium + repair rounds.
+  writer.write({
+    id: 'srv-url',
+    type: 'data-get-sandbox-url',
+    data: { url, status: 'done' },
+  })
+
+  // Persist URL immediately so continuation invocations (enrichment hand-off) have it
+  // even if this invocation is later killed mid-enrichment.
+  if (projectId) {
+    updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: url }).catch(() => {})
+  }
+
+  // ── Step 6.5: Headless quality check (repairs arrive live via Vite HMR) ───────────
+  // Client already has the URL — any file writes done here are picked up automatically.
+  let rtResult: { status: 'ok' | 'broken' | 'skipped'; detail: string; score?: number | null; screenshot?: Buffer } | null = null
+  if (!devError) {
     try {
       writer.write({
         id: 'srv-runtime',
         type: 'data-run-command',
-        data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'executing' },
+        data: { sandboxId, command: 'Polishing your preview', args: [], status: 'executing' },
       })
       let rt = await headlessRuntimeCheck(url, sandboxId)
       console.log(`[runtime-check] verdict status=${rt.status}${rt.status === 'ok' ? '' : ' — ' + rt.detail.slice(0, 160)}`)
@@ -2061,16 +2075,7 @@ async function runPipeline({
     }
   }
 
-  // ── Emit the live preview URL — only after all checks pass (Lovable/Fable flow) ──
-  // Every code path above either verified the page renders or applied a fallback.
-  // The URL arriving in the client always points to a working preview.
-  writer.write({
-    id: 'srv-url',
-    type: 'data-get-sandbox-url',
-    data: { url, status: 'done' },
-  })
-
-  // ── Design-improvement pass via HMR (after URL — improvements arrive live) ──────
+  // ── Design-improvement pass via HMR ──────────────────────────────────────────────
   if (
     rtResult &&
     rtResult.status === 'ok' &&
@@ -2086,13 +2091,6 @@ async function runPipeline({
       sandboxId,
     })
     await new Promise(r => setTimeout(r, 3000))
-  }
-
-  // Durable-runs STEP 3: persist the live URL + sandbox id NOW, before enrichment. A
-  // multi-phase build may hand off to a continuation invocation (returning early below),
-  // so the preview URL must be saved here or it could be lost on the handoff path.
-  if (projectId) {
-    updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: url }).catch(() => {})
   }
 
   // ── Durable-runs STEP 2+3: PROGRESSIVE, RESUMABLE ENRICHMENT (phases 2..N) ──────
