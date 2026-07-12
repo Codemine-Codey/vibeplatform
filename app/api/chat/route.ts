@@ -1386,6 +1386,8 @@ async function runPipeline({
 
   let sandbox: Sandbox
   let hadWarmSandbox = false
+  // Captured background install promise — early-emit awaits it before starting dev server
+  let bgInstallPromise: Promise<void> | null = null
 
   const warm = getWarmEntry()
   if (warm) {
@@ -1451,7 +1453,8 @@ async function runPipeline({
     if (!hadWarmSandbox) {
       // Restore the BAKED node_modules (fast extract) then a reconcile install for any
       // package the AI adds — far quicker than a cold install. Runs in the background.
-      ;(async () => {
+      // Captured in bgInstallPromise so early-emit can await it before starting dev server.
+      bgInstallPromise = (async () => {
         const baked = await restoreBakedDeps(sandbox).catch(() => false)
         const installCmd = baked
           ? 'command -v bun >/dev/null 2>&1 && bun install --no-save || pnpm install --prefer-offline'
@@ -1552,6 +1555,10 @@ async function runPipeline({
     'src/components/blocks/sections.tsx', 'public/_redirects', '.npmrc',
   ])
   let p1GFCalled = false
+  // Early URL emit state — set once Phase 1 files are written, dev server up, URL emitted
+  // without waiting for the AI's Phase 2 generation to complete.
+  let earlyEmitDone = false
+  let earlyEmitUrl = ''
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawGF = generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }) as any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1583,7 +1590,44 @@ async function runPipeline({
         }
         // Write only Phase 1 files; if none qualified (AI sent all Phase 2), use originals
         const filteredPaths = phase1Paths.length > 0 ? phase1Paths : nonScaffold.length > 0 ? nonScaffold : args.paths
-        return rawGF.execute({ ...args, paths: filteredPaths }, ctx)
+        const p1Result = await rawGF.execute({ ...args, paths: filteredPaths }, ctx)
+
+        // ── EARLY URL EMIT ─────────────────────────────────────────────────────
+        // Phase 1 files are now on disk. Fire the dev server immediately while the AI
+        // continues generating Phase 2 files (they'll land via Vite HMR). This moves
+        // the URL emit from AFTER all Phase 2 generation (~8-10 min) to RIGHT NOW (~2 min).
+        // Only emit early when there are Phase 2 files deferred (otherwise the main pipeline
+        // handles it normally).
+        if (phase2Paths.length > 0) {
+          void (async () => {
+            try {
+              // Wait for background install before starting dev server
+              if (bgInstallPromise) await bgInstallPromise
+              // Start dev server
+              writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' } })
+              try {
+                const devCmd = await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'] })
+                writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, commandId: devCmd.cmdId, command: 'bun', args: ['run', 'dev'], status: 'running' } })
+              } catch { /* non-fatal */ }
+              // verifyAndRepair in background — fixes land via HMR
+              void verifyAndRepair({ sandbox, sandboxId, writer }).catch(() => {})
+              // Wait for Vite to boot
+              writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
+              const domain = sandbox.domain(3000)
+              await waitForDevServer(domain)
+              // Emit preview URL — client sees Phase 1 while Phase 2 generates in background
+              earlyEmitUrl = domain
+              earlyEmitDone = true
+              writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: domain, status: 'done' } })
+              console.log('[early-emit] Phase 1 preview URL emitted:', domain)
+              if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: domain }).catch(() => {})
+            } catch (err) {
+              console.warn('[early-emit] failed:', err instanceof Error ? err.message : err)
+            }
+          })()
+        }
+
+        return p1Result
       }
       return rawGF.execute(args, ctx)
     },
@@ -1791,44 +1835,45 @@ async function runPipeline({
   }
 
   // ── Step 4: Server finalizes install ─────────────────────────────────────
-  // Background install from Step 1 should be nearly done. Re-running is fast
-  // for already-installed packages. 90s timeout covers cold installs.
-  writer.write({
-    id: 'srv-install',
-    type: 'data-run-command',
-    data: { sandboxId, command: 'bun', args: ['install'], status: 'waiting' },
-  })
-  try {
-    const installCmd = await sandbox.runCommand({
-      detached: true,
-      cmd: 'bash',
-      args: ['-c', 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'],
-    })
-    await Promise.race([
-      installCmd.wait(),
-      new Promise<void>((_, reject) =>
-        setTimeout(() => reject(new Error('install timed out')), 90_000)
-      ),
-    ])
+  // Skipped when early-emit already awaited bgInstallPromise before starting dev server.
+  if (!earlyEmitDone) {
     writer.write({
       id: 'srv-install',
       type: 'data-run-command',
-      data: { sandboxId, command: 'bun', args: ['install'], status: 'done', exitCode: 0 },
+      data: { sandboxId, command: 'bun', args: ['install'], status: 'waiting' },
     })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'install failed'
-    writer.write({
-      id: 'srv-install',
-      type: 'data-run-command',
-      data: {
-        sandboxId,
-        command: 'bun',
-        args: ['install'],
-        error: { message },
-        status: 'error',
-      },
-    })
-    // Non-fatal — dev server may still work if background install finished.
+    try {
+      const installCmd = await sandbox.runCommand({
+        detached: true,
+        cmd: 'bash',
+        args: ['-c', 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'],
+      })
+      await Promise.race([
+        installCmd.wait(),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error('install timed out')), 90_000)
+        ),
+      ])
+      writer.write({
+        id: 'srv-install',
+        type: 'data-run-command',
+        data: { sandboxId, command: 'bun', args: ['install'], status: 'done', exitCode: 0 },
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'install failed'
+      writer.write({
+        id: 'srv-install',
+        type: 'data-run-command',
+        data: {
+          sandboxId,
+          command: 'bun',
+          args: ['install'],
+          error: { message },
+          status: 'error',
+        },
+      })
+      // Non-fatal — dev server may still work if background install finished.
+    }
   }
 
   // ── Step 4.5: CSS sanity check — fix BEFORE dev server reads the file ───────
@@ -1910,95 +1955,102 @@ async function runPipeline({
   }
 
   // ── Step 4.7+5 (CONCURRENT): Dev server starts now; verify/repair runs in background ─
-  // Vite dev strips TS types and boots even with compile errors. verifyAndRepair
-  // patches broken files via Vite HMR — user never waits for the compile gate.
-  // Saves 50-80s vs sequential approach (was: await verify → start dev → wait).
-  writer.write({
-    id: 'srv-dev',
-    type: 'data-run-command',
-    data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' },
-  })
-  try {
-    const devCmd = await sandbox.runCommand({
-      detached: true,
-      cmd: 'bash',
-      args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'],
-    })
+  // Skipped when early-emit already launched the dev server during Phase 1.
+  if (!earlyEmitDone) {
     writer.write({
       id: 'srv-dev',
       type: 'data-run-command',
-      data: {
-        sandboxId,
-        commandId: devCmd.cmdId,
-        command: 'bun',
-        args: ['run', 'dev'],
-        status: 'running',
-      },
+      data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' },
     })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'dev server failed to start'
-    writer.write({
-      id: 'srv-dev',
-      type: 'data-run-command',
-      data: {
-        sandboxId,
-        command: 'bun',
-        args: ['run', 'dev'],
-        error: { message },
-        status: 'error',
-      },
+    try {
+      const devCmd = await sandbox.runCommand({
+        detached: true,
+        cmd: 'bash',
+        args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'],
+      })
+      writer.write({
+        id: 'srv-dev',
+        type: 'data-run-command',
+        data: {
+          sandboxId,
+          commandId: devCmd.cmdId,
+          command: 'bun',
+          args: ['run', 'dev'],
+          status: 'running',
+        },
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'dev server failed to start'
+      writer.write({
+        id: 'srv-dev',
+        type: 'data-run-command',
+        data: {
+          sandboxId,
+          command: 'bun',
+          args: ['run', 'dev'],
+          error: { message },
+          status: 'error',
+        },
+      })
+    }
+    // Kick off verify/repair in background — any fixes land via Vite HMR
+    void verifyAndRepair({ sandbox, sandboxId, writer }).catch((err) => {
+      console.warn('[verify] verifyAndRepair threw (non-fatal):', err instanceof Error ? err.message : err)
     })
   }
-  // Kick off verify/repair in background — any fixes land via Vite HMR
-  void verifyAndRepair({ sandbox, sandboxId, writer }).catch((err) => {
-    console.warn('[verify] verifyAndRepair threw (non-fatal):', err instanceof Error ? err.message : err)
-  })
 
   // ── Step 6: Wait for Vite to be ready, then return URL ────────────────────
-  // pnpm dev started in background (detached) — Vite takes 5-15s to boot.
-  // Poll the sandbox URL until we get a non-502 response, then emit to client.
-  // This prevents the iframe loading before the port is actually listening.
-  writer.write({
-    id: 'srv-url',
-    type: 'data-get-sandbox-url',
-    data: { status: 'loading' },
-  })
-  const url = sandbox.domain(3000)
-  let devError = await waitForDevServer(url)
-
-  // Self-heal a 500 caused by a missing package (e.g. tailwind.config.js requiring
-  // a dep the AI's package.json dropped): install it, restart the dev server (the
-  // running process caches the failed require), and re-check — all server-side,
-  // before the user or the AI ever sees an error.
-  if (devError && (await installMissingModules(sandbox, devError))) {
-    console.warn('[dev-check] installed missing modules — restarting dev server')
-    logRepair({ layer: 'dev-500', action: 'auto-installed-and-restarted', detail: devError.slice(0, 200), sandboxId })
-    await restartDevServer(sandbox)
+  // When early-emit already handled this (website Phase-1 path), skip directly to
+  // Step 6.5 headless check — dev server is running and URL has been emitted.
+  let url: string
+  let devError: string | null
+  if (earlyEmitDone) {
+    url = earlyEmitUrl
+    devError = null
+  } else {
+    // pnpm dev started in background (detached) — Vite takes 5-15s to boot.
+    writer.write({
+      id: 'srv-url',
+      type: 'data-get-sandbox-url',
+      data: { status: 'loading' },
+    })
+    url = sandbox.domain(3000)
     devError = await waitForDevServer(url)
-  }
 
-  // Handle dev-500 silently before URL emit: apply a branded fallback page.
-  if (devError) {
-    logRepair({ layer: 'dev-500', action: 'silent-fallback', detail: devError.slice(0, 200), sandboxId })
-    try {
-      await applyFallbackTerminalState(sandbox, devError, { skill, brand: brandName || 'This project' })
-      await new Promise(r => setTimeout(r, 3000))
-    } catch { /* non-fatal */ }
-  }
+    // Self-heal a 500 caused by a missing package (e.g. tailwind.config.js requiring
+    // a dep the AI's package.json dropped): install it, restart the dev server (the
+    // running process caches the failed require), and re-check — all server-side,
+    // before the user or the AI ever sees an error.
+    if (devError && (await installMissingModules(sandbox, devError))) {
+      console.warn('[dev-check] installed missing modules — restarting dev server')
+      logRepair({ layer: 'dev-500', action: 'auto-installed-and-restarted', detail: devError.slice(0, 200), sandboxId })
+      await restartDevServer(sandbox)
+      devError = await waitForDevServer(url)
+    }
 
-  // ── Emit preview URL now — client sees the project immediately ────────────────────
-  // Step 6.5 (headless check) runs right below and delivers any fixes via Vite HMR,
-  // saving 2-5 min vs the old flow that blocked the URL on Chromium + repair rounds.
-  writer.write({
-    id: 'srv-url',
-    type: 'data-get-sandbox-url',
-    data: { url, status: 'done' },
-  })
+    // Handle dev-500 silently before URL emit: apply a branded fallback page.
+    if (devError) {
+      logRepair({ layer: 'dev-500', action: 'silent-fallback', detail: devError.slice(0, 200), sandboxId })
+      try {
+        await applyFallbackTerminalState(sandbox, devError, { skill, brand: brandName || 'This project' })
+        await new Promise(r => setTimeout(r, 3000))
+      } catch { /* non-fatal */ }
+    }
 
-  // Persist URL immediately so continuation invocations (enrichment hand-off) have it
-  // even if this invocation is later killed mid-enrichment.
-  if (projectId) {
-    updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: url }).catch(() => {})
+    // ── Emit preview URL now — client sees the project immediately ────────────────────
+    // Step 6.5 (headless check) runs right below and delivers any fixes via Vite HMR,
+    // saving 2-5 min vs the old flow that blocked the URL on Chromium + repair rounds.
+    writer.write({
+      id: 'srv-url',
+      type: 'data-get-sandbox-url',
+      data: { url, status: 'done' },
+    })
+
+    // Persist URL immediately so continuation invocations (enrichment hand-off) have it
+    // even if this invocation is later killed mid-enrichment.
+    if (projectId) {
+      updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: url }).catch(() => {})
+    }
   }
 
   // ── Step 6.5: Headless quality check (repairs arrive live via Vite HMR) ───────────
