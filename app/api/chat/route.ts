@@ -1492,6 +1492,8 @@ async function runPipeline({
     `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
     `WORKFLOW: ${skill === 'website'
       ? `(1) gather ALL images in parallel with your first message: use generateImageBatch for EVERY image slot — hero, sections, backgrounds, product/food photos. It produces unique on-brand visuals that look nothing like stock. Only fall back to getUnsplashBatch if generateImageBatch returns empty/fails. Every project must have a strong hero visual. (2) call planProject with the complete file list (every file path you will generate), (3) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`
+      : skill === 'webapp'
+      ? `(1) call planProject with the COMPLETE file list (every path you will generate — Phase 1 + all remaining), (2) FIRST generateFiles call: ONLY src/index.css + src/pages/Home.tsx, (3) SECOND generateFiles call: all remaining component files`
       : `(1) call planProject with the complete file list (every path you will generate), (2) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`}\n` +
     (skill !== 'website' ? `getUnsplashBatch is NOT available for this skill type — do not call it.\n` : '') +
     `If you need packages not in the scaffold, include package.json in your generateFiles paths.\n`
@@ -1505,6 +1507,20 @@ async function runPipeline({
       `Phase 1 must stream in under 90 seconds — keep each file minimal and tight.\n` +
       `Phase 2 = all remaining section components + sub-pages in the SECOND generateFiles call.\n` +
       `NEVER dump all files into one generateFiles call — that pattern is for GAMES only.`
+    : skill === 'webapp'
+    ? `WEBAPP BUILD SPLIT (mandatory — same pattern as WEBSITE):
+Phase 1 = EXACTLY 2 files in the FIRST generateFiles call:
+  1. src/index.css — CSS vars + @import font ONLY (~40 lines)
+  2. src/pages/Home.tsx — the ENTIRE working app in ONE self-contained file. Rules:
+     • Import ONLY from: react, react-router-dom, lucide-react, @/components/ui/*, sonner, framer-motion, @dnd-kit/*
+     • ZERO imports from other src/pages/ or src/components/ files you will write in Phase 2
+     • ALL state management inline (useState, useReducer — no external stores yet)
+     • Hardcoded sample data is fine for Phase 1 — the INTERACTIONS must work:
+       kanban → cards must be moveable between columns; todo → tasks must add/complete/delete; dashboard → charts must render with data
+     • Keep under 400 lines — dense but functional, not exhaustive
+Phase 1 must stream in under 90 seconds — 2 small files only.
+Phase 2 = all remaining files (components, hooks, utilities, extra pages) in the SECOND generateFiles call.
+NEVER put all files into one generateFiles call for webapps — server enforces the split.`
     : skill === 'game'
     ? `TARGET FILE COUNT: 2 files ONLY — src/index.css + src/pages/Home.tsx. ALL game logic goes in Home.tsx. NO src/components/game/ subfolder. The server enforces this and will reject any other layout. A complete game fits in one file.`
     : `TARGET FILE COUNT: 6-8 files maximum. Combine views and utilities where possible.`
@@ -1528,21 +1544,21 @@ async function runPipeline({
   const planBox: { manifest: NormalizedManifest | null } = { manifest: null }
   const capturePlan = planProject({ onPlan: (m) => { planBox.manifest = m } })
 
-  // ── HARD Phase 1 contract (website only) ────────────────────────────────────
+  // ── HARD Phase 1 contract (website + webapp) ─────────────────────────────────
   // Regardless of what paths the AI sends to generateFiles on its first call, the
-  // server enforces that ONLY Phase 1 core files are written. Page files beyond
-  // Home.tsx (e.g. Lookbook.tsx, Product.tsx, About.tsx) are silently deferred to
-  // the enrichment engine. This is a HARD server-side contract — prompt rules are
-  // soft and the AI regularly violates them. Subsequent generateFiles calls pass
-  // through unfiltered (the AI may never call them for websites, but they're safe).
-  // The 4 true Phase 1 paths the AI must write. Scaffold-owned files (package.json,
-  // vite.config.ts, tsconfig.json, etc.) are NOT in this set — the scaffold already
-  // wrote them. If the AI includes them, they get treated as deferred Phase 2 items
-  // so enrichment can silently ignore them (they already exist on disk).
+  // server enforces that ONLY Phase 1 core files are written. Extra files are
+  // silently deferred to the enrichment engine. HARD server-side contract —
+  // prompt rules are soft and the AI regularly violates them.
+  // Website: 4 files (css + Layout + Home + Phase2Sections placeholder)
+  // Webapp:  2 files (css + self-contained Home with all logic inline)
   const PHASE1_CORE = new Set([
     'src/index.css', 'src/components/Layout.tsx', 'src/pages/Home.tsx',
     'src/components/Phase2Sections.tsx',
   ])
+  const WEBAPP_PHASE1_CORE = new Set([
+    'src/index.css', 'src/pages/Home.tsx',
+  ])
+  const activePhase1Core = skill === 'webapp' ? WEBAPP_PHASE1_CORE : PHASE1_CORE
   // Scaffold-owned: written at sandbox creation, AI must never regenerate them.
   // Actively drop them if the AI includes them — saves write time, avoids clobbering.
   const SCAFFOLD_OWNED = new Set([
@@ -1566,15 +1582,15 @@ async function runPipeline({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const phase1GF = generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, skipQualityGates: true }) as any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const guardedGF: any = skill !== 'website' ? rawGF : {
+  const guardedGF: any = (skill !== 'website' && skill !== 'webapp') ? rawGF : {
     ...rawGF,
     execute: async (args: { sandboxId: string; paths: string[] }, ctx: unknown) => {
       if (!p1GFCalled) {
         p1GFCalled = true
         // Strip scaffold-owned files silently — they already exist, rewriting wastes time
         const nonScaffold = args.paths.filter((p: string) => !SCAFFOLD_OWNED.has(p))
-        const phase1Paths = nonScaffold.filter((p: string) => PHASE1_CORE.has(p))
-        const phase2Paths = nonScaffold.filter((p: string) => !PHASE1_CORE.has(p))
+        const phase1Paths = nonScaffold.filter((p: string) => activePhase1Core.has(p))
+        const phase2Paths = nonScaffold.filter((p: string) => !activePhase1Core.has(p))
         const dropped = args.paths.filter((p: string) => SCAFFOLD_OWNED.has(p))
         if (dropped.length > 0) console.log(`[phase1-hard] Dropped scaffold-owned files: ${dropped.join(', ')}`)
         if (phase2Paths.length > 0) {
@@ -1670,6 +1686,13 @@ async function runPipeline({
         planProject: capturePlan,
         lookupReference: lookupReference(),
       }
+    : skill === 'webapp'
+    ? {
+        loadSkill: loadSkill(),
+        generateFiles: guardedGF,
+        planProject: capturePlan,
+        lookupReference: lookupReference(),
+      }
     : {
         loadSkill: loadSkill(),
         generateFiles: rawGF,
@@ -1681,9 +1704,10 @@ async function runPipeline({
   // rounds can NEVER crowd out the required pipeline. generateFiles is the goal.
   // website (2-phase): generateFiles(P1) → getUnsplashBatch+planProject(P2) → generateFiles(P2)
   //   → patchFile(Phase2Sections) + optional lookupReference/generateImageBatch + fix round
+  // webapp (2-phase): planProject → generateFiles(P1) → generateFiles(P2 components)
   //   = ~8 nominal + 6 headroom → 14
   // app/game: text + (loadSkill?) + planProject + generateFiles + slack
-  const maxSteps = skill === 'website' ? 14 : 9 // websites use 2-phase build (§12)
+  const maxSteps = skill === 'website' ? 14 : skill === 'webapp' ? 12 : 9 // website+webapp use 2-phase build
 
   const aiResult = streamText({
     ...getModelOptions(DEFAULT_MODEL),
