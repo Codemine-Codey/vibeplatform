@@ -38,13 +38,12 @@ export async function updateSession(request: NextRequest) {
   const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p))
   const isAuthPage = AUTH_PATHS.some((p) => path.startsWith(p))
 
-  // A logged-out visitor hitting the app root (the builder) sees the marketing landing,
-  // NOT a login wall — otherwise a fresh visit to the bare domain (common on mobile) dead-ends
-  // at /login instead of the homepage.
+  // A logged-out visitor hitting the app root sees the marketing landing.
+  // Use rewrite (not redirect) so the URL stays at '/' and there's no round-trip flicker on mobile.
   if (!user && path === '/') {
     const url = request.nextUrl.clone()
     url.pathname = '/home'
-    return NextResponse.redirect(url)
+    return NextResponse.rewrite(url)
   }
 
   if (!user && !isPublic) {

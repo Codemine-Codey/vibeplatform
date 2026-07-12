@@ -12,7 +12,9 @@ import { randomUUID } from 'node:crypto'
 
 // Synchronous file log — Node block-buffers stdout to a pipe, so we mirror every line to
 // a file immediately for live monitoring. The final RESULT block prints regardless.
-const PROGRESS = process.env.CM_PROGRESS || '/tmp/dt-progress.log'
+// Repo-relative by default — Node resolves '/tmp' to C:\tmp on Windows (NOT Git Bash's
+// /tmp), so writes silently landed nowhere. A cwd-relative file is unambiguous.
+const PROGRESS = process.env.CM_PROGRESS || 'dt-progress.log'
 function log(msg: string) {
   const line = `[${new Date().toISOString().slice(11, 19)}] ${msg}`
   console.log(msg)
@@ -28,7 +30,9 @@ const env = Object.fromEntries(
 const URL = env.NEXT_PUBLIC_SUPABASE_URL
 const ANON = env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 const SERVICE = env.SUPABASE_SERVICE_ROLE_KEY
-const BASE = process.env.CM_BASE || 'http://localhost:3000'
+// Use https://codemineapp.com (no www) — www redirects to no-www and Node.js
+// fetch (undici) strips cookies on the cross-host redirect, causing silent 401s.
+const BASE = process.env.CM_BASE || 'https://codemineapp.com'
 const EMAIL = 'test@codemine.app'
 const PASS = 'CodemineTest2026!'
 const WALKAWAY = process.env.CM_WALKAWAY === '1'
@@ -36,13 +40,28 @@ const WALKAWAY = process.env.CM_WALKAWAY === '1'
 const [label = 'website', prompt = 'Build me a website'] = process.argv.slice(2)
 const admin = createClient(URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } })
 
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms))])
+}
+
 async function ensureUser() {
-  // Create + confirm (idempotent — ignore "already registered").
-  const { error } = await admin.auth.admin.createUser({ email: EMAIL, password: PASS, email_confirm: true })
-  if (error && !/already/i.test(error.message)) console.warn('createUser:', error.message)
+  // Create + confirm (idempotent — ignore "already registered"). Best-effort + bounded:
+  // the account already exists after the first run, so a hang here must never block.
+  try {
+    const { error } = await withTimeout(
+      admin.auth.admin.createUser({ email: EMAIL, password: PASS, email_confirm: true }),
+      15_000,
+      'ensureUser'
+    )
+    if (error && !/already/i.test(error.message)) console.warn('createUser:', error.message)
+  } catch (e) {
+    log(`  (ensureUser skipped: ${e instanceof Error ? e.message : e})`)
+  }
 }
 
 async function signIn(): Promise<{ cookie: string; userId: string }> {
+  // Use the SSR client to get the exact cookie format Next.js expects.
+  // @supabase/ssr v0.12 stores the session as base64-{b64json} in the cookie value.
   const jar = new Map<string, string>()
   const sb = createServerClient(URL, ANON, {
     cookies: {
@@ -50,8 +69,10 @@ async function signIn(): Promise<{ cookie: string; userId: string }> {
       setAll: (list) => list.forEach(({ name, value }) => jar.set(name, value)),
     },
   })
-  const { data, error } = await sb.auth.signInWithPassword({ email: EMAIL, password: PASS })
+  const { data, error } = await withTimeout(sb.auth.signInWithPassword({ email: EMAIL, password: PASS }), 20_000, 'signIn')
   if (error) throw new Error('signIn: ' + error.message)
+  // Build Cookie header from the jar — values are already in the base64-{...} format
+  // that the server-side @supabase/ssr client parses back into a session.
   const cookie = [...jar].map(([n, v]) => `${n}=${v}`).join('; ')
   return { cookie, userId: data.user!.id }
 }

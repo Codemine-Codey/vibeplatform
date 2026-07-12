@@ -19,6 +19,11 @@ export default function RootLayout({
 }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
+      <head>
+        {/* Preconnect so the Google Fonts stylesheet loads without a round-trip penalty on mobile */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      </head>
       <body className="antialiased">
         {/* Apply the saved theme before paint so there's no flash of the wrong theme. */}
         <script
