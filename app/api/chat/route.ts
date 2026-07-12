@@ -1044,7 +1044,7 @@ export async function POST(req: Request) {
             // The generated app reads import.meta.env.VITE_CODEMINE_AI_URL/_TOKEN to call
             // AI with no provider key. Vite auto-restarts on `.env` change, so this is
             // picked up even after the dev server is already running.
-            const aiBase = process.env.CM_PUBLIC_BASE_URL || 'https://vibeplatform-rho.vercel.app'
+            const aiBase = process.env.CM_PUBLIC_BASE_URL || 'https://codemineapp.com'
             const createdId = created.id
             sandboxPromise
               .then(async (sb) => {
@@ -1226,7 +1226,6 @@ async function runAgenticLoop({
         console.error(JSON.stringify(error, null, 2))
       },
     })
-    result.consumeStream()
     writer.merge(result.toUIMessageStream({ sendReasoning: false, sendStart: false }))
     try {
       await result.text
@@ -1316,7 +1315,7 @@ async function reopenFromSnapshot(
     await waitForDevServer(url)
     // Re-inject platform env vars (VITE_CODEMINE_API / VITE_PROJECT_ID) in case this
     // is an older project whose snapshot predates these vars, or in case the .env drifted.
-    const reOpenBase = process.env.CM_PUBLIC_BASE_URL || 'https://vibeplatform-rho.vercel.app'
+    const reOpenBase = process.env.CM_PUBLIC_BASE_URL || 'https://codemineapp.com'
     sandbox.writeFiles([{
       path: '.env.platform',
       content: Buffer.from([
@@ -1489,7 +1488,7 @@ async function runPipeline({
     `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
     `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
     `WORKFLOW: ${skill === 'website'
-      ? `(1) gather ALL images in parallel with your first message: PREFER generateImageBatch for the HERO and any signature/art-directed/abstract visual (it gives unique, on-brand imagery); use getUnsplashBatch for real-world content photos (food, people, venues) and as the reliable fallback. Every project's hero should have a strong visual. (2) call planProject with the complete file list (every file path you will generate), (3) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`
+      ? `(1) gather ALL images in parallel with your first message: use generateImageBatch for EVERY image slot — hero, sections, backgrounds, product/food photos. It produces unique on-brand visuals that look nothing like stock. Only fall back to getUnsplashBatch if generateImageBatch returns empty/fails. Every project must have a strong hero visual. (2) call planProject with the complete file list (every file path you will generate), (3) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`
       : `(1) call planProject with the complete file list (every path you will generate), (2) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`}\n` +
     (skill !== 'website' ? `getUnsplashBatch is NOT available for this skill type — do not call it.\n` : '') +
     `If you need packages not in the scaffold, include package.json in your generateFiles paths.\n`
