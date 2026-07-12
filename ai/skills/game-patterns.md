@@ -20,6 +20,28 @@ A polished, correct game beats a juicy broken one. These are the exact failures 
 - **One source of truth**: a single `state` variable drives both update and draw — never two flags that can disagree.
 - **Effect cleanup**: `cancelAnimationFrame` + `removeEventListener` in the cleanup, so a re-render / StrictMode double-mount never spawns a second loop. Store rAF id in a ref.
 
+## 0.1 SNAKE / GRID GAME BUGS — guaranteed to break if you miss these
+
+Snake is the most commonly requested grid game. Every point below is a real bug seen in AI-generated snake games. Fix all of them:
+
+- **Food MUST spawn on an empty cell.** The only correct algorithm: `do { food = randomCell() } while (snakeCells.has(cellKey(food)))`. Any other approach (random position, check just head, not using a Set) WILL eventually spawn food inside the snake → the snake "eats" it instantly with no visible food → game freezes or double-scores. Always use a Set of occupied cell keys.
+- **Prevent 180° reversal.** If moving right, pressing left must be silently ignored. Check: `if (nextDir.x !== -dir.x || nextDir.y !== -dir.y) dir = nextDir`. Without this, pressing the opposite direction kills the player on the first turn.
+- **Direction input buffering.** Only apply ONE direction change per tick. If the player presses two keys between ticks (common on fast play), only the first queued direction counts. Use a queue of max length 1.
+- **Self-collision: check the new head against ALL body cells EXCEPT the last tail cell** (which will have moved away this tick). A naïve check against the full body incorrectly kills the player when turning.
+- **Score is the number of food eaten, not the snake length minus starting length.** Increment score in the same `if (ate)` branch. Display it every frame.
+- **Speed ramp: use `setInterval` timer, not rAF speed.** Reduce the interval by ~5ms every 5 points, floor at ~60ms. rAF-based snake ties speed to frame rate and is harder to tune.
+
+```typescript
+// Correct food spawn (ALWAYS do it this way):
+function spawnFood(snake: {x:number,y:number}[], cols: number, rows: number) {
+  const occupied = new Set(snake.map(s => s.x + ',' + s.y))
+  let f: {x:number,y:number}
+  do { f = { x: Math.floor(Math.random()*cols), y: Math.floor(Math.random()*rows) } }
+  while (occupied.has(f.x+','+f.y))
+  return f
+}
+```
+
 ## 0.5 TUNED CONSTANTS — so it PLAYS right, not turtle-slow (READ)
 A game that compiles but plays wrong (ball crawling, jump too floaty) is a FAILURE. Speeds must be
 tuned to the canvas size and a 60fps step — never tiny absolute pixel values. Before coding, write a
