@@ -1909,17 +1909,10 @@ async function runPipeline({
       .catch(() => {})
   }
 
-  // ── Step 4.7: BUILD VERIFICATION + AUTO-REPAIR (the blank-preview guarantee) ─
-  // Run vite build as a deterministic compile oracle. If it fails, auto-repair
-  // the offending files with Flash (≤3 rounds) BEFORE the dev server starts, so
-  // the preview is only ever shown once the project actually compiles.
-  try {
-    await verifyAndRepair({ sandbox, sandboxId, writer })
-  } catch (err) {
-    console.warn('[verify] verifyAndRepair threw (non-fatal):', err instanceof Error ? err.message : err)
-  }
-
-  // ── Step 5: Server starts dev server (background — runs forever) ──────────
+  // ── Step 4.7+5 (CONCURRENT): Dev server starts now; verify/repair runs in background ─
+  // Vite dev strips TS types and boots even with compile errors. verifyAndRepair
+  // patches broken files via Vite HMR — user never waits for the compile gate.
+  // Saves 50-80s vs sequential approach (was: await verify → start dev → wait).
   writer.write({
     id: 'srv-dev',
     type: 'data-run-command',
@@ -1956,6 +1949,10 @@ async function runPipeline({
       },
     })
   }
+  // Kick off verify/repair in background — any fixes land via Vite HMR
+  void verifyAndRepair({ sandbox, sandboxId, writer }).catch((err) => {
+    console.warn('[verify] verifyAndRepair threw (non-fatal):', err instanceof Error ? err.message : err)
+  })
 
   // ── Step 6: Wait for Vite to be ready, then return URL ────────────────────
   // pnpm dev started in background (detached) — Vite takes 5-15s to boot.
