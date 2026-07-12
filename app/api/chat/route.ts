@@ -1676,11 +1676,11 @@ async function runPipeline({
 
   // Generous step headroom so an optional lookupReference + generateImageBatch + error-fix
   // rounds can NEVER crowd out the required pipeline. generateFiles is the goal.
-  // website (2-phase): createSandbox+unsplash + lookupReference(x2) + generateImageBatch
-  //   + planProject + generateFiles(P1) + install + dev + getSandboxURL
-  //   + generateFiles(P2 sections) + patchFile + fix round = 14 nominal +6 headroom → 20
+  // website (2-phase): generateFiles(P1) → getUnsplashBatch+planProject(P2) → generateFiles(P2)
+  //   → patchFile(Phase2Sections) + optional lookupReference/generateImageBatch + fix round
+  //   = ~8 nominal + 6 headroom → 14
   // app/game: text + (loadSkill?) + planProject + generateFiles + slack
-  const maxSteps = skill === 'website' ? 20 : 9 // websites use 2-phase build (§12)
+  const maxSteps = skill === 'website' ? 14 : 9 // websites use 2-phase build (§12)
 
   const aiResult = streamText({
     ...getModelOptions(DEFAULT_MODEL),
