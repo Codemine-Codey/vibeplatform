@@ -216,12 +216,18 @@ These patterns WILL break the build. The post-generation fixer catches some but 
 - For toasts/notifications, use sonner directly: `import { toast } from 'sonner'` AND mount `<Toaster />` in `src/pages/Home.tsx` (or your root page): `import { Toaster } from 'sonner'` → `<Toaster />`
 - Alternatively use `@/components/ui/toast` which re-exports sonner's toast function
 
-**Import violations:**
-- `import { ... } from 'motion/react'` → use `'framer-motion'`
-- `import { ... } from 'motion'` → use `'framer-motion'`
+**Import violations — these are auto-corrected post-generation but cost a repair round. Get them right the first time:**
+- `from 'motion/react'` or `from 'motion'` → ❌ use `from 'framer-motion'`
+- `from '@phosphor-icons/react'` → ❌ use `from 'lucide-react'`
+- `from '@radix-ui/react-icons'` → ❌ use `from 'lucide-react'`
+- `from '@tabler/icons-react'` → ❌ use `from 'lucide-react'`
+- `from '@heroicons/react'` or `from '@heroicons/react/24/solid'` → ❌ use `from 'lucide-react'`
+- `process.env.NEXT_PUBLIC_*` → ❌ use `import.meta.env.VITE_*`
+- `process.env.REACT_APP_*` → ❌ use `import.meta.env.VITE_*`
 - `import '@/components/blocks'` (bare path) → must be `@/components/blocks/index` if you created it
 - Any `@/components/ui/<name>` not in §3.3 list
 - Any package not in §3.1 / §3.2 without adding to `package.json`
+- `import express from 'express'` or any `import.*from 'express'` → ❌ there is NO Node.js runtime; the build will crash
 
 **CSS violations:**
 - `@apply` in ANY css file — crashes PostCSS with no recovery
