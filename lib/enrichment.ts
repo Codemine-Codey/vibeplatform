@@ -317,7 +317,7 @@ export async function runResumableEnrichment(opts: {
               ? `IMPORTANT — src/components/Phase2Sections.tsx is the HOMEPAGE SECTION CONNECTOR. ` +
                 `Write it to import and render the following section components in order:\n` +
                 otherPhase2Paths
-                  .filter((p) => /Section|Component|Feature|Gallery|Testimonial|About|Story|Menu|Pricing|CTA/i.test(p.split('/').pop() ?? ''))
+                  .filter((p) => p.startsWith('src/components/') && !p.includes('/ui/') && !p.includes('/blocks/'))
                   .map((p) => {
                     const name = (p.split('/').pop() ?? '').replace(/\.(tsx|jsx|ts|js)$/, '')
                     return `  import ${name} from '@/${p.replace(/^src\//, '')}'`
