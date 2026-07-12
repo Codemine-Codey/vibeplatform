@@ -223,6 +223,7 @@ export function useDataStateMapper() {
   const addGeneratedFiles = useSandboxStore((s) => s.addGeneratedFiles)
   const setLastFilesUploadedAt = useSandboxStore((s) => s.setLastFilesUploadedAt)
   const setDatabaseState = useSandboxStore((s) => s.setDatabaseState)
+  const setAuthState = useSandboxStore((s) => s.setAuthState)
   // setCursor is an action — stable, never triggers re-render
   const setCursor = useMonitorState((s) => s.setCursor)
 
@@ -232,6 +233,13 @@ export function useDataStateMapper() {
         case 'data-create-sandbox':
           if (data.data.sandboxId) setSandboxId(data.data.sandboxId)
           if (data.data.projectId) setProjectId(data.data.projectId)
+          // Restore cloud feature state when opening an existing project from dashboard
+          if (data.data.authEnabled || data.data.authWorkerUrl) {
+            setAuthState({ authEnabled: !!data.data.authEnabled, authWorkerUrl: data.data.authWorkerUrl })
+          }
+          if (data.data.databaseId) {
+            setDatabaseState({ databaseId: data.data.databaseId, databaseName: data.data.databaseName })
+          }
           break
         case 'data-generating-files':
           if (data.data.status === 'uploaded') {
@@ -283,6 +291,6 @@ export function useDataStateMapper() {
           break
       }
     },
-    [addGeneratedFiles, addPaths, setCursor, setSandboxId, setProjectId, setLastFilesUploadedAt, setUrl, upsertCommand, setDatabaseState]
+    [addGeneratedFiles, addPaths, setCursor, setSandboxId, setProjectId, setLastFilesUploadedAt, setUrl, upsertCommand, setDatabaseState, setAuthState]
   )
 }

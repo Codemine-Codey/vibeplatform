@@ -1324,7 +1324,19 @@ async function reopenFromSnapshot(
         `VITE_PROJECT_ID=${project.id}`,
       ].join('\n') + '\n', 'utf8'),
     }]).catch(() => {})
-    writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { sandboxId: sandbox.sandboxId, projectId: project.id, status: 'done' } })
+    writer.write({
+      id: 'srv-sandbox',
+      type: 'data-create-sandbox',
+      data: {
+        sandboxId: sandbox.sandboxId,
+        projectId: project.id,
+        status: 'done',
+        // Restore cloud feature state so panels (auth, DB, deploy) are active immediately
+        ...(project.auth_enabled ? { authEnabled: true } : {}),
+        ...(project.auth_worker_url ? { authWorkerUrl: project.auth_worker_url } : {}),
+        ...(project.database_id ? { databaseId: project.database_id } : {}),
+      },
+    })
     writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
     await updateProjectRow(project.id, { sandbox_id: sandbox.sandboxId, preview_url: url }).catch(() => {})
     console.warn(`[reopen] restored terminated sandbox ${oldSandboxId} -> ${sandbox.sandboxId} from snapshot`)
@@ -1598,6 +1610,49 @@ async function runPipeline({
   // Missing/incomplete files are now recovered by generateFiles' own import-closure + retry
   // passes and the silent build gate below, never by stamping page-shells over foundation.)
   void genHitDeadline
+
+  // ── Synthetic manifest: when AI skips planProject but dumps Phase 2 files in Phase 1 ──
+  // If planProject was never called (planBox.manifest === null) but the AI generated page
+  // files beyond the Phase 1 core (e.g. Lookbook.tsx, Product.tsx, About.tsx), those files
+  // are already written to the sandbox — but without a manifest, enrichment never runs and
+  // Phase2Sections.tsx stays blank. Build a manifest from the tool-call history so enrichment
+  // can patch Phase2Sections to import+render all the AI's section/component files.
+  if (!planBox.manifest && skill === 'website' && !genHitDeadline) {
+    try {
+      const PHASE1_CORE = new Set([
+        'src/index.css', 'src/components/Layout.tsx', 'src/pages/Home.tsx',
+        'src/components/Phase2Sections.tsx', 'package.json', 'src/main.tsx',
+        'src/App.tsx', 'vite.config.ts', 'vite.config.js', 'tsconfig.json',
+        'tsconfig.app.json', 'index.html',
+      ])
+      const steps = await Promise.race([
+        aiResult.steps,
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('steps-timeout')), 5000)),
+      ])
+      const allGenPaths: string[] = []
+      for (const step of steps) {
+        for (const tc of (step.toolCalls as Array<{ toolName: string; args: { paths?: string[] } }> ?? [])) {
+          if (tc.toolName === 'generateFiles' && Array.isArray(tc.args?.paths)) {
+            allGenPaths.push(...tc.args.paths)
+          }
+        }
+      }
+      const phase2Paths = [...new Set(allGenPaths)].filter(p => !PHASE1_CORE.has(p))
+      if (phase2Paths.length >= 2) {
+        const phase1Paths = [...new Set(allGenPaths)].filter(p => PHASE1_CORE.has(p))
+        planBox.manifest = {
+          files: [
+            ...phase1Paths.map(p => ({ path: p, phase: 1, exports: ['default'] })),
+            ...phase2Paths.map(p => ({ path: p, phase: 2, exports: ['default'] })),
+          ],
+          phaseCount: 2,
+          multiPhase: true,
+          extraPackages: [],
+        }
+        console.log(`[synthetic-manifest] built from AI tool calls: ${phase2Paths.length} Phase 2 files → enrichment will run`)
+      }
+    } catch { /* non-fatal */ }
+  }
 
   // ── Durable-runs STEP 2: capture manifest + conversation context for enrichment ─
   // The full model-message context (user turn + the AI's tool results, incl. image

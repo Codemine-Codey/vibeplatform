@@ -10,6 +10,11 @@ export const dataPartSchema = z.object({
     projectId: z.string().optional(), // surfaced so the client can re-hydrate from snapshot on expiry
     status: z.enum(['loading', 'done', 'error']),
     error: errorSchema.optional(),
+    // Cloud feature state restored on project reopen (dashboard → load existing project)
+    authEnabled: z.boolean().optional(),
+    authWorkerUrl: z.string().optional(),
+    databaseId: z.string().optional(),
+    databaseName: z.string().optional(),
   }),
   'generating-files': z.object({
     paths: z.array(z.string()),
