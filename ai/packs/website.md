@@ -204,6 +204,166 @@ const item = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, trans
 - Animate transform/opacity only — never layout props
 - Respect `prefers-reduced-motion`
 
+## 3D / R3F (React Three Fiber + Drei — pre-installed, use for tech/agency/creative/portfolio brands)
+
+**When to use:** Agency, creative, tech startup, portfolio, fashion, luxury digital brands. NOT for restaurants, cafés, basic e-commerce, or any brand where 3D feels gimmicky.
+
+**Performance rules — always apply:**
+- Always wrap `<Canvas>` in a `<Suspense fallback={null}>` boundary
+- Always set `dpr={[1, 1.5]}` to cap the pixel ratio (prevents mobile GPU overload)
+- Static/idle scenes: add `frameloop="demand"` so R3F only re-renders on change
+- Check `prefers-reduced-motion` — if true, render a static fallback instead of the Canvas
+- Keep total mesh count under 20 per canvas; use `<instancedMesh>` for repeated geometry
+- Always lazy-load: `const SceneHero = lazy(() => import('./SceneHero'))` wrapped in Suspense
+
+**Pattern 1 — Particle field hero background (great for tech/SaaS/agency):**
+```tsx
+import { Canvas, useFrame } from '@react-three/fiber'
+import { useRef, useMemo, Suspense } from 'react'
+import * as THREE from 'three'
+
+function Particles({ count = 800 }: { count?: number }) {
+  const mesh = useRef<THREE.Points>(null)
+  const positions = useMemo(() => {
+    const arr = new Float32Array(count * 3)
+    for (let i = 0; i < count; i++) {
+      arr[i * 3] = (Math.random() - 0.5) * 12
+      arr[i * 3 + 1] = (Math.random() - 0.5) * 8
+      arr[i * 3 + 2] = (Math.random() - 0.5) * 6
+    }
+    return arr
+  }, [count])
+  useFrame((state) => {
+    if (!mesh.current) return
+    mesh.current.rotation.y = state.clock.elapsedTime * 0.04
+    mesh.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.02) * 0.1
+  })
+  return (
+    <points ref={mesh}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" array={positions} count={count} itemSize={3} />
+      </bufferGeometry>
+      <pointsMaterial size={0.025} color="hsl(var(--primary, 221 83% 53%))" transparent opacity={0.7} sizeAttenuation />
+    </points>
+  )
+}
+
+export function ParticleHero({ children }: { children: React.ReactNode }) {
+  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  return (
+    <section className="relative min-h-[100dvh] flex items-center overflow-hidden bg-background">
+      {!prefersReduced && (
+        <div className="absolute inset-0">
+          <Suspense fallback={null}>
+            <Canvas camera={{ position: [0, 0, 5], fov: 60 }} dpr={[1, 1.5]}>
+              <Particles />
+            </Canvas>
+          </Suspense>
+        </div>
+      )}
+      <div className="relative z-10 w-full">{children}</div>
+    </section>
+  )
+}
+```
+
+**Pattern 2 — Floating geometric shapes (creative/luxury/fashion brands):**
+```tsx
+import { Canvas, useFrame } from '@react-three/fiber'
+import { Float, MeshDistortMaterial } from '@react-three/drei'
+import { useRef, Suspense } from 'react'
+
+function FloatingShapes() {
+  return (
+    <>
+      <Float speed={1.4} rotationIntensity={0.8} floatIntensity={1.2}>
+        <mesh position={[-2.5, 1, -1]} castShadow>
+          <icosahedronGeometry args={[0.8, 0]} />
+          <MeshDistortMaterial color="hsl(var(--primary, 221 83% 53%))" distort={0.3} speed={2} roughness={0.1} metalness={0.8} />
+        </mesh>
+      </Float>
+      <Float speed={1.8} rotationIntensity={1.2} floatIntensity={0.9}>
+        <mesh position={[2.8, -0.5, -2]}>
+          <torusGeometry args={[0.6, 0.2, 16, 32]} />
+          <meshStandardMaterial color="hsl(var(--accent, var(--primary, 221 83% 53%)))" roughness={0.05} metalness={0.9} />
+        </mesh>
+      </Float>
+      <Float speed={1.1} rotationIntensity={0.6} floatIntensity={1.5}>
+        <mesh position={[0.5, 2, -3]}>
+          <octahedronGeometry args={[0.5]} />
+          <meshStandardMaterial color="hsl(var(--foreground, 222 84% 5%))" roughness={0.2} metalness={0.6} transparent opacity={0.7} />
+        </mesh>
+      </Float>
+      <ambientLight intensity={0.4} />
+      <directionalLight position={[5, 5, 5]} intensity={1.2} />
+      <pointLight position={[-3, 2, 2]} intensity={0.8} color="hsl(var(--primary, 221 83% 53%))" />
+    </>
+  )
+}
+
+export function ShapesBackground({ children }: { children: React.ReactNode }) {
+  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  return (
+    <section className="relative min-h-[100dvh] flex items-center overflow-hidden bg-background">
+      {!prefersReduced && (
+        <div className="absolute inset-0 opacity-60">
+          <Suspense fallback={null}>
+            <Canvas camera={{ position: [0, 0, 6], fov: 55 }} dpr={[1, 1.5]}>
+              <FloatingShapes />
+            </Canvas>
+          </Suspense>
+        </div>
+      )}
+      <div className="relative z-10 w-full">{children}</div>
+    </section>
+  )
+}
+```
+
+**Pattern 3 — Scroll-driven camera flythrough (agency/portfolio — premium impact):**
+```tsx
+import { Canvas, useFrame } from '@react-three/fiber'
+import { ScrollControls, Scroll, useScroll } from '@react-three/drei'
+import { useRef, Suspense } from 'react'
+import { easing } from 'maath'
+
+function CameraRig() {
+  const scroll = useScroll()
+  useFrame((state, delta) => {
+    const t = scroll.offset
+    // Camera arcs forward as user scrolls
+    easing.damp3(state.camera.position, [0, 2 - t * 4, 8 - t * 6], 0.25, delta)
+    state.camera.lookAt(0, 0, 0)
+  })
+  return null
+}
+
+// Wrap your entire page content in this for scroll-driven 3D depth
+export function ScrollScene({ pages = 3, children }: { pages?: number; children: React.ReactNode }) {
+  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (prefersReduced) return <>{children}</>
+  return (
+    <div style={{ height: '100vh', overflow: 'hidden' }}>
+      <Suspense fallback={null}>
+        <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0, 8], fov: 50 }}>
+          <ScrollControls pages={pages} damping={0.1}>
+            <CameraRig />
+            <Scroll html>{children}</Scroll>
+            {/* Add 3D scene objects here */}
+          </ScrollControls>
+        </Canvas>
+      </Suspense>
+    </div>
+  )
+}
+```
+
+**When NOT to use R3F:**
+- Restaurants, cafés, food brands, wellness/spa — stick to Framer Motion; 3D feels cold/wrong
+- Any project where the hero already has a strong Unsplash/Flux photo — don't compete with it
+- Mobile-first contexts where GPU budget is tight (check analytics; default to motion instead)
+- If the brand brief says "warm", "cozy", "natural", "earthy" — 3D is wrong for those adjectives
+
 ## Layout Patterns (Additional)
 
 ### Masonry Gallery
