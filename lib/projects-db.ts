@@ -19,6 +19,12 @@ export interface ProjectRow {
   database_name: string | null
   auth_enabled: boolean | null
   auth_worker_url: string | null
+  // Neon Postgres — provisioned per-project serverless Postgres database.
+  // The connection string is stored encrypted in project_secrets as 'NEON_DATABASE_URL'.
+  neon_project_id: string | null
+  neon_database_name: string | null
+  neon_host: string | null
+  neon_provisioned: boolean | null
   // Reopen & Continue — the conversation persists with the project so a fresh open
   // (dashboard / another device) restores the chat, not just the files.
   chat_messages: unknown | null

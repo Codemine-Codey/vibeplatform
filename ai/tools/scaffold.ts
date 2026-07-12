@@ -74,6 +74,9 @@ function makePackageJson(): string {
         '@react-three/drei': '^9.114.0',
         howler: '^2.2.4',
         zustand: '^5.0.2',
+        // Database — Neon serverless Postgres (available when DATABASE_URL is set)
+        '@neondatabase/serverless': '^0.10.4',
+        postgres: '^3.4.5',
       },
       devDependencies: {
         '@types/node': '^22.0.0',
