@@ -250,6 +250,21 @@ export async function runResumableEnrichment(opts: {
   const reference = await readDesignReference(sandbox, manifest)
   const startPhase = Math.max(2, (fromPhase || 0) + 1)
 
+  // Phase2Sections.tsx is a Phase 1 file (placeholder div) but needs to be updated
+  // AFTER all Phase 2 section components are generated so it can import them.
+  // If it's not already in the manifest as Phase 2, inject it as the last path
+  // of the last phase so enrichment patches it with real imports.
+  const PHASE2_SECTIONS = 'src/components/Phase2Sections.tsx'
+  const phase2SectionsAlreadyInPhase2 = manifest.files.some(
+    (f) => f.path === PHASE2_SECTIONS && f.phase >= 2
+  )
+  const hasPhase2 = manifest.files.some((f) => f.phase >= 2)
+  if (!phase2SectionsAlreadyInPhase2 && hasPhase2) {
+    // Append Phase2Sections.tsx to the last phase so enrichment populates it
+    const lastPhase = Math.max(...manifest.files.filter((f) => f.phase >= 2).map((f) => f.phase))
+    manifest.files.push({ path: PHASE2_SECTIONS, phase: lastPhase, exports: ['default'] })
+  }
+
   // Intro narration + set cursor=1 ONLY on the very first entry (phase 1 just shipped).
   if ((fromPhase || 0) < 1) {
     narrate(
@@ -284,6 +299,10 @@ export async function runResumableEnrichment(opts: {
     }
 
     try {
+      // Special instruction if Phase2Sections.tsx is in this phase — it's the homepage
+      // section connector file and needs to import+render all the OTHER phase 2 components.
+      const p2SectionsInThisPhase = phasePaths.includes(PHASE2_SECTIONS)
+      const otherPhase2Paths = phasePaths.filter((p) => p !== PHASE2_SECTIONS)
       const enrichMessages: ModelMessage[] = [
         ...genContext,
         {
@@ -293,7 +312,20 @@ export async function runResumableEnrichment(opts: {
             'Replace each with the COMPLETE, full production page: keep the SAME exports and route wiring, and match the ' +
             'EXISTING design system exactly (fonts, color tokens, spacing, shared components) as shown in these reference ' +
             'files. Write real, on-brief content — no placeholders, no lorem, no "coming soon". Do NOT change routing or ' +
-            'any file outside the requested paths.\n\nDesign reference files:\n' +
+            'any file outside the requested paths.\n\n' +
+            (p2SectionsInThisPhase && otherPhase2Paths.length > 0
+              ? `IMPORTANT — src/components/Phase2Sections.tsx is the HOMEPAGE SECTION CONNECTOR. ` +
+                `Write it to import and render the following section components in order:\n` +
+                otherPhase2Paths
+                  .filter((p) => /Section|Component|Feature|Gallery|Testimonial|About|Story|Menu|Pricing|CTA/i.test(p.split('/').pop() ?? ''))
+                  .map((p) => {
+                    const name = (p.split('/').pop() ?? '').replace(/\.(tsx|jsx|ts|js)$/, '')
+                    return `  import ${name} from '@/${p.replace(/^src\//, '')}'`
+                  })
+                  .join('\n') +
+                `\nReturn <> wrapped in divs, all sections in sequence. Do NOT add a Suspense/lazy wrapper — direct imports only.\n\n`
+              : '') +
+            `Design reference files:\n` +
             reference,
         },
       ]
