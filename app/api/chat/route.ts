@@ -935,7 +935,7 @@ export async function POST(req: Request) {
   // earlier (it silently blocked the POST); this is the real protection.
   const authedUser = await getCurrentUser(req)
   if (!authedUser) {
-    return new Response(JSON.stringify({ error: 'Please sign in to build.' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ error: 'Please sign in to build.' }), { status: 401, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
   }
   if (!genRateOk(authedUser.id)) {
     return new Response(JSON.stringify({ error: 'Too many builds in a short time — please wait a moment.' }), { status: 429, headers: { 'Content-Type': 'application/json' } })
