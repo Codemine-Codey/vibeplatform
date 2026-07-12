@@ -1653,7 +1653,6 @@ async function runPipeline({
               console.warn('[early-emit] failed:', err instanceof Error ? err.message : err)
             }
           })()
-        }
 
         return p1Result
       }
