@@ -1603,6 +1603,30 @@ async function runPipeline({
             try {
               // Wait for background install before starting dev server
               if (bgInstallPromise) await bgInstallPromise
+              // Quick CSS pre-fix — @import tailwindcss syntax breaks Vite on first boot.
+              // Full Step 4.5 palette lock runs later via HMR; this just prevents boot errors.
+              try {
+                const cssStream = await sandbox.readFile({ path: 'src/index.css' })
+                if (cssStream) {
+                  const chunks: Buffer[] = []
+                  for await (const c of cssStream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as string))
+                  let css = Buffer.concat(chunks).toString('utf8')
+                  let changed = false
+                  if (css.includes("@import 'tailwindcss/base'") || css.includes('@import "tailwindcss/base"')) {
+                    css = css
+                      .replace(/@import ['"]tailwindcss\/base['"]\s*;?/g, '@tailwind base;')
+                      .replace(/@import ['"]tailwindcss\/components['"]\s*;?/g, '@tailwind components;')
+                      .replace(/@import ['"]tailwindcss\/utilities['"]\s*;?/g, '@tailwind utilities;')
+                    changed = true
+                  }
+                  if (css.includes('@apply') || /@apply/i.test(css)) {
+                    const before = css
+                    css = css.replace(/@apply\s+[^;{}\n]*;?/gi, '')
+                    if (css !== before) changed = true
+                  }
+                  if (changed) await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(css, 'utf8') }])
+                }
+              } catch { /* non-fatal — Vite will attempt to boot anyway */ }
               // Start dev server
               writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' } })
               try {
