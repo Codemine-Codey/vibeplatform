@@ -7,10 +7,10 @@ import {
 } from 'lucide-react'
 import { useSandboxStore } from '@/app/state'
 import { DeployPanel } from '@/components/deploy/deploy-panel'
-import { DatabasePanel } from '@/components/deploy/database-panel'
 import { AuthPanel } from '@/components/deploy/auth-panel'
 import { SecretsPanel } from '@/components/cloud/secrets-panel'
 import { StoragePanel } from '@/components/cloud/storage-panel'
+import { NeonPanel } from '@/components/cloud/neon-panel'
 import { cn } from '@/lib/utils'
 
 type Sub = 'overview' | 'deploy' | 'database' | 'auth' | 'secrets' | 'storage' | 'ai' | 'connectors'
@@ -64,7 +64,7 @@ export function CloudDashboard({ className }: { className?: string }) {
         <div className="flex-1 min-h-0 overflow-auto">
           {sub === 'overview' && <Overview onGo={setSub} />}
           {sub === 'deploy' && <DeployPanel className="h-full" />}
-          {sub === 'database' && <DatabasePanel className="h-full" />}
+          {sub === 'database' && <NeonPanel className="h-full" />}
           {sub === 'auth' && <AuthPanel className="h-full" />}
           {sub === 'secrets' && <SecretsPanel className="h-full" />}
           {sub === 'storage' && <StoragePanel className="h-full" />}
@@ -78,11 +78,10 @@ export function CloudDashboard({ className }: { className?: string }) {
 
 function Overview({ onGo }: { onGo: (s: Sub) => void }) {
   const deployedUrl = useSandboxStore((s) => s.deployedUrl)
-  const databaseId = useSandboxStore((s) => s.databaseId)
   const authEnabled = useSandboxStore((s) => s.authEnabled)
   const cards = [
     { id: 'deploy' as Sub, label: 'Deployment', value: deployedUrl ? 'Live' : 'Not deployed', ok: !!deployedUrl },
-    { id: 'database' as Sub, label: 'Database', value: databaseId ? 'Connected' : 'Not added', ok: !!databaseId },
+    { id: 'database' as Sub, label: 'Database', value: 'View' as string, ok: false },
     { id: 'auth' as Sub, label: 'Authentication', value: authEnabled ? 'Active' : 'Off', ok: !!authEnabled },
   ]
   return (
