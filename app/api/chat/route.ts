@@ -644,10 +644,8 @@ async function headlessRuntimeCheck(
 
     // ── Game smoke test: a canvas game must ANIMATE + RESPOND to input ──────────
     // Only fires for a large (game-sized) canvas so a small decorative canvas on a website
-    // is never flagged. Grab the canvas pixels, drive real input (Space/arrows/click), wait,
-    // and grab again — if nothing changed, the game loop isn't running or the start action does
-    // nothing (a frozen/dead game that still "compiles"). This is the deterministic catcher for
-    // the turtle-ball's worse cousin: a game that doesn't move at all.
+    // is never flagged. Samples pixel regions across the canvas at multiple time points after
+    // interaction — catches both "never starts" AND "starts but immediately freezes" bugs.
     try {
       const bigCanvas: boolean = await page
         .evaluate(() => {
@@ -658,32 +656,64 @@ async function headlessRuntimeCheck(
         })
         .catch(() => false)
       if (bigCanvas) {
-        const grab = (): Promise<string> =>
+        // Sample 3 non-overlapping 16×16 regions spread across the canvas.
+        // getImageData is cross-origin safe (canvas is same-origin), avoids toDataURL taint issues.
+        // Returns a compact hex string representing those pixels.
+        const snap = (): Promise<string> =>
           page
             .evaluate(() => {
               const c = document.querySelector('canvas') as HTMLCanvasElement | null
               if (!c) return ''
               try {
-                return c.toDataURL().slice(-3000)
+                const ctx = c.getContext('2d')
+                if (!ctx) return c.toDataURL().slice(500, 2000)
+                const w = c.width, h = c.height
+                const regions = [
+                  ctx.getImageData(Math.floor(w * 0.25), Math.floor(h * 0.25), 16, 16).data,
+                  ctx.getImageData(Math.floor(w * 0.5),  Math.floor(h * 0.5),  16, 16).data,
+                  ctx.getImageData(Math.floor(w * 0.75), Math.floor(h * 0.75), 16, 16).data,
+                ]
+                return regions.map(d => Array.from(d).slice(0, 64).join(',')).join('|')
               } catch {
                 return 'tainted'
               }
             })
             .catch(() => '')
-        const before = await grab()
+
+        const snap0 = await snap()
         await page.evaluate(() => (document.querySelector('canvas') as HTMLElement | null)?.focus?.()).catch(() => {})
-        for (const key of ['Space', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Enter']) {
-          await page.keyboard.press(key).catch(() => {})
-          await new Promise((r) => setTimeout(r, 120))
-        }
+        // Click the canvas center first (dismiss start overlays), then keyboard
         await page.mouse.click(320, 300).catch(() => {})
-        await new Promise((r) => setTimeout(r, 1600))
-        const after = await grab()
-        if (before && after && before !== 'tainted' && before === after) {
-          return {
-            status: 'broken',
-            detail:
-              'The game canvas is not animating or responding to input — after pressing Space/arrows/Enter and clicking, the canvas did not change at all. The game loop is likely not running (requestAnimationFrame never starts, or `running` stays false) or the start/tap action does nothing. Make the loop run and the primary input start + drive the game.',
+        await new Promise((r) => setTimeout(r, 200))
+        for (const key of ['Space', 'Enter', 'ArrowRight', 'ArrowUp', 'ArrowLeft']) {
+          await page.keyboard.press(key).catch(() => {})
+          await new Promise((r) => setTimeout(r, 100))
+        }
+        // Wait for game to start and run a few frames
+        await new Promise((r) => setTimeout(r, 1200))
+        const snap1 = await snap()
+        await new Promise((r) => setTimeout(r, 450))
+        const snap2 = await snap()
+        await new Promise((r) => setTimeout(r, 450))
+        const snap3 = await snap()
+
+        if (snap0 && snap1 && snap2 && snap3 && snap0 !== 'tainted') {
+          const noResponseAtAll = snap0 === snap1 && snap1 === snap2 && snap2 === snap3
+          const frozeAfterStart = snap0 !== snap1 && snap1 === snap2 && snap2 === snap3
+
+          if (noResponseAtAll) {
+            return {
+              status: 'broken',
+              detail:
+                'The game canvas is not animating or responding to any input — pressing Space/Enter/arrows and clicking did not change the canvas at all. The game loop is not running. Most likely cause: the `running` prop passed to useGameLoop is always false (e.g. `running={gameState}` instead of `running={gameState === "playing"}`), or the canvas event listeners are not attached. Fix the running condition and ensure click/keydown handlers update the game state.',
+            }
+          }
+          if (frozeAfterStart) {
+            return {
+              status: 'broken',
+              detail:
+                'The game started (canvas changed after input) but animation froze immediately — the canvas was identical at t+1.2s, t+1.65s, and t+2.1s. The requestAnimationFrame loop is likely stopping after one frame (missing recursive call, or the loop depends on a stale ref that becomes false). Ensure the RAF callback re-schedules itself unconditionally while `running` is true.',
+            }
           }
         }
       }

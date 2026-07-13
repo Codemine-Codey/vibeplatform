@@ -13,23 +13,28 @@ import type { Sandbox } from '@vercel/sandbox'
 
 type Skill = 'website' | 'webapp' | 'game'
 
-const GAME_REVIEW_PROMPT = `You are a game-logic bug detector. Review this game code for CRITICAL bugs that would cause a blank/blue screen or broken gameplay. Check specifically:
+const GAME_REVIEW_PROMPT = `You are a game-logic bug detector. Review this game code for CRITICAL bugs that would cause a black/blank screen or a non-playable game. Check EVERY point:
 
-1. RUNNING PROP BUG (most common — causes blue screen after clicking Play): The \`useGameLoop({ update, draw, running })\` call MUST pass \`running={gameState === 'playing'}\` (or whatever the "active" state is called). If \`running\` is always true, always false, or is a string not a boolean, the canvas goes blank. Check the exact value passed as \`running\`.
+1. RUNNING PROP BUG (most common): If using \`useGameLoop({ update, draw, running })\`, the \`running\` value MUST be a boolean like \`running={gameState === 'playing'}\`. If \`running\` is a string (e.g. \`running={gameState}\`), always-true (\`running={true}\`), or always-false (\`running={false}\`), the loop either never runs or runs in the wrong state. Find the exact value passed as \`running\`.
 
-2. DRAW COVERS ALL STATES: The \`draw()\` function must paint something in EVERY game state — Start, Playing, Paused, GameOver. If \`draw()\` only renders in "playing" state and returns early for others, the canvas is black/blue on Start and GameOver. Check all early returns in draw().
+2. KEYBOARD LISTENERS STALE CLOSURE: If the game uses \`window.addEventListener('keydown', handler)\` inside a useEffect, the handler MUST include ALL game state in its dependency array OR use a ref pattern. A stale closure means keypresses don't change state. Pattern: \`const dirRef = useRef(direction); dirRef.current = direction;\` then read \`dirRef.current\` inside the listener.
 
-3. RAF LOOP CLEANUP: If using \`requestAnimationFrame\` manually (not via useGameLoop), the rAF id MUST be stored in a ref and cancelled in useEffect return — missing this causes a double loop on re-render (double speed, ghost inputs).
+3. DRAW COVERS ALL STATES: The \`draw()\` function must paint something in EVERY game state — Start/Idle, Playing, Paused, GameOver. If draw() has \`if (gameState !== 'playing') return\` or similar, the canvas is black except during gameplay. The start screen MUST be drawn on the canvas (or rendered as HTML elements over it).
 
-4. SNAKE FOOD SPAWN: must use \`do { food=randomCell() } while(occupied.has(key))\` with a Set of ALL occupied cells. Any other approach risks food spawning on the snake → game freezes.
+4. RAF LOOP CLEANUP: If using requestAnimationFrame directly (not useGameLoop), the rAF ID MUST be stored in a ref and cancelled in useEffect cleanup. Otherwise a new loop starts on every render, causing ghost inputs and double-speed.
 
-5. REVERSAL PREVENTION: pressing the exact opposite direction (left while going right) must be silently ignored.
+5. CLICK/SPACE TO START: There MUST be a visible start screen AND a clear input action (click, Space, Enter) that transitions gameState to 'playing'. If the game has no start screen or the transition is missing, the user sees the initial canvas state but can't start.
 
-6. STATE TRANSITION BUG: Clicking "Play"/"Start" must actually change the game state variable AND ensure \`running\` flips to true on the SAME render cycle. If state update is async and \`running\` depends on it, the first frame may not fire.
+6. SNAKE REVERSAL: pressing the exact opposite direction (LEFT while going RIGHT) must be silently ignored, not allowed. Missing this breaks collision immediately.
 
-If no critical bugs, return: {"ok":true}
-If a critical bug exists, return the FIRST one found: {"ok":false,"issue":"one-line description of the exact bug","fix":"corrected code snippet for just the broken section — 5-20 lines max, not the whole file"}
-Return raw JSON only — no markdown fences, no explanation outside the JSON.`
+7. INITIAL GAME STATE: The useState initializer for gameState MUST be 'start' (not 'playing', not 'idle'). If it's 'playing', the game starts immediately in playing mode with no start screen — the user sees the game mid-play with no way to begin intentionally. Check: \`useState<GameState>('start')\`.
+
+8. RAF LOOP CONDITION: The useEffect that starts the RAF loop MUST have a guard at the top: \`if (gameState !== 'playing') return\`. If this guard is missing, the loop runs even in 'start' or 'gameover' state and can interfere with the start screen.
+
+Look at the ACTUAL values in the code, not just the structure. Report the first critical bug found.
+If no critical bugs: {"ok":true}
+If a bug exists: {"ok":false,"issue":"one sentence describing the exact bug with the actual wrong value","fix":"corrected code — 5–20 lines showing the fix, not the whole file"}
+Return raw JSON only — no markdown, no explanation outside the JSON.`
 
 const WEBAPP_REVIEW_PROMPT = `You are a React bug detector. Review this webapp code for CRITICAL bugs only.
 Check specifically:
