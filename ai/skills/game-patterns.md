@@ -11,7 +11,14 @@ description: Web-game design + logic law — the loop, a rigorous state machine,
 A polished, correct game beats a juicy broken one. These are the exact failures that read as "amateur" — each is non-negotiable:
 - **KEEP CANVAS GAMES COMPACT — this prevents truncation AND styling bugs.** A canvas arcade game is a SINGLE screen: draw the start screen, gameplay, HUD, pause, and game-over ALL inside the canvas via the loop. Do NOT create separate React components (StartScreen / GameOverScreen / PauseOverlay) and do NOT use react-router or add extra routes — a game has ONE page. **NEVER write `src/App.tsx` or `src/main.tsx`** (both are scaffolded + read-only; the scaffold's App already mounts your root page). The ONLY files you need are `src/pages/Home.tsx` (the game root — mounts the canvas full-screen) and ONE `src/components/game/GameCanvas.tsx` (the whole game, using the baked engine). Fewer/smaller files = the generation never truncates mid-file.
 - **Games do NOT have the shadcn design tokens.** A game's `index.css` is minimal — classes like `bg-background`, `text-foreground`, `text-primary`, `font-display` resolve to NOTHING in a game and render invisible/unstyled. Use EXPLICIT colors in game React chrome (`bg-slate-900`, `text-white`) or, better, draw all text/overlays on the canvas with `ctx.fillStyle`. Never assume the semantic tokens exist in a game.
-- **Use the baked engine's EXACT API:** `useGameLoop({ update, draw, running, step })` (an options object — not positional args). Import { useGameLoop, useHighScore, playTone, rectsOverlap, circlesHit, useShake, burst, stepParticles } from '@/components/game/engine' and call each exactly as exported.
+- **Use the baked engine's EXACT API:** `useGameLoop({ update, draw, running, step })` (an options object — not positional args). Import from `'@/components/game/engine'` — exports:
+  - `useGameLoop, useHighScore, playTone` — loop, persistence, audio
+  - `rectsOverlap, circlesHit` — collision
+  - `useShake, burst, stepParticles` — juice
+  - `SPEEDS, SPAWN` — tuned constants (flappy, runner, snake, pong, breakout, spaceShooter, platformer)
+  - `generateTerrain(W, H, seed?), terrainYAt(terrain, x, totalWidth)` — terrain for physics/vehicle games
+  - `VEHICLE_PHYSICS` — gravity, thrust, friction, bounce, crashVy, maxVy, wheelR, fuelDrain constants
+  Call each exactly as exported. Never hand-roll what the engine already provides.
 - **The canvas is NEVER blank or black.** Every state (Start, Playing, GameOver) must paint a full frame. The #1 bug: the rAF loop stops on death and nothing repaints → black screen. FIX: keep the loop running in GameOver and draw the overlay every frame, OR draw the final scene + overlay once and stop clearing. On every frame, in every state, something is visible.
 - **GameOver draws the overlay ON TOP of the last frame** — score, best, and an obvious "press/tap to retry" — never over a cleared/void canvas. Mentally test: player dies → overlay appears over the frozen scene, not a black void.
 - **Restart fully resets ALL state** — entity positions and arrays, score, speed, spawn timers, difficulty, shake, particles — and **cancels the old rAF before starting a new loop** (null-check so two loops never run at once; a second loop = double-speed / "broken" feel).
@@ -146,3 +153,134 @@ function update(dt: number) {
 ## 8. Pre-ship self-check
 **Controls (check first — this is the most common failure):** keyboard on `window` not canvas · touch with `{ passive: false }` · Space/Up/Down/ArrowLeft/ArrowRight all tested · player visibly responds on key press.
 Core loop tight + responsive · explicit state machine · both controls mapped + shown · win AND lose reachable · difficulty ramps · ≥4 juice effects (shake/particles/hit-stop/sound/popups) · sound present + gated · high score persists · start + game-over screens polished · cohesive palette · 60fps (pooled particles, no per-frame alloc) · replay is one tap/key.
+
+---
+
+## 9. PLATFORMER RECIPE — precise, forgiving controls
+
+For any side-scroller, platformer, or gravity-based runner:
+
+```typescript
+// Import tuned constants from the engine
+import { SPEEDS } from '@/components/game/engine'
+const { runAccel, runMax, gravity, jump, coyoteMs, jumpBufferMs } = SPEEDS.platformer
+
+// Player physics state (all in useRef)
+type Player = { x: number; y: number; vx: number; vy: number; onGround: boolean; coyoteAt: number; jumpBufferAt: number }
+
+function updatePlayer(p: Player, keys: Set<string>, platforms: {x:number;y:number;w:number;h:number}[], now: number, W: number, H: number) {
+  // Horizontal movement — acceleration model, not instant speed
+  const left = keys.has('ArrowLeft') || keys.has('a')
+  const right = keys.has('ArrowRight') || keys.has('d')
+  if (right) p.vx = Math.min(p.vx + runAccel, runMax)
+  else if (left) p.vx = Math.max(p.vx - runAccel, -runMax)
+  else p.vx *= 0.78  // friction when no key held
+
+  // Gravity
+  p.vy = Math.min(p.vy + gravity, 18)
+
+  // Move + platform collision (X then Y separately to avoid corner sticking)
+  p.x += p.vx
+  p.y += p.vy
+
+  let landed = false
+  for (const pl of platforms) {
+    if (p.x + 12 > pl.x && p.x - 12 < pl.x + pl.w) {
+      if (p.vy >= 0 && p.y - p.vy <= pl.y && p.y >= pl.y) {
+        p.y = pl.y; p.vy = 0; landed = true
+      }
+    }
+  }
+  if (p.y >= H - 20) { p.y = H - 20; p.vy = 0; landed = true }  // floor
+  if (landed) { p.onGround = true; p.coyoteAt = now }
+  else if (p.onGround) { p.onGround = false; p.coyoteAt = now }  // just left platform
+
+  // Jump — with coyote time and jump buffer (forgiveness)
+  const spaceJustPressed = keys.has(' ')  // track via keydown event, not held state
+  if (spaceJustPressed) p.jumpBufferAt = now
+  const coyoteOk = now - p.coyoteAt < coyoteMs
+  const bufferOk = now - p.jumpBufferAt < jumpBufferMs
+  if ((coyoteOk || p.onGround) && bufferOk) {
+    p.vy = jump; p.onGround = false; p.jumpBufferAt = 0
+  }
+
+  // Clamp to world
+  p.x = Math.max(12, Math.min(W - 12, p.x))
+}
+```
+
+**Platform generation**: static array of `{x, y, w, h}` rectangles. For infinite runners, spawn platforms off-screen right, remove when off-screen left.
+**Enemies**: AABB collision, simple patrol (reverse vx at edges). **Collectibles**: AABB, remove on collect, score++.
+**Camera**: `ctx.translate(-cameraX, 0)` in draw; lerp cameraX toward `player.x - W*0.3`.
+
+---
+
+## 10. SPACE SHOOTER RECIPE — bullets, waves, object pooling
+
+For any top-down or side-scrolling shooter:
+
+```typescript
+// Pool-based bullet + enemy system — no per-frame allocation
+type Bullet = { x: number; y: number; vy: number; active: boolean }
+type Enemy  = { x: number; y: number; vx: number; vy: number; hp: number; active: boolean }
+
+// Pre-allocate pools
+const BULLET_POOL = 60, ENEMY_POOL = 30
+const bullets: Bullet[] = Array.from({ length: BULLET_POOL }, () => ({ x:0,y:0,vy:0,active:false }))
+const enemies: Enemy[]  = Array.from({ length: ENEMY_POOL  }, () => ({ x:0,y:0,vx:0,vy:0,hp:1,active:false }))
+
+function fireBullet(bx: number, by: number, vy: number) {
+  const b = bullets.find(b => !b.active)
+  if (b) { b.x = bx; b.y = by; b.vy = vy; b.active = true }
+}
+function spawnEnemy(x: number, y: number) {
+  const e = enemies.find(e => !e.active)
+  if (e) { e.x = x; e.y = y; e.vx = (Math.random()-0.5)*2; e.vy = 1.5+Math.random(); e.hp = 1; e.active = true }
+}
+
+function updateShooter(gs: GameState, keys: Set<string>, W: number, H: number, now: number) {
+  // Player movement (8-directional, speed from SPEEDS.spaceShooter)
+  const spd = 6
+  if (keys.has('ArrowLeft'))  gs.player.x -= spd
+  if (keys.has('ArrowRight')) gs.player.x += spd
+  if (keys.has('ArrowUp'))    gs.player.y -= spd
+  if (keys.has('ArrowDown'))  gs.player.y += spd
+  gs.player.x = Math.max(16, Math.min(W-16, gs.player.x))
+  gs.player.y = Math.max(16, Math.min(H-16, gs.player.y))
+
+  // Auto-fire every 250ms
+  if (now - gs.lastShot > 250) { fireBullet(gs.player.x, gs.player.y - 20, -9); gs.lastShot = now }
+
+  // Update bullets
+  for (const b of bullets) {
+    if (!b.active) continue
+    b.y += b.vy
+    if (b.y < -10 || b.y > H + 10) { b.active = false; continue }
+    for (const e of enemies) {
+      if (!e.active) continue
+      if (Math.abs(b.x - e.x) < 18 && Math.abs(b.y - e.y) < 18) {
+        b.active = false; e.hp--
+        if (e.hp <= 0) { e.active = false; gs.score += 10 }
+      }
+    }
+  }
+
+  // Update enemies + player collision
+  for (const e of enemies) {
+    if (!e.active) continue
+    e.x += e.vx; e.y += e.vy
+    if (e.y > H + 20) { e.active = false; continue }
+    if (Math.abs(e.x - gs.player.x) < 20 && Math.abs(e.y - gs.player.y) < 20) gs.phase = 'over'
+  }
+
+  // Wave spawner — tightens with score
+  const waveGap = Math.max(600, 1400 - gs.score * 2)
+  if (now - gs.lastSpawn > waveGap) {
+    for (let i = 0; i < Math.min(3 + Math.floor(gs.score/50), 8); i++) spawnEnemy(Math.random()*W, -20)
+    gs.lastSpawn = now
+  }
+}
+```
+
+**Draw loop**: clear → draw background → enemies → player → bullets → particles → HUD. Never skip the clear.
+**Powerups**: spawn every ~10s, AABB collect: shield (3 hits), rapid-fire (5s timer), bomb (clear screen).

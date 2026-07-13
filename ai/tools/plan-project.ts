@@ -308,19 +308,24 @@ export const planProject = (
       }
 
       const isWebsite = !isGame && pageCount >= 4
-      const maxFiles = isGame ? 2 : isWebsite ? 14 : 10
+      // Lovable-aligned file caps per phase: game 2, webapp 7, site 8.
+      // Tighter caps = smaller AI output = no truncation + faster first preview.
+      // Multi-phase builds naturally stay within the cap because enrichment phases
+      // deliver 3-6 files each — the cap here applies to phase 1 (the MVP skeleton).
+      const maxFiles = isGame ? 2 : isWebsite ? 8 : 7
       if (files.length > maxFiles) {
         const typeName = isGame ? 'game' : isWebsite ? 'website' : 'webapp'
         const guidance = isGame
           ? 'src/index.css + src/pages/Home.tsx (ALL game logic in one file)'
           : isWebsite
-          ? 'src/index.css + src/components/Layout.tsx + src/pages/Home.tsx + up to 11 additional pages/components'
-          : 'src/index.css + src/components/Layout.tsx + src/pages/Home.tsx + up to 7 components/stores/utilities'
+          ? 'src/index.css + src/components/Layout.tsx + src/pages/Home.tsx + up to 5 additional pages/components'
+          : 'src/index.css + src/pages/Home.tsx + up to 4 components/stores (MVP core only — iterate after first preview)'
         return (
           `MANIFEST REJECTED — too many files (${files.length} > ${maxFiles} max for a ${typeName}).\n\n` +
           `Allowed: ${guidance}.\n\n` +
-          `Consolidate related logic into fewer files. Combine utility functions, merge small components, ` +
-          `and keep stores/hooks in single files. Call planProject again with ≤ ${maxFiles} files.`
+          `This is a FIRST PREVIEW limit. Consolidate: merge components, inline small utilities, ` +
+          `keep only the core user flow. The user sees a working MVP and iterates — ` +
+          `do NOT try to build the entire product in one shot. Call planProject again with ≤ ${maxFiles} files.`
         )
       }
       // ── End structural recipe gate ────────────────────────────────────────────

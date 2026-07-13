@@ -1774,6 +1774,7 @@ export const SPEEDS = {
   breakout: { ball: 5, paddle: 9 },
   spaceShooter: { player: 6, bullet: 9, enemy: 2 },
   balloon: { rise: 2.2 },
+  platformer: { runAccel: 0.55, runMax: 7, gravity: 0.55, jump: -13, coyoteMs: 120, jumpBufferMs: 100 },
 } as const
 
 export const SPAWN = {
@@ -1869,6 +1870,48 @@ export function stepParticles(ps: Particle[], gravity = 0.15) {
     if (p.life <= 0) ps.splice(i, 1)
   }
 }
+
+// ── Vehicle / physics game helpers ───────────────────────────────────────────
+// Pre-written for hill-climb, racer, physics-puzzle types.
+// generateTerrain returns a Float32Array of canvas y-values (one per x-pixel).
+// terrainYAt does linear interpolation for sub-pixel positions.
+// Use in update(): const ty = terrainYAt(terrain, vehicle.x); land if vehicle.y+r > ty.
+
+export function generateTerrain(totalWidth: number, canvasH: number, seed = 42): Float32Array {
+  const terrain = new Float32Array(totalWidth)
+  const baseline = canvasH * 0.62
+  let h = baseline, amp = canvasH * 0.18, freq = 0.008, r = seed
+  // Seeded LCG so terrain is reproducible
+  const rand = () => { r = (r * 1664525 + 1013904223) & 0xffffffff; return (r >>> 0) / 0xffffffff }
+  // Layered sine + noise for natural hills
+  for (let x = 0; x < totalWidth; x++) {
+    const s1 = Math.sin(x * freq + rand() * 0.002) * amp
+    const s2 = Math.sin(x * freq * 2.7 + 1.2) * amp * 0.35
+    const s3 = Math.sin(x * freq * 0.3 + 4.1) * amp * 0.55
+    terrain[x] = Math.max(canvasH * 0.35, Math.min(canvasH * 0.85, baseline + s1 + s2 + s3))
+  }
+  // Smooth pass (3-sample moving average)
+  for (let x = 1; x < totalWidth - 1; x++) terrain[x] = (terrain[x-1] + terrain[x] + terrain[x+1]) / 3
+  return terrain
+}
+
+export function terrainYAt(terrain: Float32Array, x: number, totalWidth: number): number {
+  const xi = Math.max(0, Math.min(totalWidth - 2, Math.floor(x)))
+  const t = x - xi
+  return terrain[xi] * (1 - t) + terrain[xi + 1] * t
+}
+
+// Tuned constants for physics games (px/frame at 60fps):
+export const VEHICLE_PHYSICS = {
+  gravity: 0.35,    // downward pull each frame
+  thrust: 0.18,     // acceleration when gas held
+  friction: 0.985,  // vx decay (higher = less slippy)
+  bounce: 0.2,      // vy restitution on terrain contact
+  crashVy: 9,       // vy threshold for crash on landing
+  maxVy: 14,
+  wheelR: 18,       // wheel radius (px), used for collision offset
+  fuelDrain: 0.14,  // fuel per frame while thrusting
+} as const
 `
 
 // FILE-BASED ROUTER (scaffold-owned, read-only for ALL project types — Fable step 2/G14).

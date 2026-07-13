@@ -500,6 +500,51 @@ Every new project build MUST start the first chat response with a scope statemen
 
 Never start building without scoping what's in vs. what's deferred. This is the most important expectation-setting tool.
 
+### 5.4 PHYSICS GAME RECIPE — hill climb / racing / vehicle games
+
+For ANY game with terrain, vehicles, gravity-driven physics, or momentum (hill climb, motorbike, car racer, rolling ball, physics puzzle): **NEVER write full rigid-body physics (verlet, impulse solver, spring joints)**. That is 500+ lines and always truncates. Use **kinematic arcade physics** instead — it is 30 lines and works perfectly:
+
+```typescript
+// Terrain: pre-computed y-values per pixel column. Use generateTerrain from the engine.
+// import { generateTerrain, terrainYAt } from '@/components/game/engine'
+// const terrain = generateTerrain(W, H)  // call once on mount
+
+// Vehicle state (ALL in useRef — never useState):
+const gs = useRef({
+  phase: 'start' as 'start'|'playing'|'over',
+  x: 100, y: 200,          // position
+  vx: 0, vy: 0,            // velocity (px/frame)
+  angle: 0,                // tilt in radians
+  score: 0, fuel: 100,
+})
+
+// Physics step (call from update() in useGameLoop):
+function stepPhysics(g: typeof gs.current, terrain: Float32Array, W: number, holding: boolean) {
+  const GRAVITY = 0.35, THRUST = 0.18, FRICTION = 0.98, MAX_VY = 12
+  if (holding && g.fuel > 0) { g.vx += Math.cos(g.angle) * THRUST; g.vy += Math.sin(g.angle) * THRUST; g.fuel -= 0.15 }
+  g.vy = Math.min(g.vy + GRAVITY, MAX_VY)
+  g.vx *= FRICTION
+  g.x += g.vx; g.y += g.vy
+  // Terrain collision: sample y at current x position
+  const ty = terrainYAt(terrain, Math.round(g.x), W)
+  const WHEEL_R = 18
+  if (g.y + WHEEL_R > ty) {
+    g.y = ty - WHEEL_R
+    g.vy = g.vy > 0 ? -g.vy * 0.25 : g.vy  // bounce damp
+    g.angle = Math.atan2(terrainYAt(terrain, Math.round(g.x)+8, W) - terrainYAt(terrain, Math.round(g.x)-8, W), 16) * 0.8
+    if (Math.abs(g.vy) > 8) g.phase = 'over'  // crash
+  }
+  // Scroll: keep vehicle at 30% from left; shift terrain origin instead
+  g.score += g.vx > 0 ? g.vx * 0.01 : 0
+}
+```
+
+Drawing: vehicle body = `ctx.save(); ctx.translate(x, y); ctx.rotate(angle); drawRect(-30,-10,60,18); ctx.restore()`. Wheels = two circles at ±25px x, +10px y. Terrain = `ctx.beginPath(); ctx.moveTo(0, terrain[0]); for(let i=1;i<W;i++) ctx.lineTo(i, terrain[i]); ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath(); ctx.fill()`.
+
+**Terrain scroll**: keep `cameraX` offset; sample `terrain[cameraX + screenX]` for each column. Generate terrain as a long Float32Array (e.g. 6000px wide).
+
+**generateTerrain is pre-written in the engine** — import and use it. DO NOT hand-write terrain generation.
+
 **Every file MUST:**
 - Compile and run on the first build — zero missing imports, undefined components, or broken references
 - Be complete and functional — no TODO, no stub, no `// placeholder`, no disabled features

@@ -360,3 +360,44 @@ After building UI:
 
 ## The state matrix — EVERY data view handles all of:
 Loading (skeletons matching content shape) · Empty (CSS/Lucide illustration + helpful prompt + primary action, never a grey box) · Error (calm message + recovery action) · Populated (the real experience) · Success (satisfying confirmation).
+
+---
+
+## Universal data pattern — works for ANY app (ledger, kanban, CRM, tracker, etc.)
+
+Every webapp is a variation of: **a typed list + CRUD operations + persistence + UI views**. Use this pattern regardless of domain:
+
+```typescript
+// 1. Define your entity (replace fields with whatever the app needs)
+interface Item {
+  id: string
+  // add domain-specific fields here: amount, date, status, priority, assignee, etc.
+  createdAt: number
+}
+
+// 2. State — localStorage hydrated, type-safe
+const [items, setItems] = useState<Item[]>(() => {
+  try { return JSON.parse(localStorage.getItem('cm_items') || '[]') }
+  catch { return [] }
+})
+
+// 3. Mutate + persist in one step (immutable — no direct array/object mutation)
+const save = (next: Item[]) => {
+  setItems(next)
+  localStorage.setItem('cm_items', JSON.stringify(next))
+}
+const add    = (data: Omit<Item,'id'|'createdAt'>) => save([{ id: crypto.randomUUID(), createdAt: Date.now(), ...data }, ...items])
+const update = (id: string, patch: Partial<Item>)  => save(items.map(x => x.id === id ? { ...x, ...patch } : x))
+const remove = (id: string)                         => save(items.filter(x => x.id !== id))
+
+// 4. Derived views — filter/sort/group with useMemo, never duplicate state
+const totals = useMemo(() => ({ count: items.length, /* domain sum, avg, etc. */ }), [items])
+```
+
+**Keyboard form**: `<form onSubmit={e => { e.preventDefault(); add(formData); reset() }}>` — never skip `preventDefault`.
+**Empty state**: icon + friendly label + primary action button. Never a blank white box.
+**Persistence**: always save to localStorage so data survives a page refresh.
+**Columns/groups**: derive from the list with `groupBy` — never a separate state for each group.
+**Sorting**: `[...items].sort((a,b) => ...)` in useMemo — never mutate the original array.
+
+This pattern scales from a ledger to a kanban to a CRM — only the fields and views change, not the architecture.
