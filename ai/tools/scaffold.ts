@@ -710,7 +710,12 @@ export default defineConfig({
     host: '0.0.0.0',
     allowedHosts: true,
     port: 3000,
-    hmr: { overlay: false },
+    // DISABLE_HMR=true (set only while the agent is writing files) turns off HMR + file
+    // watching so the preview never reloads a half-written file mid-generation. Unset =
+    // normal HMR (current behavior). This enables "boot the dev server first, stream files
+    // in silently, then one coordinated refresh" without the white-screen/error flash.
+    hmr: process.env.DISABLE_HMR === 'true' ? false : { overlay: false },
+    watch: process.env.DISABLE_HMR === 'true' ? null : undefined,
   },
 })
 `,
