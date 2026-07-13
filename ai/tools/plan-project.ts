@@ -183,6 +183,14 @@ export const planProject = (
       'project type (they are scaffolded/read-only). GAMES: list src/pages/Home.tsx as the game root ' +
       '(it mounts the game UI) plus the game components — games have no router but still root at Home.tsx.',
     inputSchema: z.object({
+      projectType: z
+        .enum(['game', 'webapp', 'website'])
+        .describe(
+          'The type of project being built. MUST match what the user asked for — this drives file caps and generation rules. ' +
+          '"game" = canvas/keyboard interactive game (≤2 files, all logic in Home.tsx). ' +
+          '"website" = multi-page business/portfolio/landing site (≤8 files, real page routes). ' +
+          '"webapp" = interactive tool/dashboard/utility (≤7 files, React state, localStorage).'
+        ),
       files: z
         .array(
           z.object({
@@ -225,7 +233,7 @@ export const planProject = (
           'vite, tailwindcss, typescript, @vitejs/plugin-react, autoprefixer, postcss.'
         ),
     }),
-    execute: async ({ files, extraPackages }) => {
+    execute: async ({ projectType, files, extraPackages }) => {
       // ── Pre-generation validation gate ────────────────────────────────────────
       // Catch wrong paths and forbidden packages BEFORE a single file is written.
       // Return a rejection string so the AI fixes the plan; never silently proceed
@@ -285,16 +293,13 @@ export const planProject = (
       }
 
       // ── Structural recipe gate (Lovable-style constraint) ────────────────────────
-      // Detects project type from manifest shape and enforces hard structural rules.
-      // These run BEFORE any file is written, so a bad manifest never costs tokens.
-      //
-      // Game detection: only one page (Home.tsx) or has src/components/game/ files.
-      // Games MUST use src/pages/Home.tsx only — no separate game components.
-      // Multiple files → multiple import relationships → import drift → build errors.
-      // One file = zero cross-file imports = zero import errors = ~4 min preview.
+      // Uses the explicit projectType declared by the AI (not heuristics from file count).
+      // Heuristic isGame = pageCount <= 1 was wrong: single-page webapps triggered it.
+      // Now: projectType='game' is the authoritative signal; hasGameComponents is a backup check.
       const hasGameComponents = files.some(f => /^src\/components\/game\//i.test(f.path))
       const pageCount = files.filter(f => /^src\/pages\//i.test(f.path)).length
-      const isGame = hasGameComponents || pageCount <= 1
+      const isGame = projectType === 'game' || hasGameComponents
+      const isWebsite = !isGame && (projectType === 'website' || pageCount >= 4)
 
       // Games: block component subfolders — ALL logic must live in src/pages/Home.tsx
       if (isGame && hasGameComponents) {
@@ -307,7 +312,6 @@ export const planProject = (
         )
       }
 
-      const isWebsite = !isGame && pageCount >= 4
       // Lovable-aligned file caps per phase: game 2, webapp 7, site 8.
       // Tighter caps = smaller AI output = no truncation + faster first preview.
       // Multi-phase builds naturally stay within the cap because enrichment phases

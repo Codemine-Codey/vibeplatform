@@ -61,16 +61,15 @@ function EmptyState({ onPrompt }: { onPrompt: (p: string) => void }) {
 }
 
 const BUILD_PHASES: Array<[number, string]> = [
-  [0,   'Planning your project'],
-  [10,  'Generating files'],
-  [40,  'Installing packages'],
-  [80,  'Building'],
-  [120, 'Starting preview'],
+  [0,   'Thinking...'],
+  [60,  'Planning...'],
+  [90,  'Building your project...'],
+  [390, 'Almost finishing up — please have patience'],
 ]
 
 // Map server-emitted phase names to BUILD_PHASES indices for progress bar
 const PHASE_TO_INDEX: Record<string, number> = {
-  generating: 1,
+  generating: 2,
   installing: 2,
   building: 3,
   'repair-failed': 3,
@@ -115,6 +114,7 @@ function BuildingIndicator({ messages }: { messages: ChatUIMessage[] }) {
           <span className="typing-dot inline-block w-1.5 h-1.5 rounded-full bg-amber-500" style={{ animationDelay: '360ms' }} />
         </div>
         <span className="text-xs text-foreground/70 leading-none" key={label}>{label}</span>
+        <span className="text-xs text-foreground/35 leading-none ml-auto tabular-nums">{elapsed}s</span>
       </div>
       <div className="flex gap-0.5">
         {BUILD_PHASES.map((_, i) => (

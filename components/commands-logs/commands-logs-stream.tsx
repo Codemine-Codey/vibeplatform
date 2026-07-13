@@ -44,24 +44,40 @@ export function CommandLogsStream() {
       const { cmdId } = command
 
       ;(async () => {
-        try {
-          for await (const log of getCommandLogs(sandboxId, cmdId)) {
+        const MAX_RETRIES = 3
+        let attempt = 0
+        while (attempt < MAX_RETRIES) {
+          try {
+            for await (const log of getCommandLogs(sandboxId, cmdId)) {
+              if (!activeRef.current) return
+              addLog({ sandboxId, cmdId, log })
+            }
             if (!activeRef.current) return
-            addLog({ sandboxId, cmdId, log })
+            const result = await getCommand(sandboxId, cmdId)
+            upsertCommand({
+              sandboxId: result.sandboxId,
+              cmdId: result.cmdId,
+              exitCode: result.exitCode ?? 0,
+              command: command.command,
+              args: command.args,
+            })
+            return
+          } catch (err) {
+            if (!activeRef.current) return
+            const isNetworkError = err instanceof TypeError && (
+              err.message === 'network error' ||
+              err.message.includes('ERR_NETWORK_IO_SUSPENDED') ||
+              err.message.includes('Failed to fetch')
+            )
+            if (isNetworkError && attempt < MAX_RETRIES - 1) {
+              attempt++
+              await new Promise(r => setTimeout(r, 1500 * attempt))
+              continue
+            }
+            streamingRef.current.delete(cmdId)
+            console.warn(`Log stream error for command ${cmdId}:`, err)
+            return
           }
-          if (!activeRef.current) return
-          const result = await getCommand(sandboxId, cmdId)
-          upsertCommand({
-            sandboxId: result.sandboxId,
-            cmdId: result.cmdId,
-            exitCode: result.exitCode ?? 0,
-            command: command.command,
-            args: command.args,
-          })
-        } catch (err) {
-          if (!activeRef.current) return
-          streamingRef.current.delete(cmdId)
-          console.error(`Log stream error for command ${cmdId}:`, err)
         }
       })()
     }
