@@ -73,6 +73,7 @@ const PHASE_TO_INDEX: Record<string, number> = {
   generating: 1,
   installing: 2,
   building: 3,
+  'repair-failed': 3,
 }
 
 function BuildingIndicator({ messages }: { messages: ChatUIMessage[] }) {
@@ -283,16 +284,21 @@ export function Chat({ className }: Props) {
   const autoResumeRef = useRef(validateAndSubmitMessage)
   autoResumeRef.current = validateAndSubmitMessage
   const [resumeCountdown, setResumeCountdown] = useState<number | null>(null)
+  const [pollingForPreview, setPollingForPreview] = useState(false)
 
   // Detect if a preview URL is showing — if it is, generation is done and we shouldn't resume
   const previewUrl = useSandboxStore((s) => s.url)
+  const setUrl = useSandboxStore((s) => s.setUrl)
 
   useEffect(() => {
     if (!streamError || isWorking) return
     // Only auto-resume during generation (sandbox exists, no preview URL yet)
     if (!sandboxId || previewUrl) return
-    // Give up after 3 attempts
-    if (autoResumeCount.current >= 3) return
+    // All retries exhausted — switch to passive URL polling instead
+    if (autoResumeCount.current >= 3) {
+      if (projectId) setPollingForPreview(true)
+      return
+    }
 
     autoResumeCount.current += 1
     // Progressive backoff: attempt 1 = 15s, attempt 2 = 30s, attempt 3 = 60s
@@ -310,6 +316,38 @@ export function Chat({ className }: Props) {
     return () => { clearInterval(tick); clearTimeout(resume) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamError])
+
+  // Phase 3D: after all auto-resume retries, poll job-status every 5s to recover a
+  // preview URL that the server saved to Supabase before the function timed out.
+  useEffect(() => {
+    if (!pollingForPreview || !projectId || previewUrl) return
+    let active = true
+    let attempts = 0
+    const MAX_ATTEMPTS = 24 // 2 minutes of polling
+    const poll = async () => {
+      while (active && attempts < MAX_ATTEMPTS) {
+        attempts++
+        try {
+          const res = await fetch(`/api/job-status/${projectId}`)
+          if (res.ok) {
+            const data = await res.json() as { status: string; preview_url: string | null }
+            if (data.status === 'ready' && data.preview_url) {
+              setUrl(data.preview_url, crypto.randomUUID())
+              setStreamError(null)
+              setPollingForPreview(false)
+              return
+            }
+          }
+        } catch { /* ignore — keep polling */ }
+        await new Promise(r => setTimeout(r, 5000))
+      }
+      // Polling timed out — leave the error UI visible so the user can act
+      if (active) setPollingForPreview(false)
+    }
+    poll()
+    return () => { active = false }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollingForPreview, projectId])
 
   // Keep a stable ref to validateAndSubmitMessage so the pending-message effect
   // doesn't re-fire every time messages.length changes (which rebuilds the callback).

@@ -320,6 +320,14 @@ async function verifyAndRepair({
       }
       if (!repairedAny) return
     }
+    // All repair rounds exhausted — vite build still failing. Emit a phase event so
+    // the BuildingIndicator shows a meaningful label instead of "Building..." indefinitely.
+    // The fallback page + dev-500 handler below will handle the actual preview state.
+    writer.write({
+      id: 'srv-phase-repair-failed',
+      type: 'data-build-phase',
+      data: { phase: 'repair-failed', label: 'Launching best-effort preview...' },
+    })
   } finally {
     // Always close the status — repair is best-effort, never user-facing failure.
     writer.write({
