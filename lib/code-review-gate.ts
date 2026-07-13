@@ -36,15 +36,24 @@ If no critical bugs: {"ok":true}
 If a bug exists: {"ok":false,"issue":"one sentence describing the exact bug with the actual wrong value","fix":"corrected code — 5–20 lines showing the fix, not the whole file"}
 Return raw JSON only — no markdown, no explanation outside the JSON.`
 
-const WEBAPP_REVIEW_PROMPT = `You are a React bug detector. Review this webapp code for CRITICAL bugs only.
-Check specifically:
-1. DISALLOWED IMPORTS: only allowed imports are react, react-router-dom, lucide-react, @/components/ui/*, sonner, framer-motion. Any import from other src/ files (e.g. ../components/MyCard) will fail since those files don't exist yet.
-2. INFINITE LOOPS: useEffect with setState where the setState value is also a dependency — causes infinite re-render.
-3. MISSING KEY PROPS: map() rendering JSX elements without a key prop.
-4. UNDEFINED ACCESS: accessing .map() or .filter() on a value that could be undefined without optional chaining.
+const WEBAPP_REVIEW_PROMPT = `You are a React webapp bug detector. Review this code for CRITICAL bugs that would cause the app to crash or be non-functional.
 
-If no bugs, return: {"ok":true}
-If a critical bug exists, return: {"ok":false,"issue":"one-line description","fix":"corrected code for just the broken section — not the whole file"}
+Check EVERY point:
+1. DISALLOWED IMPORTS: only allowed imports are react, react-router-dom, lucide-react, @/components/ui/*, sonner, framer-motion, and built-in browser APIs. Any import from other src/ files (e.g. ../components/MyCard) will fail since those files don't exist yet.
+
+2. INFINITE LOOPS: useEffect with setState inside where the setState'd value is also in the dependency array. Pattern: \`useEffect(() => { setX(y) }, [x])\` — if setX causes x to change, this loops forever.
+
+3. UNDEFINED.MAP CRASH: calling .map(), .filter(), or .reduce() on a value that could be undefined. Any array from state that is initialized must be \`useState([])\` not \`useState(null)\` or \`useState(undefined)\`.
+
+4. STATE MUTATION BUG (silent failure): using \`array.push(item)\` or \`array.splice()\` directly on a state array instead of \`setState([...array, item])\`. Mutation doesn't trigger re-render so the UI never updates.
+
+5. ADD/CREATE ACTION BROKEN: find the primary "Add", "Save", "Submit", or "Create" button. Its onClick MUST call a setState setter with a new item added to the array. If onClick is undefined, empty, or calls a stub function like \`() => {}\`, the main feature doesn't work.
+
+6. MISSING KEY PROP: map() rendering JSX elements without a unique key prop.
+
+Look at ACTUAL values. Report the first critical bug found.
+If no bugs: {"ok":true}
+If a bug: {"ok":false,"issue":"one sentence with the specific wrong code","fix":"corrected code for just the broken section — not the whole file"}
 Return raw JSON only — no markdown, no explanation.`
 
 export async function reviewGeneratedCode(
