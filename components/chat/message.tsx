@@ -66,7 +66,14 @@ export const Message = memo(function Message({ message }: Props) {
 
         {/* Message Content */}
         <div className="space-y-1.5">
-          {message.parts.map((part, index) => (
+          {(message.role === 'user'
+            ? message.parts.map(part =>
+                part.type === 'text'
+                  ? { ...part, text: part.text.split('\n\nMy preferences for this build:\n')[0] }
+                  : part
+              )
+            : message.parts
+          ).map((part, index) => (
             <MessagePart key={index} part={part} partIndex={index} />
           ))}
         </div>
