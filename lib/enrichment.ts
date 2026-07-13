@@ -184,7 +184,7 @@ async function checkpointAndChain(opts: {
   const { writer, sandbox, runId, projectId, userId, phaseCursor } = opts
   narrate(
     writer,
-    "Your site's already live and usable — I'll keep filling in the remaining pages in the background; they'll appear as they're ready."
+    "Your homepage's already live and usable — I'll keep filling in the remaining sections in the background; they'll appear as they're ready."
   )
   let snapshotPath: string | null = null
   if (projectId && userId) {
@@ -246,6 +246,44 @@ export async function runResumableEnrichment(opts: {
     fromPhase,
   } = opts
 
+  // ── MVP-FIRST (user preference): complete homepage, OFFER sub-pages ──────────
+  // The MVP is the FULL homepage (hero + every section). Separate sub-page routes
+  // (About, Menu, Contact, …) are NOT auto-built — Codey finishes the homepage, then
+  // OFFERS the pages and builds them only when the user asks. Sub-page files stay as
+  // the branded shells already stamped in Phase 1, so nav links still resolve; we just
+  // skip them in the enrichment loop and list them in the completion message. This also
+  // cuts build time (fewer files) and usually removes the need to chain invocations.
+  const HOME_RE = /(^|\/)(Home|Index|Landing|Main)(Page|View|Screen)?\.(tsx|jsx)$/i
+  const SUBPAGE_RE = /(^|\/)(pages|routes|views|screens)\//i
+  const isSubPageRoute = (p: string) => SUBPAGE_RE.test(p) && !HOME_RE.test(p)
+  const prettyPageName = (p: string) =>
+    (p.split('/').pop() ?? '')
+      .replace(/\.(tsx|jsx|ts|js)$/i, '')
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .trim()
+  const deferredPageNames = [
+    ...new Set(
+      manifest.files.filter((f) => f.phase >= 2 && isSubPageRoute(f.path)).map((f) => prettyPageName(f.path))
+    ),
+  ]
+  // SAFETY: only defer sub-pages if there are real homepage SECTIONS still to build.
+  // Otherwise deferring would leave a hero with an empty Phase2Sections (blank lower
+  // homepage) — worse than just building everything. This should be rare; the planner
+  // is steered to always create section components.
+  const homepageSectionsToBuild = manifest.files.some(
+    (f) => f.phase >= 2 && !isSubPageRoute(f.path)
+  )
+  if (homepageSectionsToBuild) {
+    // Remove sub-page routes from the build loop (mutate in place — the FULL manifest was
+    // already persisted to the run row before enrichment started, so continuations still
+    // see every file and re-filter identically).
+    manifest.files = manifest.files.filter((f) => !(f.phase >= 2 && isSubPageRoute(f.path)))
+    manifest.phaseCount = manifest.files.reduce((mx, f) => Math.max(mx, f.phase), 1)
+  } else {
+    // No dedicated sections — build everything (incl. sub-pages) so the homepage isn't blank.
+    deferredPageNames.length = 0
+  }
+
   const allPaths = manifest.files.map((f) => f.path)
   const reference = await readDesignReference(sandbox, manifest)
   const startPhase = Math.max(2, (fromPhase || 0) + 1)
@@ -269,7 +307,7 @@ export async function runResumableEnrichment(opts: {
   if ((fromPhase || 0) < 1) {
     narrate(
       writer,
-      "Your site is live and clickable — go ahead and try it while I work. I'm filling in the rest of the pages now…"
+      "Your homepage is live — go ahead and try it while I finish the rest of it."
     )
     if (runId) await updateRun(runId, { phase_cursor: 1 }).catch(() => {})
   }
@@ -392,7 +430,20 @@ export async function runResumableEnrichment(opts: {
     }
   }
 
-  narrate(writer, 'All the pages are built — your site is complete. 🎉')
+  // MVP-first completion: the homepage is complete. OFFER the sub-pages (built on request)
+  // instead of auto-building them. If there were none to defer, invite the next step.
+  if (deferredPageNames.length > 0) {
+    const list =
+      deferredPageNames.length === 1
+        ? `a ${deferredPageNames[0]} page`
+        : `${deferredPageNames.slice(0, -1).map((n) => `a ${n} page`).join(', ')} and a ${deferredPageNames[deferredPageNames.length - 1]} page`
+    narrate(
+      writer,
+      `Your homepage is live and complete. Whenever you're ready I can add ${list} — just tell me which and I'll build it.`
+    )
+  } else {
+    narrate(writer, 'Your homepage is live and complete. Want another section or a new page? Just tell me.')
+  }
   if (runId) await updateRun(runId, { phase_cursor: manifest.phaseCount }).catch(() => {})
   return { chained: false }
 }
