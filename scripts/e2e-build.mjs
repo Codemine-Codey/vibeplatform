@@ -159,11 +159,39 @@ try {
     await page.waitForTimeout(4000)
   }
 
+  // ── Definitive blank-check: open the preview URL DIRECTLY and inspect its rendered DOM ──
+  // (The panel iframe is cross-origin, so we open the URL in its own page where we CAN read it.)
+  let renderVerdict = 'not checked'
+  const previewSrc = await page.evaluate(() => {
+    const f = [...document.querySelectorAll('iframe')].find(f => /vercel\.run|sb-/.test(f.getAttribute('src') || ''))
+    return f ? f.getAttribute('src') : null
+  })
+  if (previewSrc) {
+    try {
+      const pv = await ctx.newPage()
+      await pv.goto(previewSrc, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => {})
+      await pv.waitForTimeout(4000)
+      const info = await pv.evaluate(() => {
+        const txt = (document.body?.innerText || '').trim()
+        const hasCanvas = !!document.querySelector('canvas')
+        const nodes = document.querySelectorAll('body *').length
+        return { textLen: txt.length, hasCanvas, nodes, sample: txt.slice(0, 80) }
+      })
+      await pv.screenshot({ path: 'scripts/e2e-preview.png' }).catch(() => {})
+      const rendered = info.hasCanvas || info.textLen > 20 || info.nodes > 15
+      renderVerdict = rendered
+        ? `RENDERED ✅ (canvas=${info.hasCanvas}, text=${info.textLen}, nodes=${info.nodes})`
+        : `BLANK ❌ (canvas=${info.hasCanvas}, text=${info.textLen}, nodes=${info.nodes})`
+      await pv.close()
+    } catch (e) { renderVerdict = 'check failed: ' + e.message }
+  }
+
   await page.screenshot({ path: 'scripts/e2e-result.png', fullPage: false }).catch(() => {})
 
   console.log('\n================ E2E REPORT ================')
   console.log('kind:', KIND)
   console.log('time-to-preview:', previewAt ? previewAt + 's' : 'NO PREVIEW (timed out)')
+  console.log('PREVIEW RENDER:', renderVerdict)
   console.log('total elapsed:', secs() + 's')
   console.log('leaked words:', leakHits.size ? [...leakHits].join(', ') : 'NONE ✅')
   console.log('console errors:', consoleErrors.length)

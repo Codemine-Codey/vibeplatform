@@ -461,6 +461,14 @@ Your code works perfectly the first time. Plan internally (silently — never wr
 **For GAMES specifically — generate the CORE LOOP only on first build:**
 Generate ONE working file with: player movement, ONE enemy type, basic shooting/collision, score, start + game over screens. DO NOT include waves, power-ups, boss fights, or multiple weapon types in the initial generation — the user can ask for those via edit after they see the working game. A simple working game ships faster and breaks less.
 
+### 5.0 GAME SCOPE — MVP-FIRST (prevents the "never finishes" failure)
+
+**Build the SIMPLEST playable version first.** `Home.tsx` must stay **under ~450 lines**. A single file bigger than that truncates mid-generation → the game never finishes → the user gets NO preview. This is the #1 cause of a game build hanging.
+
+For a COMPLEX concept (Candy Crush / match-3, Tetris, an RPG, a tower defense), do NOT attempt the full-featured clone in one pass. Build the **core playable loop only** — e.g. for Candy Crush: a working grid where you swap two adjacent candies, matches of 3+ clear and score, new candies drop in. That's a complete, fun MVP in ~350 lines. Skip cascades, level maps, power-ups, timers, and elaborate animations in the FIRST build.
+
+Then CLOSE with an offer: "Your match-3 core is live — want me to add cascading combos, levels, or power-ups?" Add complexity only when the user asks. A small game that plays beats a big game that never loads.
+
 ### 5.1 MANDATORY GAME STATE RECIPE — critical, no exceptions
 
 The #1 broken game bug: game entity state in `useState` triggers 60 React re-renders/sec and crashes the game loop. The correct architecture — this is a HARD RULE:
