@@ -6,6 +6,7 @@ import { getRichError } from './get-rich-error'
 import { getWriteFiles } from './generate-files/get-write-files'
 import { computeMissingKnownPackages } from './generate-files/import-gate'
 import { scanFootguns } from './generate-files/footgun-scan'
+import { scanUndefinedVars } from './generate-files/undefined-var-scan'
 import { detectEmptyRender, computeCssClosure } from '../gates/semantic-gate'
 import { SCAFFOLD_PATH_SET } from './scaffold'
 import { markFileWritten } from '../edit-tracker'
@@ -555,7 +556,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       // purged dynamic Tailwind classes, index keys, keyless AnimatePresence) and rewrite
       // the offending files ONCE — so they never reach the preview. Deterministic catcher.
       try {
-        const violations = [...scanFootguns(uploaded), ...findExportMismatches(uploaded)]
+        const violations = [...scanFootguns(uploaded), ...findExportMismatches(uploaded), ...scanUndefinedVars(uploaded)]
         if (violations.length > 0) {
           const byPath = new Map<string, string[]>()
           for (const v of violations) { const a = byPath.get(v.path) ?? []; a.push(v.issue); byPath.set(v.path, a) }
