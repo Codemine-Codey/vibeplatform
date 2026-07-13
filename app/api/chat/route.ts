@@ -127,6 +127,35 @@ function buildProjectConstraints(messages: ChatUIMessage[]): string {
   )
 }
 
+// Read the LIVE codebase tree + installed packages from the sandbox and format them for
+// the edit system prompt (Lovable/Google "active codebase tree every turn" pattern). This
+// grounds the AI in the REAL current files — more reliable than the message-derived list,
+// which goes stale after enrichment or a reopen. One cheap round-trip (~1-2s).
+async function readActiveCodebase(sandboxId: string): Promise<string> {
+  try {
+    const sandbox = await Sandbox.get({ sandboxId })
+    const treeCmd = await sandbox.runCommand({
+      detached: true, cmd: 'bash',
+      args: ['-c', "cd /vercel/sandbox && find src -type f \\( -name '*.tsx' -o -name '*.ts' -o -name '*.css' \\) 2>/dev/null | sort | head -100"],
+    })
+    const tree = (await (await treeCmd.wait()).stdout()).trim()
+    if (!tree) return ''
+    let deps = ''
+    try {
+      const pkgCmd = await sandbox.runCommand({ detached: true, cmd: 'cat', args: ['package.json'] })
+      const pkg = JSON.parse(await (await pkgCmd.wait()).stdout())
+      deps = Object.keys(pkg.dependencies ?? {}).join(', ')
+    } catch { /* deps optional */ }
+    return (
+      `\n\n## CURRENT FILES ON DISK (the live project — edit THESE, never invent paths)\n` +
+      tree +
+      (deps ? `\n\nInstalled packages: ${deps}` : '')
+    )
+  } catch {
+    return ''
+  }
+}
+
 function hasActiveSandbox(messages: ChatUIMessage[]): boolean {
   return messages.some(
     msg =>
@@ -1262,6 +1291,10 @@ async function runAgenticLoop({
           : `The project's files exist in this workspace but the list isn't provided here. ` +
             `Use grepCode to locate code and readFiles to read it before patching. Do NOT guess paths or rebuild.`) +
         `\n\nScaffold files that also exist (do NOT regenerate): package.json, vite.config.ts, tailwind.config.js, postcss.config.js, tsconfig.json, src/lib/utils.ts, src/components/ui/*`
+      // Auto-inject the LIVE codebase tree (authoritative on-disk state) so the AI is grounded
+      // in the real files even when the message-derived list above is stale (#85).
+      const liveTree = await readActiveCodebase(sandboxId)
+      if (liveTree) resolvedSystemPrompt += liveTree
     }
   }
 
