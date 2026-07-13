@@ -308,12 +308,20 @@ export async function* getContents(
       `Write them IN THIS ORDER (foundation + pages first, the App/router that imports them LAST — so the app stays coherent even if generation is interrupted):\n` +
       pending.map(p => `- ${p}`).join('\n')
 
+    // Cap each round at 120s regardless of the outer deadline. Without this,
+    // a single round for a physics-heavy game can run 3-5 min per attempt,
+    // and MAX_ROUNDS=3 compounds that to 9-15 min of wall time.
+    const roundTimeout = AbortSignal.timeout(120_000)
+    const effectiveSignal = abortSignal
+      ? AbortSignal.any([abortSignal, roundTimeout])
+      : roundTimeout
+
     const result = streamText({
       ...getModelOptions(modelId),
       maxOutputTokens: getMaxOutputTokens(modelId),
       system: buildGenSystem(designContext),
       messages: [...messages, { role: 'user' as const, content: instruction }],
-      ...(abortSignal ? { abortSignal } : {}),
+      abortSignal: effectiveSignal,
       onError: err => console.error('[getContents] stream error:', err),
     })
 
