@@ -77,6 +77,8 @@ function makePackageJson(): string {
         // Database — Neon serverless Postgres (available when DATABASE_URL is set)
         '@neondatabase/serverless': '^0.10.4',
         postgres: '^3.4.5',
+        // Auth — Better Auth client for user-facing login/signup flows
+        'better-auth': '^1.6.23',
       },
       devDependencies: {
         '@types/node': '^22.0.0',

@@ -37,18 +37,37 @@ export function AuthPanel({ className }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sandboxId }),
       })
-      const data = await res.json() as { authUrl?: string; appId?: string; error?: string }
+      const data = await res.json() as { authUrl?: string; appId?: string; error?: string; provider?: string }
       if (!res.ok || data.error || !data.authUrl || !data.appId) throw new Error(data.error ?? 'Setup failed')
       setAuthState({ authEnabled: true, authWorkerUrl: data.authUrl, authAppId: data.appId })
 
-      const apiBase = `${data.authUrl}/${data.appId}`
-      // Auto-trigger the AI to add login/signup to the app — no copy-paste needed.
-      // IMPORTANT: tell the AI to hardcode the URL as a constant — VITE_AUTH_API is NOT
-      // injected into the sandbox .env, so import.meta.env.VITE_AUTH_API would be undefined.
-      chat.sendMessage({
-        text: `Auth is now enabled. Add login and signup to this app using these exact endpoints:
+      // Better Auth proxy OR legacy CF Worker — both return authUrl as the full base.
+      // Better Auth: authUrl IS the full base (e.g. .../api/proxy/{id}/auth)
+      // CF Worker: authUrl is the worker base, appId scopes per-project
+      const isBetterAuth = data.provider === 'better-auth'
+      const authBase = isBetterAuth ? data.authUrl : `${data.authUrl}/${data.appId}`
 
-const AUTH_BASE = '${apiBase}'
+      chat.sendMessage({
+        text: isBetterAuth
+          ? `Auth is now enabled (Better Auth). Add login and signup to this app.
+
+const AUTH_BASE = '${authBase}'
+
+Better Auth endpoints (all relative to AUTH_BASE):
+- POST \${AUTH_BASE}/sign-up/email  — body: { email, password, name }  — returns { token, user }
+- POST \${AUTH_BASE}/sign-in/email  — body: { email, password }        — returns { token, user }
+- GET  \${AUTH_BASE}/get-session    — header: Authorization: Bearer <token> — returns { session, user }
+- POST \${AUTH_BASE}/sign-out       — header: Authorization: Bearer <token>
+
+Rules:
+- Declare AUTH_BASE as a module-level const (e.g. src/lib/auth.ts). Use this literal string — never import.meta.env (those vars are not set in preview).
+- Store the token in localStorage under key "cm_token".
+- Send it as Authorization: Bearer <token> on every authenticated request.
+- Add a Login/Signup page or modal. Protect relevant routes/data. Show the user's email in the nav or header.
+- Logout: POST sign-out with the Bearer header, then clear localStorage.`
+          : `Auth is now enabled. Add login and signup to this app using these exact endpoints:
+
+const AUTH_BASE = '${authBase}'
 
 - POST \${AUTH_BASE}/signup — body: { email, password } — returns { token, user }
 - POST \${AUTH_BASE}/login  — body: { email, password } — returns { token, user }
