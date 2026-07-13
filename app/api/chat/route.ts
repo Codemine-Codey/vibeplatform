@@ -1307,7 +1307,7 @@ async function runAgenticLoop({
       maxOutputTokens: getMaxOutputTokens(isEdit ? EDIT_MODEL : DEFAULT_MODEL),
       // Edits use the fast EDIT_MODEL for file writing too (not Pro) — a copy/component
       // tweak must finish in seconds, not minutes.
-      tools: tools({ modelId: isEdit ? EDIT_MODEL : FILE_GENERATION_MODEL, writer }),
+      tools: tools({ modelId: isEdit ? EDIT_MODEL : FILE_GENERATION_MODEL, writer, isEdit }),
       onError: error => {
         console.error('Error communicating with AI')
         console.error(JSON.stringify(error, null, 2))

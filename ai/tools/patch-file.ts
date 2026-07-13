@@ -72,10 +72,28 @@ export const patchFile = () =>
         }
         const current = await readDone.stdout()
 
-        if (!current.includes(oldString)) {
+        // Normalize line endings for matching so a \r\n-vs-\n mismatch never causes a
+        // false "string not found" (a common surgical-edit failure). Match + replace on
+        // the normalized content.
+        const normCurrent = current.replace(/\r\n/g, '\n')
+        const normOld = oldString.replace(/\r\n/g, '\n')
+        const normNew = newString.replace(/\r\n/g, '\n')
+
+        const firstIdx = normCurrent.indexOf(normOld)
+        if (firstIdx === -1) {
           return {
             success: false,
-            error: `Exact string not found in ${path}. Use readFile to get the current content, then match exactly.`,
+            error: `Exact string not found in ${path}. Use readFile to get the CURRENT content, then copy the oldString verbatim (match spacing and indentation exactly).`,
+          }
+        }
+        // Ambiguity guard (surgical-edit safety): if oldString matches more than once, a
+        // plain replace would edit the WRONG block. Refuse and ask for more context so the
+        // match is unique — never silently patch the first occurrence.
+        const secondIdx = normCurrent.indexOf(normOld, firstIdx + normOld.length)
+        if (secondIdx !== -1) {
+          return {
+            success: false,
+            error: `Ambiguous match in ${path}: your oldString appears MORE THAN ONCE, so patching would change the wrong place. Include more surrounding lines (an import, the enclosing braces, or the function signature) so oldString matches exactly ONE location.`,
           }
         }
 
@@ -83,12 +101,12 @@ export const patchFile = () =>
         // replacing? Near-total means the model fell back to a rewrite disguised
         // as a patch. We still apply it (don't break a legitimate large edit) but
         // log it and nudge toward smaller patches.
-        const patchRatio = current.length > 0 ? Math.min(1, oldString.length / current.length) : 0
+        const patchRatio = normCurrent.length > 0 ? Math.min(1, normOld.length / normCurrent.length) : 0
         const rewrite = patchRatio > 0.6
         logPatch({ path, patchRatio, rewrite })
 
         const basename = path.split('/').pop() ?? ''
-        let updated = current.replace(oldString, newString)
+        let updated = normCurrent.substring(0, firstIdx) + normNew + normCurrent.substring(firstIdx + normOld.length)
         if (VITE_CONFIG_NAMES.has(basename)) {
           updated = ensureViteAllowedHosts(updated)
         }

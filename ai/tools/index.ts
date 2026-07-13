@@ -19,13 +19,17 @@ import { visualCheck } from './visual-check'
 interface Params {
   modelId: string
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>
+  // Edit mode: generateFiles must NOT overwrite existing files (only create new ones) —
+  // changes to existing files go through patchFile. Prevents an "add a page" request from
+  // clobbering the landing page's theme.
+  isEdit?: boolean
 }
 
-export function tools({ modelId, writer }: Params) {
+export function tools({ modelId, writer, isEdit }: Params) {
   return {
     createSandbox: createSandbox({ writer }),
     createDatabase: createDatabase({ writer }),
-    generateFiles: generateFiles({ writer, modelId }),
+    generateFiles: generateFiles({ writer, modelId, editMode: isEdit }),
     getSandboxURL: getSandboxURL({ writer }),
     runCommand: runCommand({ writer }),
     getUnsplash: getUnsplash(),

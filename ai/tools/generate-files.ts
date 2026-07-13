@@ -273,9 +273,14 @@ interface Params {
   // TS errors at runtime; the headless check post-URL catches remaining issues. Cuts ~150s
   // from Phase 1 so early-emit fires right after the 4 files land (~80s) instead of ~250s.
   skipQualityGates?: boolean
+  // Edit mode: refuse to OVERWRITE files that already exist on disk (only create NEW files).
+  // Changes to existing files must go through patchFile (surgical). This stops an "add a
+  // page" / "fix the 404s" request from silently regenerating — and re-theming — the
+  // landing page and other untouched files.
+  editMode?: boolean
 }
 
-export const generateFiles = ({ writer, modelId, designContext, existingPaths, abortSignal, getShells, skipQualityGates }: Params) =>
+export const generateFiles = ({ writer, modelId, designContext, existingPaths, abortSignal, getShells, skipQualityGates, editMode }: Params) =>
   tool({
     description,
     inputSchema: z.object({
@@ -285,6 +290,35 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
     execute: async ({ sandboxId, paths }, { toolCallId, messages }) => {
       if (paths.length === 0) {
         return 'ERROR: paths list is empty. You must provide at least one file path to generate.'
+      }
+
+      // ── Edit-mode overwrite guard ────────────────────────────────────────────
+      // In edit mode, generateFiles is for CREATING NEW files only. Any requested path that
+      // already exists is dropped here and the model is told to use patchFile — so an edit
+      // can never silently regenerate (and re-theme) the landing page or other existing files.
+      if (editMode) {
+        try {
+          const sb = await Sandbox.get({ sandboxId })
+          const existing: string[] = []
+          const fresh: string[] = []
+          await Promise.all(paths.map(async (p) => {
+            try {
+              const cmd = await sb.runCommand({ cmd: 'test', args: ['-f', p], detached: true })
+              const done = await cmd.wait()
+              if (done.exitCode === 0) existing.push(p); else fresh.push(p)
+            } catch { fresh.push(p) }
+          }))
+          if (existing.length > 0) {
+            paths = fresh
+            const note =
+              `BLOCKED (edit mode): these files already exist and were NOT regenerated — ` +
+              `${existing.join(', ')}. To change an existing file, read it then use patchFile ` +
+              `for a targeted edit. generateFiles only CREATES new files during edits. ` +
+              (fresh.length > 0 ? `Proceeding to create the new file(s): ${fresh.join(', ')}.` : `Nothing new to create — use patchFile for your change.`)
+            if (fresh.length === 0) return note
+            console.log(`[edit-guard] refused to overwrite existing: ${existing.join(', ')}`)
+          }
+        } catch { /* non-fatal — fall through */ }
       }
 
       writer.write({
