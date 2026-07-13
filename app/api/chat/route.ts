@@ -1621,11 +1621,12 @@ async function runPipeline({
         writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, commandId: devCmd.cmdId, command: 'bun', args: ['run', 'dev'], status: 'running' } })
         writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
         await waitForDevServer(domain)
+        // Dev server up early. Do NOT reveal yet — the reveal is gated on the render-check
+        // (verify-before-reveal) so the user never sees a blank/broken preview.
         earlyEmitUrl = domain
         earlyEmitDone = true
-        writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: domain, status: 'done' } })
         if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: domain }).catch(() => {})
-        console.log('[server-first] preview URL emitted before generation:', domain)
+        console.log('[server-first] dev server up (reveal deferred to render-check):', domain)
       } catch (e) {
         console.warn('[server-first] failed (non-fatal, falls back to normal emit):', e instanceof Error ? e.message : e)
       }
@@ -1831,11 +1832,11 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
               writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
               const domain = sandbox.domain(3000)
               await waitForDevServer(domain)
-              // Emit preview URL — client sees Phase 1 while Phase 2 generates in background
+              // Dev server is up, but DON'T reveal the URL yet — the reveal is gated on the
+              // headless render-check (Step 6.5) so the user never sees a blank/broken preview.
               earlyEmitUrl = domain
               earlyEmitDone = true
-              writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: domain, status: 'done' } })
-              console.log('[early-emit] Phase 1 preview URL emitted:', domain)
+              console.log('[early-emit] Phase 1 dev server up (reveal deferred to render-check):', domain)
               if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: domain }).catch(() => {})
             } catch (err) {
               console.warn('[early-emit] failed:', err instanceof Error ? err.message : err)
@@ -2265,17 +2266,11 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
       } catch { /* non-fatal */ }
     }
 
-    // ── Emit preview URL now — client sees the project immediately ────────────────────
-    // Step 6.5 (headless check) runs right below and delivers any fixes via Vite HMR,
-    // saving 2-5 min vs the old flow that blocked the URL on Chromium + repair rounds.
-    writer.write({
-      id: 'srv-url',
-      type: 'data-get-sandbox-url',
-      data: { url, status: 'done' },
-    })
-
-    // Persist URL immediately so continuation invocations (enrichment hand-off) have it
-    // even if this invocation is later killed mid-enrichment.
+    // ── Do NOT reveal the URL yet — verify-before-reveal ──────────────────────────────
+    // The reveal is gated on the headless render-check (Step 6.5) below, so the user is
+    // never shown a blank/broken preview (the "blank Flappy Bird" class). Keep the client
+    // on the "Building…" indicator until the check confirms the app actually painted.
+    // Persist the URL now so a continuation invocation (enrichment hand-off) still has it.
     if (projectId) {
       updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: url }).catch(() => {})
     }
@@ -2371,6 +2366,15 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
       })
     }
   }
+
+  // ── VERIFY-BEFORE-REVEAL: reveal the preview ONLY NOW ─────────────────────────────
+  // The headless render-check above confirmed the app paints real content (or swapped in a
+  // clean branded fallback). Only at THIS point do we show the URL and tell the user their
+  // project is live — so they never see a blank/broken preview or a "live" message that's
+  // immediately followed by an error fix (the confidence-killer). Until now the client stays
+  // on the "Building…" indicator.
+  writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
+  if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: url }).catch(() => {})
 
   // ── Design-improvement pass via HMR ──────────────────────────────────────────────
   if (

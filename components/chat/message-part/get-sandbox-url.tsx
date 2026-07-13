@@ -23,9 +23,9 @@ export function GetSandboxURL({
           <CheckIcon className="w-4 h-4" />
         </Spinner>
         {message.url ? (
-          <span>Your project is live — check the Preview tab. Refresh it if needed.</span>
+          <span>Your project is live and ready — open the Preview tab.</span>
         ) : (
-          <span>Starting preview...</span>
+          <span>Getting your preview ready...</span>
         )}
       </div>
     </ToolMessage>
