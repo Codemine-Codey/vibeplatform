@@ -1351,6 +1351,9 @@ async function runAgenticLoop({
           if (!project) return
           if (tokenBox.total > 0) await incrementProjectTokens(project.id, tokenBox.total)
           const sandbox = await Sandbox.get({ sandboxId })
+          // Refresh the in-sandbox checkpoint to THIS successful edit, so a later broken
+          // edit can restore to the most recent good version (not the stale original build).
+          await saveCheckpoint(sandbox).catch(() => {})
           const path = await snapshotProject(sandbox, project.user_id, project.id)
           if (path) await updateProjectRow(project.id, { snapshot_path: path })
         } catch {
