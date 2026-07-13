@@ -1,7 +1,7 @@
 'use client'
 
 import type { ChatUIMessage } from '@/components/chat/types'
-import { MessageCircleIcon, SendIcon, GlobeIcon, LayoutDashboardIcon, GamepadIcon, SparklesIcon } from 'lucide-react'
+import { MessageCircleIcon, SendIcon, SparklesIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Conversation,
@@ -24,72 +24,36 @@ interface Props {
   className: string
 }
 
-const PROMPT_CATEGORIES = [
-  {
-    id: 'website',
-    label: 'Website',
-    Icon: GlobeIcon,
-    prompts: [
-      'Build a landing page for a Japanese sushi restaurant called Sakura',
-      'Create a portfolio site for a freelance photographer',
-      'Design a SaaS landing page for a project management tool',
-    ],
-  },
-  {
-    id: 'webapp',
-    label: 'Web App',
-    Icon: LayoutDashboardIcon,
-    prompts: [
-      'Create a task manager app with drag and drop',
-      'Build a habit tracker with streaks and charts',
-      'Make a budget tracker with categories and monthly view',
-    ],
-  },
-  {
-    id: 'game',
-    label: 'Game',
-    Icon: GamepadIcon,
-    prompts: [
-      'Make a snake game with neon glow effects',
-      'Build a flappy bird clone with a space theme',
-      'Create a breakout brick game with power-ups',
-    ],
-  },
+const QUICK_PROMPTS = [
+  'Build a landing page for a sushi restaurant',
+  'Make a snake game with neon glow effects',
+  'Create a budget tracker with categories',
+  'Build a flappy bird clone with a space theme',
 ]
 
 function EmptyState({ onPrompt }: { onPrompt: (p: string) => void }) {
   return (
-    <div className="flex flex-col h-full px-3 pt-4 pb-2 gap-4">
-      <div className="flex flex-col gap-0.5">
+    <div className="flex flex-col justify-center h-full px-4 gap-5">
+      <div className="flex flex-col gap-1">
         <div className="flex items-center gap-1.5">
-          <SparklesIcon className="w-3.5 h-3.5 text-muted-foreground" />
-          <span className="text-xs font-semibold text-foreground">Start building</span>
+          <SparklesIcon className="w-3.5 h-3.5" />
+          <span className="text-sm font-semibold">What would you like to build?</span>
         </div>
         <p className="text-xs text-muted-foreground">
-          Describe what you want and Codemine builds it live.
+          Describe your idea and Codemine builds it live — websites, apps, games.
         </p>
       </div>
 
-      <div className="flex flex-col gap-3">
-        {PROMPT_CATEGORIES.map(({ id, label, Icon, prompts }) => (
-          <div key={id} className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-1.5">
-              <Icon className="w-3 h-3 text-muted-foreground" />
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
-            </div>
-            <div className="flex flex-col gap-1">
-              {prompts.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => onPrompt(p)}
-                  className="text-left text-xs px-3 py-2 rounded-md border border-primary/10 bg-secondary/40 text-foreground/80 hover:bg-accent hover:text-foreground hover:border-primary/20 transition-colors"
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-          </div>
+      <div className="flex flex-col gap-1.5">
+        {QUICK_PROMPTS.map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => onPrompt(p)}
+            className="text-left text-xs px-3 py-2.5 rounded-lg border border-primary/10 bg-secondary/30 text-foreground/75 hover:bg-accent hover:text-foreground hover:border-primary/20 transition-colors"
+          >
+            {p}
+          </button>
         ))}
       </div>
     </div>
