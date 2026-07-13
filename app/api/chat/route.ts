@@ -37,6 +37,7 @@ import { getCurrentUser } from '@/lib/supabase/server'
 import { createRun, appendRunEvent, updateRun } from '@/lib/runs'
 import { runResumableEnrichment } from '@/lib/enrichment'
 import { stampShellsForManifest, stampShell } from '@/lib/shell-template'
+import { reviewGeneratedCode } from '@/lib/code-review-gate'
 import {
   readSandboxFile,
   extractBuildError,
@@ -1647,6 +1648,8 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
                   if (changed) await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(css, 'utf8') }])
                 }
               } catch { /* non-fatal — Vite will attempt to boot anyway */ }
+              // ── Code review gate — check logic bugs BEFORE dev server starts ──
+              await reviewGeneratedCode(sandbox, skill)
               // Start dev server
               writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' } })
               try {
@@ -2004,6 +2007,11 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
       .then((p) => (p ? updateProjectRow(pid, { sandbox_id: sandboxId, snapshot_path: p }) : undefined))
       .catch(() => {})
   }
+
+  // ── Code review gate — catch logic bugs before the dev server ever starts ────
+  // Runs for games (earlyEmitDone=false) only. Website/webapp already ran this
+  // inside the early-emit IIFE above. Non-fatal: never blocks the pipeline.
+  if (!earlyEmitDone) await reviewGeneratedCode(sandbox, skill)
 
   // ── Step 4.7+5 (CONCURRENT): Dev server starts now; verify/repair runs in background ─
   // Skipped when early-emit already launched the dev server during Phase 1.
