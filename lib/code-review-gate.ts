@@ -1,8 +1,8 @@
 /**
  * Post-generation code review gate.
  * Runs BEFORE the dev server starts — reads the main generated file and asks
- * DeepSeek Flash to spot common logic bugs (game mechanics, React anti-patterns).
- * Auto-repairs in-place using repairFile() if a critical bug is found.
+ * DeepSeek Flash to spot ALL critical logic bugs in one pass.
+ * Auto-repairs in-place using repairFile() with the full bug list.
  * Non-fatal: any failure skips silently so the pipeline is never blocked.
  */
 import { generateText } from 'ai'
@@ -13,92 +13,100 @@ import type { Sandbox } from '@vercel/sandbox'
 
 type Skill = 'website' | 'webapp' | 'game'
 
-const GAME_REVIEW_PROMPT = `You are a game-logic bug detector. Review this game code for CRITICAL bugs that would cause a black/blank screen or a non-playable game. Check EVERY point:
+const GAME_REVIEW_PROMPT = `You are a game-logic bug detector. Review this game code and report ALL critical bugs that would cause a broken or unplayable game. Do not stop at the first bug — find every one.
 
-1. RUNNING PROP BUG (most common): If using \`useGameLoop({ update, draw, running })\`, the \`running\` value MUST be a boolean like \`running={gameState === 'playing'}\`. If \`running\` is a string (e.g. \`running={gameState}\`), always-true (\`running={true}\`), or always-false (\`running={false}\`), the loop either never runs or runs in the wrong state. Find the exact value passed as \`running\`.
+Critical bugs to check (check EACH one, look at the ACTUAL code values):
 
-2. KEYBOARD LISTENERS STALE CLOSURE: If the game uses \`window.addEventListener('keydown', handler)\` inside a useEffect, the handler MUST include ALL game state in its dependency array OR use a ref pattern. A stale closure means keypresses don't change state. Pattern: \`const dirRef = useRef(direction); dirRef.current = direction;\` then read \`dirRef.current\` inside the listener.
+1. INITIAL GAME STATE: \`useState<GameState>('start')\` MUST start at 'start'. If it's 'playing' or 'idle', no start screen is shown — user can't begin.
 
-3. DRAW COVERS ALL STATES: The \`draw()\` function must paint something in EVERY game state — Start/Idle, Playing, Paused, GameOver. If draw() has \`if (gameState !== 'playing') return\` or similar, the canvas is black except during gameplay. The start screen MUST be drawn on the canvas (or rendered as HTML elements over it).
+2. RAF LOOP GUARD: The useEffect starting the RAF loop MUST begin with \`if (gameState !== 'playing') return\`. Without this, the loop runs in every state.
 
-4. RAF LOOP CLEANUP: If using requestAnimationFrame directly (not useGameLoop), the rAF ID MUST be stored in a ref and cancelled in useEffect cleanup. Otherwise a new loop starts on every render, causing ghost inputs and double-speed.
+3. RUNNING PROP (for useGameLoop): The \`running\` value passed MUST be a boolean expression like \`running={gameState === 'playing'}\`. A string like \`running={gameState}\` evaluates to truthy always.
 
-5. CLICK/SPACE TO START: There MUST be a visible start screen AND a clear input action (click, Space, Enter) that transitions gameState to 'playing'. If the game has no start screen or the transition is missing, the user sees the initial canvas state but can't start.
+4. KEYBOARD LISTENER STALE CLOSURE: Keydown handlers in useEffect must use refs (not state values directly). If handler reads state directly without a ref, it sees stale values and direction never updates.
 
-6. SNAKE REVERSAL: pressing the exact opposite direction (LEFT while going RIGHT) must be silently ignored, not allowed. Missing this breaks collision immediately.
+5. RAF MISSING RECURSIVE CALL: The RAF callback must call \`requestAnimationFrame(loop)\` at the END to keep animating. Missing this = one frame then freezes.
 
-7. INITIAL GAME STATE: The useState initializer for gameState MUST be 'start' (not 'playing', not 'idle'). If it's 'playing', the game starts immediately in playing mode with no start screen — the user sees the game mid-play with no way to begin intentionally. Check: \`useState<GameState>('start')\`.
+6. CLICK/SPACE TO START: Must have a handler that sets gameState to 'playing' when user clicks or presses Space/Enter. If missing, game never starts.
 
-8. RAF LOOP CONDITION: The useEffect that starts the RAF loop MUST have a guard at the top: \`if (gameState !== 'playing') return\`. If this guard is missing, the loop runs even in 'start' or 'gameover' state and can interfere with the start screen.
+7. DRAW COVERS ALL STATES: draw() must paint SOMETHING in every state. If it returns early for non-playing states, canvas is blank/black in those states.
 
-Look at the ACTUAL values in the code, not just the structure. Report the first critical bug found.
-If no critical bugs: {"ok":true}
-If a bug exists: {"ok":false,"issue":"one sentence describing the exact bug with the actual wrong value","fix":"corrected code — 5–20 lines showing the fix, not the whole file"}
-Return raw JSON only — no markdown, no explanation outside the JSON.`
+8. SNAKE REVERSAL: pressig opposite direction (LEFT while going RIGHT) must be ignored.
 
-const WEBAPP_REVIEW_PROMPT = `You are a React webapp bug detector. Review this code for CRITICAL bugs that would cause the app to crash or be non-functional.
+Return JSON array of ALL bugs found (can be empty):
+[{"issue":"one sentence with exact wrong code","fix":"corrected 5-20 line snippet showing the fix"}]
 
-Check EVERY point:
-1. DISALLOWED IMPORTS: only allowed imports are react, react-router-dom, lucide-react, @/components/ui/*, sonner, framer-motion, and built-in browser APIs. Any import from other src/ files (e.g. ../components/MyCard) will fail since those files don't exist yet.
+If no critical bugs found, return: []
+Return raw JSON only — no markdown fences, no explanation.`
 
-2. INFINITE LOOPS: useEffect with setState inside where the setState'd value is also in the dependency array. Pattern: \`useEffect(() => { setX(y) }, [x])\` — if setX causes x to change, this loops forever.
+const WEBAPP_REVIEW_PROMPT = `You are a React webapp bug detector. Review this code and report ALL critical bugs that would cause crashes or non-functional features. Do not stop at first bug.
 
-3. UNDEFINED.MAP CRASH: calling .map(), .filter(), or .reduce() on a value that could be undefined. Any array from state that is initialized must be \`useState([])\` not \`useState(null)\` or \`useState(undefined)\`.
+Check EACH:
+1. DISALLOWED IMPORTS: only react, react-router-dom, lucide-react, @/components/ui/*, sonner, framer-motion. Any other src/ import fails.
+2. INFINITE LOOPS: useEffect calling setState where the result is also a dep.
+3. UNDEFINED.MAP: .map()/.filter() called on possibly-undefined arrays. All array state must be \`useState([])\`.
+4. STATE MUTATION: \`arr.push()\` or \`arr.splice()\` on state arrays instead of \`setState([...arr, item])\`.
+5. BROKEN ADD ACTION: primary "Add"/"Save"/"Submit"/"Create" button onClick must call a setState that adds an item. \`onClick={() => {}}\` or missing onClick = broken.
+6. MISSING KEY: map() rendering JSX without unique key props.
 
-4. STATE MUTATION BUG (silent failure): using \`array.push(item)\` or \`array.splice()\` directly on a state array instead of \`setState([...array, item])\`. Mutation doesn't trigger re-render so the UI never updates.
-
-5. ADD/CREATE ACTION BROKEN: find the primary "Add", "Save", "Submit", or "Create" button. Its onClick MUST call a setState setter with a new item added to the array. If onClick is undefined, empty, or calls a stub function like \`() => {}\`, the main feature doesn't work.
-
-6. MISSING KEY PROP: map() rendering JSX elements without a unique key prop.
-
-Look at ACTUAL values. Report the first critical bug found.
-If no bugs: {"ok":true}
-If a bug: {"ok":false,"issue":"one sentence with the specific wrong code","fix":"corrected code for just the broken section — not the whole file"}
-Return raw JSON only — no markdown, no explanation.`
+Return JSON array of ALL bugs:
+[{"issue":"one sentence with exact wrong code","fix":"corrected snippet"}]
+If no bugs: []
+Raw JSON only — no markdown.`
 
 export async function reviewGeneratedCode(
   sandbox: Sandbox,
   skill: Skill,
 ): Promise<void> {
-  // Websites use enrichment/Phase2 flow — different verification path
   if (skill === 'website') return
 
   const filePath = 'src/pages/Home.tsx'
   const reviewPrompt = skill === 'game' ? GAME_REVIEW_PROMPT : WEBAPP_REVIEW_PROMPT
 
   try {
-    // Read the generated main file
     const content = await readSandboxFile(sandbox, filePath)
     if (!content || content.length < 200) return
 
-    // Ask Flash to spot logic bugs — fast call, ~5s
+    // Use up to 20000 chars to cover larger game files
+    const codeSlice = content.slice(0, 20000)
+
     const { text } = await generateText({
       ...getModelOptions(DEFAULT_MODEL),
-      maxOutputTokens: 1024,
-      abortSignal: AbortSignal.timeout(20_000),
+      maxOutputTokens: 2048,
+      abortSignal: AbortSignal.timeout(25_000),
       messages: [{
         role: 'user',
-        content: `${reviewPrompt}\n\n\`\`\`tsx\n${content.slice(0, 12000)}\n\`\`\``,
+        content: `${reviewPrompt}\n\n\`\`\`tsx\n${codeSlice}\n\`\`\``,
       }],
     })
 
-    // Parse result — strip any accidental markdown fences
     const cleaned = text.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
-    const result = JSON.parse(cleaned) as { ok: boolean; issue?: string; fix?: string }
+    const bugs = JSON.parse(cleaned) as Array<{ issue: string; fix: string }>
 
-    if (result.ok === false && result.issue) {
-      console.log(`[code-review] ${skill} bug detected: ${result.issue}`)
-      // Use repairFile to get corrected full-file content
-      const fixed = await repairFile(filePath, content, `Logic bug: ${result.issue}${result.fix ? `\n\nCorrect implementation:\n${result.fix}` : ''}`)
-      if (fixed) {
-        await sandbox.writeFiles([{ path: filePath, content: Buffer.from(fixed, 'utf8') }])
-        console.log(`[code-review] auto-repaired ${filePath}`)
-      }
-    } else {
-      console.log(`[code-review] ${skill} logic OK`)
+    if (!Array.isArray(bugs) || bugs.length === 0) {
+      console.log(`[code-review] ${skill} — no critical bugs found`)
+      return
+    }
+
+    console.log(`[code-review] ${skill} — ${bugs.length} bug(s) detected:`)
+    bugs.forEach((b, i) => console.log(`  [${i + 1}] ${b.issue}`))
+
+    // Build a single comprehensive fix description covering all bugs
+    const allBugDescriptions = bugs
+      .map((b, i) => `Bug ${i + 1}: ${b.issue}\nFix:\n${b.fix}`)
+      .join('\n\n')
+
+    const fixed = await repairFile(
+      filePath,
+      content,
+      `Found ${bugs.length} critical bug(s):\n\n${allBugDescriptions}`
+    )
+
+    if (fixed && fixed !== content) {
+      await sandbox.writeFiles([{ path: filePath, content: Buffer.from(fixed, 'utf8') }])
+      console.log(`[code-review] auto-repaired ${filePath} (${bugs.length} fixes applied)`)
     }
   } catch (err) {
-    // Never block the pipeline
     console.warn('[code-review] skipped:', err instanceof Error ? err.message : String(err))
   }
 }
