@@ -1528,6 +1528,40 @@ async function runPipeline({
     data: { sandboxId, projectId: projectId ?? undefined, status: 'done' },
   })
 
+  // Early URL emit state (declared here so Phase A below can set it). Set once the dev
+  // server is up and the preview URL has been emitted — gates the later boot/emit paths.
+  let earlyEmitDone = false
+  let earlyEmitUrl = ''
+
+  // ── Phase A (flag-gated: SERVER_FIRST) — BOOT DEV SERVER FIRST ────────────────
+  // The confirmed sub-90s architecture (Google + Lovable): boot Vite on the EMPTY
+  // scaffold the moment deps are installed — in PARALLEL with generation — and emit the
+  // preview URL immediately. Our files write atomically (whole file per writeFiles) and
+  // deferred imports are pre-stamped as shells, with the HMR error overlay already off,
+  // so the preview safely builds up live via HMR as each file lands instead of showing a
+  // 5-min spinner. Flag OFF (default) = zero change to today's pipeline.
+  if (process.env.SERVER_FIRST === 'true') {
+    void (async () => {
+      try {
+        if (bgInstallPromise) await bgInstallPromise
+        const domain = sandbox.domain(3000)
+        writer.write({ id: 'srv-phase-build', type: 'data-build-phase', data: { phase: 'building', label: 'Starting your preview...' } })
+        writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' } })
+        const devCmd = await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'] })
+        writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, commandId: devCmd.cmdId, command: 'bun', args: ['run', 'dev'], status: 'running' } })
+        writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
+        await waitForDevServer(domain)
+        earlyEmitUrl = domain
+        earlyEmitDone = true
+        writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: domain, status: 'done' } })
+        if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: domain }).catch(() => {})
+        console.log('[server-first] preview URL emitted before generation:', domain)
+      } catch (e) {
+        console.warn('[server-first] failed (non-fatal, falls back to normal emit):', e instanceof Error ? e.message : e)
+      }
+    })()
+  }
+
   // ── Step 2: Build pipeline addendum ─────────────────────────────────────
   const scaffoldFiles = getScaffoldFiles()
   const scaffoldPaths = scaffoldFiles.map(f => f.path).join(', ')
@@ -1629,10 +1663,6 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     'src/components/blocks/sections.tsx', 'public/_redirects', '.npmrc',
   ])
   let p1GFCalled = false
-  // Early URL emit state — set once Phase 1 files are written, dev server up, URL emitted
-  // without waiting for the AI's Phase 2 generation to complete.
-  let earlyEmitDone = false
-  let earlyEmitUrl = ''
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawGF = generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext }) as any
   // Phase 1 fast-path: skip retry/syntax-gate/closure/footgun/empty-render AI calls.
@@ -1712,6 +1742,12 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
               } catch { /* non-fatal — Vite will attempt to boot anyway */ }
               // ── Code review gate — check logic bugs BEFORE dev server starts ──
               await reviewGeneratedCode(sandbox, skill)
+              // SERVER_FIRST already booted the dev server + emitted the URL before generation
+              // (Phase A). Skip the boot/emit here — just run verify (fixes land live via HMR).
+              if (process.env.SERVER_FIRST === 'true') {
+                void verifyAndRepair({ sandbox, sandboxId, writer }).catch(() => {})
+                return
+              }
               // Start dev server
               writer.write({ id: 'srv-phase-build', type: 'data-build-phase', data: { phase: 'building', label: 'Building and starting preview...' } })
               writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' } })
