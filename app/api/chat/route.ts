@@ -95,6 +95,38 @@ function getLastUserText(messages: ChatUIMessage[]): string {
     .trim()
 }
 
+// The ORIGINAL request that started this project — the first user text turn. Used to
+// keep the AI anchored to what it's building across many edit turns (anti-drift).
+function getFirstUserText(messages: ChatUIMessage[]): string {
+  const first = messages.find(m => m.role === 'user')
+  if (!first) return ''
+  return (first.parts ?? [])
+    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+    .map(p => p.text)
+    .join(' ')
+    .replace(/\n\nMy preferences for this build:[\s\S]*$/, '')
+    .trim()
+}
+
+// Per-project anti-drift constraints injected into EVERY edit turn's system prompt
+// (Lovable's #1 anti-drift lever). Pins the original intent so the AI never wanders into
+// a different kind of app, and GATES structural additions (auth / database / routing /
+// new frameworks) behind an explicit user request — for ALL project types (a game CAN get
+// auth or a database, but only when the user actually asks for it).
+function buildProjectConstraints(messages: ChatUIMessage[]): string {
+  const original = getFirstUserText(messages)
+  if (!original) return ''
+  return (
+    `\n\n## THIS PROJECT — re-read before every change (anti-drift)\n` +
+    `The user's original request: "${original.slice(0, 400)}"\n` +
+    `Stay true to this. Do NOT turn it into a different kind of app or add unrelated sections. ` +
+    `Read the existing files before editing and match their structure, style, and design system.\n` +
+    `Do NOT add authentication, a database/persistence, user accounts, extra pages/routing, or a new ` +
+    `framework UNLESS the user explicitly asks for that in a message. If adding it would change what ` +
+    `kind of app this is, wait for the user to ask by name — then build it fully.`
+  )
+}
+
 function hasActiveSandbox(messages: ChatUIMessage[]): boolean {
   return messages.some(
     msg =>
@@ -1014,7 +1046,9 @@ export async function POST(req: Request) {
         try {
           // ── EDIT MODE: sandbox already active → standard agentic loop ──────
           if (hasActiveSandbox(messages)) {
-            return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
+            // Anti-drift: pin the original intent + gate structural additions behind an
+            // explicit request, so many edit turns never wander off-project (#69).
+            return await runAgenticLoop({ writer, messages, systemPrompt: prompt + buildProjectConstraints(messages) })
           }
 
           // ── NEW PROJECT: classify + expand ────────────────────────────────
