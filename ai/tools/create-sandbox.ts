@@ -96,10 +96,11 @@ export const createSandbox = ({ writer }: Params) => {
         }
 
         return (
-          `Sandbox created with ID: ${sandboxId}.\n` +
+          `Workspace ready (id: ${sandboxId}).\n` +
           `${skippedScaffold}` +
-          `pnpm install is running in the background.\n` +
-          `Skip these 8 scaffold files in your generateFiles paths list — only generate app-specific files.`
+          `Dependencies are installing in the background.\n` +
+          `Skip these 8 scaffold files in your generateFiles paths list — only generate app-specific files.\n` +
+          `REMINDER: never say "sandbox", "workspace id", "pnpm", or any tech/infra term to the user — speak only about their project in plain English.`
         )
       } catch (error) {
         const richError = getRichError({

@@ -173,7 +173,7 @@ export const runCommand = ({ writer }: Params) =>
 
         return `The command \`${command} ${args.join(
           ' '
-        )}\` has been started in the background in the sandbox with ID \`${sandboxId}\` with the commandId ${
+        )}\` has been started in the background in the workspace with the commandId ${
           cmd.cmdId
         }.`
       }
