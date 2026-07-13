@@ -61,12 +61,11 @@ function EmptyState({ onPrompt }: { onPrompt: (p: string) => void }) {
 }
 
 const BUILD_PHASES: Array<[number, string]> = [
-  [0,   'Understanding your idea...'],
-  [8,   'Planning the project...'],
-  [20,  'Writing your code...'],
-  [55,  'Starting your preview...'],
-  [90,  'Almost there...'],
-  [150, 'Finishing up...'],
+  [0,   'Planning your project'],
+  [10,  'Generating files'],
+  [40,  'Installing packages'],
+  [80,  'Building'],
+  [120, 'Starting preview'],
 ]
 
 function BuildingIndicator() {

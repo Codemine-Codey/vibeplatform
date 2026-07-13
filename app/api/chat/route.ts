@@ -2306,6 +2306,21 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   // Stop the incremental snapshot loop — the final awaited snapshot below supersedes it.
   if (snapTimer) { clearInterval(snapTimer); snapTimer = null }
 
+  // ── Deadline-approaching safe exit message ────────────────────────────────────
+  // If the build has been running for more than 710s (within 90s of the 800s cap),
+  // emit a friendly user-facing message so they know what happened — instead of the
+  // connection just silently dropping with no explanation.
+  if (invocationStart && Date.now() - invocationStart > 710_000) {
+    writer.write({
+      id: 'srv-timeout-warn',
+      type: 'data-report-errors',
+      data: {
+        summary: "This build is taking longer than expected. Try breaking it into smaller steps — start with just the core feature, then add more.",
+        paths: [],
+      },
+    })
+  }
+
   // Save a last-known-good checkpoint when the pipeline ends healthy. If a later
   // edit breaks the project beyond repair, the AI's restoreCheckpoint tool brings
   // this version back — a working preview always beats a broken one.
