@@ -42,15 +42,29 @@ Return raw JSON only — no markdown fences, no explanation.`
 const WEBAPP_REVIEW_PROMPT = `You are a React webapp bug detector. Review this code and report ALL critical bugs that would cause crashes or non-functional features. Do not stop at first bug.
 
 Check EACH:
-1. DISALLOWED IMPORTS: only react, react-router-dom, lucide-react, @/components/ui/*, sonner, framer-motion. Any other src/ import fails.
-2. INFINITE LOOPS: useEffect calling setState where the result is also a dep.
-3. UNDEFINED.MAP: .map()/.filter() called on possibly-undefined arrays. All array state must be \`useState([])\`.
-4. STATE MUTATION: \`arr.push()\` or \`arr.splice()\` on state arrays instead of \`setState([...arr, item])\`.
-5. BROKEN ADD ACTION: primary "Add"/"Save"/"Submit"/"Create" button onClick must call a setState that adds an item. \`onClick={() => {}}\` or missing onClick = broken.
-6. MISSING KEY: map() rendering JSX without unique key props.
+1. UNDEFINED VARIABLE: Any variable used but never declared or imported in this file. Look for .map()/.filter() calls on variables that have no const/let/import. These cause runtime ReferenceError crashes.
+2. DISALLOWED IMPORTS: only react, react-router-dom, lucide-react, @/components/ui/*, sonner, framer-motion, @/lib/*, @/pages/*, @/components/*. Any import of a path that does not match these patterns fails.
+3. INFINITE LOOPS: useEffect calling setState where the result is also a dep.
+4. UNDEFINED.MAP: .map()/.filter() called on possibly-undefined arrays. All array state must be \`useState([])\`.
+5. STATE MUTATION: \`arr.push()\` or \`arr.splice()\` on state arrays instead of \`setState([...arr, item])\`.
+6. BROKEN ADD ACTION: primary "Add"/"Save"/"Submit"/"Create" button onClick must call a setState that adds an item. \`onClick={() => {}}\` or missing onClick = broken.
+7. MISSING KEY: map() rendering JSX without unique key props.
 
 Return JSON array of ALL bugs:
 [{"issue":"one sentence with exact wrong code","fix":"corrected snippet"}]
+If no bugs: []
+Raw JSON only — no markdown.`
+
+const WEBSITE_REVIEW_PROMPT = `You are a React website bug detector. Review this Layout or Nav component and report ALL critical bugs. Focus on what would crash the entire site.
+
+Check EACH:
+1. UNDEFINED VARIABLE: Any variable used in JSX or logic that is never declared (const/let) or imported in this file. E.g., using \`navLinks\` in a .map() call when navLinks is neither declared as a const nor imported. These cause runtime ReferenceError — most critical.
+2. BROKEN NAV LINKS: Navigation links rendered with .map() must have a valid array source declared or imported in THIS file.
+3. MISSING IMPORT: Any component or hook used without a corresponding import statement.
+4. UNDEFINED FUNCTION: onClick handlers calling functions not defined or imported in this file.
+
+Return JSON array of ALL bugs:
+[{"issue":"one sentence with exact wrong code","fix":"corrected 5-20 line snippet with the fix"}]
 If no bugs: []
 Raw JSON only — no markdown.`
 
@@ -58,16 +72,22 @@ export async function reviewGeneratedCode(
   sandbox: Sandbox,
   skill: Skill,
 ): Promise<void> {
-  if (skill === 'website') return
+  if (skill === 'website') {
+    // For websites, review Layout.tsx — most likely source of undefined-variable crashes
+    await reviewFile(sandbox, 'src/components/Layout.tsx', WEBSITE_REVIEW_PROMPT)
+    return
+  }
 
   const filePath = 'src/pages/Home.tsx'
   const reviewPrompt = skill === 'game' ? GAME_REVIEW_PROMPT : WEBAPP_REVIEW_PROMPT
+  await reviewFile(sandbox, filePath, reviewPrompt)
+}
 
+async function reviewFile(sandbox: Sandbox, filePath: string, reviewPrompt: string): Promise<void> {
   try {
     const content = await readSandboxFile(sandbox, filePath)
     if (!content || content.length < 200) return
 
-    // Use up to 20000 chars to cover larger game files
     const codeSlice = content.slice(0, 20000)
 
     const { text } = await generateText({
@@ -84,14 +104,13 @@ export async function reviewGeneratedCode(
     const bugs = JSON.parse(cleaned) as Array<{ issue: string; fix: string }>
 
     if (!Array.isArray(bugs) || bugs.length === 0) {
-      console.log(`[code-review] ${skill} — no critical bugs found`)
+      console.log(`[code-review] ${filePath} — no critical bugs found`)
       return
     }
 
-    console.log(`[code-review] ${skill} — ${bugs.length} bug(s) detected:`)
+    console.log(`[code-review] ${filePath} — ${bugs.length} bug(s) detected:`)
     bugs.forEach((b, i) => console.log(`  [${i + 1}] ${b.issue}`))
 
-    // Build a single comprehensive fix description covering all bugs
     const allBugDescriptions = bugs
       .map((b, i) => `Bug ${i + 1}: ${b.issue}\nFix:\n${b.fix}`)
       .join('\n\n')
