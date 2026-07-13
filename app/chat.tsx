@@ -65,8 +65,8 @@ const BUILD_PHASES: Array<[number, string]> = [
   [8,   'Planning the project...'],
   [20,  'Writing your code...'],
   [55,  'Starting your preview...'],
-  [90,  'Almost there — finalizing...'],
-  [150, 'Finishing up — thanks for your patience...'],
+  [90,  'Almost there...'],
+  [150, 'Finishing up...'],
 ]
 
 function BuildingIndicator() {
@@ -77,26 +77,19 @@ function BuildingIndicator() {
     return () => clearInterval(id)
   }, [])
 
-  const fmt = (s: number) => {
-    const m = Math.floor(s / 60)
-    return m > 0 ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s}s`
-  }
-
   const label = BUILD_PHASES.filter(([t]) => elapsed >= t).at(-1)?.[1] ?? BUILD_PHASES[0][1]
   const phaseIndex = BUILD_PHASES.filter(([t]) => elapsed >= t).length - 1
 
   return (
     <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-secondary border border-primary/12 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <div className="flex gap-1 shrink-0">
           <span className="typing-dot inline-block w-1.5 h-1.5 rounded-full bg-amber-500" style={{ animationDelay: '0ms' }} />
           <span className="typing-dot inline-block w-1.5 h-1.5 rounded-full bg-amber-500" style={{ animationDelay: '180ms' }} />
           <span className="typing-dot inline-block w-1.5 h-1.5 rounded-full bg-amber-500" style={{ animationDelay: '360ms' }} />
         </div>
-        <span className="text-xs text-foreground/70 leading-none flex-1" key={label}>{label}</span>
-        <span className="text-xs font-mono text-foreground/30 leading-none tabular-nums shrink-0">{fmt(elapsed)}</span>
+        <span className="text-xs text-foreground/70 leading-none" key={label}>{label}</span>
       </div>
-      {/* Progress segments — one per phase */}
       <div className="flex gap-0.5">
         {BUILD_PHASES.map((_, i) => (
           <div
