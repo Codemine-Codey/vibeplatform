@@ -68,7 +68,14 @@ const BUILD_PHASES: Array<[number, string]> = [
   [120, 'Starting preview'],
 ]
 
-function BuildingIndicator() {
+// Map server-emitted phase names to BUILD_PHASES indices for progress bar
+const PHASE_TO_INDEX: Record<string, number> = {
+  generating: 1,
+  installing: 2,
+  building: 3,
+}
+
+function BuildingIndicator({ messages }: { messages: ChatUIMessage[] }) {
   const [elapsed, setElapsed] = useState(0)
 
   useEffect(() => {
@@ -76,8 +83,27 @@ function BuildingIndicator() {
     return () => clearInterval(id)
   }, [])
 
-  const label = BUILD_PHASES.filter(([t]) => elapsed >= t).at(-1)?.[1] ?? BUILD_PHASES[0][1]
-  const phaseIndex = BUILD_PHASES.filter(([t]) => elapsed >= t).length - 1
+  // Scan latest messages for a data-build-phase event from the server
+  let serverPhaseLabel: string | null = null
+  let serverPhaseIndex: number | null = null
+  for (const msg of [...messages].reverse()) {
+    if (!Array.isArray(msg.parts)) continue
+    for (const part of [...msg.parts].reverse()) {
+      if (part.type === 'data-build-phase' && part.data?.label) {
+        serverPhaseLabel = part.data.label as string
+        serverPhaseIndex = PHASE_TO_INDEX[part.data.phase as string] ?? null
+        break
+      }
+    }
+    if (serverPhaseLabel) break
+  }
+
+  const timeLabel = BUILD_PHASES.filter(([t]) => elapsed >= t).at(-1)?.[1] ?? BUILD_PHASES[0][1]
+  const timePhaseIndex = BUILD_PHASES.filter(([t]) => elapsed >= t).length - 1
+
+  // Prefer server-emitted phase label; fall back to elapsed-time-based label
+  const label = serverPhaseLabel ?? timeLabel
+  const phaseIndex = serverPhaseIndex ?? timePhaseIndex
 
   return (
     <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-secondary border border-primary/12 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -376,7 +402,7 @@ export function Chat({ className }: Props) {
       )}
 
       {/* Building indicator — shows above the input while AI is working */}
-      {isWorking && <BuildingIndicator />}
+      {isWorking && <BuildingIndicator messages={messages} />}
 
       {/* Input form */}
       <form

@@ -1584,6 +1584,8 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   const fullSystem = systemPrompt + pipelineAddendum + referenceGuidance + `\n\n${fileCountGuidance}`
 
   // ── Step 3: AI generates directly — no planning round-trip ───────────────
+  // Emit phase event so the client BuildingIndicator can show the current stage.
+  writer.write({ id: 'srv-phase-gen', type: 'data-build-phase', data: { phase: 'generating', label: 'Generating your files...' } })
   // Durable-runs STEP 2: capture the (phased, normalized) manifest the planner
   // commits to, so the server can drive the enrichment phases after phase-1 preview.
   const planBox: { manifest: NormalizedManifest | null } = { manifest: null }
@@ -1667,6 +1669,7 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
         void (async () => {
             try {
               // Wait for background install before starting dev server
+              writer.write({ id: 'srv-phase-install', type: 'data-build-phase', data: { phase: 'installing', label: 'Installing packages...' } })
               if (bgInstallPromise) await bgInstallPromise
               // Quick CSS pre-fix — @import tailwindcss syntax breaks Vite on first boot.
               // Full Step 4.5 palette lock runs later via HMR; this just prevents boot errors.
@@ -1695,6 +1698,7 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
               // ── Code review gate — check logic bugs BEFORE dev server starts ──
               await reviewGeneratedCode(sandbox, skill)
               // Start dev server
+              writer.write({ id: 'srv-phase-build', type: 'data-build-phase', data: { phase: 'building', label: 'Building and starting preview...' } })
               writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' } })
               try {
                 const devCmd = await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'] })

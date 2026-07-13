@@ -54,6 +54,13 @@ export const dataPartSchema = z.object({
   'narration': z.object({
     text: z.string(),
   }),
+  // Build phase progress — emitted by the server at each major pipeline stage so the
+  // client BuildingIndicator can show a live, accurate phase label instead of just
+  // advancing by elapsed time. Phases: 'generating' | 'installing' | 'building'.
+  'build-phase': z.object({
+    phase: z.string(),
+    label: z.string(),
+  }),
 })
 
 export type DataPart = z.infer<typeof dataPartSchema>
