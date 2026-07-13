@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   MonitorIcon, FolderOpenIcon, LoaderIcon, CloudIcon,
-  MaximizeIcon, ScanIcon,
+  MaximizeIcon, ScanIcon, ExternalLinkIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Preview } from '@/app/preview'
@@ -18,11 +18,12 @@ type ViewMode = 'fit' | 'fullscreen'
 // Deploy/Database/Auth are now sections INSIDE the unified Cloud dashboard, so the
 // top-level tabs are just Preview, Code, Cloud. Logs stays mounted (hidden) for the
 // error-monitor.
+// Tab definitions — cloud label shows a dot when deploy is live
 const TABS = [
   { id: 'preview' as Tab, label: 'Preview', icon: MonitorIcon },
   { id: 'files' as Tab, label: 'Code', icon: FolderOpenIcon },
   { id: 'cloud' as Tab, label: 'Cloud', icon: CloudIcon },
-]
+] as const
 
 interface Props {
   className?: string
@@ -35,6 +36,7 @@ export function RightPanel({ className }: Props) {
   const previewContainerRef = useRef<HTMLDivElement>(null) // kept for future use
   const chatStatus = useSandboxStore((s) => s.chatStatus)
   const previewUrl = useSandboxStore((s) => s.url)
+  const deployedUrl = useSandboxStore((s) => s.deployedUrl)
   const isWorking = chatStatus === 'streaming' || chatStatus === 'submitted'
 
   // CSS fullscreen — fixed overlay covering the whole viewport, no browser API needed.
@@ -72,7 +74,7 @@ export function RightPanel({ className }: Props) {
             type="button"
             onClick={() => setActiveTab(id)}
             className={cn(
-              'flex items-center gap-1.5 px-3 h-7 rounded-sm text-xs transition-all duration-150',
+              'relative flex items-center gap-1.5 px-3 h-7 rounded-sm text-xs transition-all duration-150',
               activeTab === id
                 ? 'bg-background text-foreground font-medium shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-accent'
@@ -80,6 +82,13 @@ export function RightPanel({ className }: Props) {
           >
             <Icon className="w-3 h-3 shrink-0" />
             {label}
+            {/* Dot indicators: preview=ready, cloud=deployed */}
+            {id === 'preview' && previewUrl && !isWorking && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+            )}
+            {id === 'cloud' && deployedUrl && (
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+            )}
           </button>
         ))}
 
@@ -94,6 +103,18 @@ export function RightPanel({ className }: Props) {
         {/* Preview view controls — only when on Preview tab */}
         {activeTab === 'preview' && (
           <div className={cn('flex items-center gap-0.5', isWorking ? 'mr-0' : 'ml-auto')}>
+            {/* Open in new tab — only when a preview URL is available */}
+            {previewUrl && !isWorking && (
+              <a
+                href={previewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open preview in new tab"
+                className="flex items-center justify-center w-7 h-7 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              >
+                <ExternalLinkIcon className="w-3.5 h-3.5" />
+              </a>
+            )}
             <button
               type="button"
               title="Fit to screen"
@@ -107,7 +128,7 @@ export function RightPanel({ className }: Props) {
             >
               <ScanIcon className="w-3.5 h-3.5" />
             </button>
-<button
+            <button
               type="button"
               title="Fullscreen — press Esc to exit"
               onClick={() => handleViewMode('fullscreen')}
