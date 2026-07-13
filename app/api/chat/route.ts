@@ -542,9 +542,17 @@ async function headlessRuntimeCheck(
     console.log('[runtime-check] chromium launched OK — inspecting live preview')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const page = await (browser as any).newPage()
-    const errors: string[] = []
+    // Inject RAF frame counter BEFORE any game code loads
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    page.on('pageerror', (e: any) => errors.push(String(e?.stack || e?.message || e)))
+    await (page as any).evaluateOnNewDocument(() => {
+      (window as typeof window & { __cmFrameCount: number }).__cmFrameCount = 0
+      const _raf = window.requestAnimationFrame.bind(window)
+      window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+        (window as typeof window & { __cmFrameCount: number }).__cmFrameCount++
+        return _raf(cb)
+      }
+    }).catch(() => {})
+    const errors: string[] = []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     page.on('console', (msg: any) => {
       if (msg.type() === 'error') errors.push(String(msg.text()))
@@ -697,22 +705,28 @@ async function headlessRuntimeCheck(
         await new Promise((r) => setTimeout(r, 450))
         const snap3 = await snap()
 
+        // Also check RAF frame count — verifies the loop is actually running
+        const frameCount = await page
+          .evaluate(() => (window as typeof window & { __cmFrameCount?: number }).__cmFrameCount ?? 0)
+          .catch(() => 0)
+        console.log(`[runtime-check] canvas game: frameCount=${frameCount}`)
+
         if (snap0 && snap1 && snap2 && snap3 && snap0 !== 'tainted') {
           const noResponseAtAll = snap0 === snap1 && snap1 === snap2 && snap2 === snap3
           const frozeAfterStart = snap0 !== snap1 && snap1 === snap2 && snap2 === snap3
 
-          if (noResponseAtAll) {
+          if (noResponseAtAll || frameCount < 10) {
             return {
               status: 'broken',
               detail:
-                'The game canvas is not animating or responding to any input — pressing Space/Enter/arrows and clicking did not change the canvas at all. The game loop is not running. Most likely cause: the `running` prop passed to useGameLoop is always false (e.g. `running={gameState}` instead of `running={gameState === "playing"}`), or the canvas event listeners are not attached. Fix the running condition and ensure click/keydown handlers update the game state.',
+                `The game canvas is not animating or responding to any input (frameCount=${frameCount}). Pressing Space/Enter/arrows and clicking did not animate the canvas. The game loop is not running. Most likely: the \`running\` prop to useGameLoop is always false, or the gameState never transitions to "playing", or the keydown/click handlers are not attached. Fix the running condition and ensure click/Space/Enter update gameState.`,
             }
           }
           if (frozeAfterStart) {
             return {
               status: 'broken',
               detail:
-                'The game started (canvas changed after input) but animation froze immediately — the canvas was identical at t+1.2s, t+1.65s, and t+2.1s. The requestAnimationFrame loop is likely stopping after one frame (missing recursive call, or the loop depends on a stale ref that becomes false). Ensure the RAF callback re-schedules itself unconditionally while `running` is true.',
+                `The game started (canvas changed after input, frameCount=${frameCount}) but animation froze immediately — canvas was identical at t+1.2s, t+1.65s, and t+2.1s. The requestAnimationFrame loop stopped after one frame. Ensure the RAF callback always re-schedules itself with requestAnimationFrame(loop) while running is true.`,
             }
           }
         }
