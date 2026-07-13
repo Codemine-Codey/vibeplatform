@@ -37,6 +37,13 @@ const RULES: { test: RegExp; issue: string }[] = [
     issue:
       'An <AnimatePresence> child has no `key`. Exit animations only fire when each direct child has a unique stable key (and is a DIRECT child, no wrapper between). Add key="..." (or key={item.id} for lists).',
   },
+  {
+    // <AnimatePresence> wrapping <Routes> or <Outlet> — route/outlet aren't motion elements,
+    // so exit animations throw a runtime error and crash the layout. Very high confidence.
+    test: /<AnimatePresence[\s\S]{0,120}?<(Routes|Outlet)\b/,
+    issue:
+      'This wraps <Routes>/<Outlet> in <AnimatePresence> for page transitions — that throws a runtime error and crashes the layout (Routes/Outlet are not motion elements). Remove the <AnimatePresence> wrapper here and instead animate ENTRANCE inside each page component with <motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}}>. Keep all routing exactly as-is.',
+  },
 ]
 
 export function scanFootguns(files: { path: string; content: string }[]): Footgun[] {

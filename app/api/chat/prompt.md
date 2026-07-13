@@ -305,6 +305,7 @@ These patterns WILL break the build. The post-generation fixer catches some but 
   <AnimatePresence><MyCard /></AnimatePresence>
   ```
 - **NEVER pass a `ref` to a plain function component** (`<MyThing ref={x} />` where MyThing is not `forwardRef`). It throws "Function components cannot be given refs". Attach the ref to a real DOM element or a `motion.*` element instead.
+- **NEVER wrap `<Routes>` or `<Outlet>` in `<AnimatePresence>` for page transitions** in Layout/App. `<AnimatePresence mode="wait"><Routes .../></AnimatePresence>` is fragile — Routes/Outlet are not motion elements, so exit animations throw runtime errors and crash the layout. Instead, animate ENTRANCE per page: put a `<motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}}>` at the top of each page component. Simpler, zero errors, same polished feel.
 - **`useScroll` scroll animations — STRICT RULES (this is a top source of console errors):**
   - PREFER `whileInView` / `useInView` for scroll reveals — they need no ref plumbing and never warn.
   - If you use `useScroll({ target: ref })`, the `ref` MUST be attached to a plain DOM/`motion` element **in the SAME component** that calls `useScroll` — never a ref defined in a parent and passed down, never a ref on a custom function component. Otherwise you get "target ref is not yet hydrated" warnings and broken parallax. When unsure, use `useScroll()` with no target (whole-page scroll) or `whileInView`.

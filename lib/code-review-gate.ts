@@ -62,6 +62,7 @@ Check EACH:
 2. BROKEN NAV LINKS: Navigation links rendered with .map() must have a valid array source declared or imported in THIS file.
 3. MISSING IMPORT: Any component or hook used without a corresponding import statement.
 4. UNDEFINED FUNCTION: onClick handlers calling functions not defined or imported in this file.
+5. ANIMATEPRESENCE AROUND ROUTES: If <AnimatePresence> wraps <Routes> or <Outlet> (page-transition pattern), that throws a runtime error and crashes the layout. FIX: remove the <AnimatePresence> wrapper (keep <Routes>/<Outlet> and all routing exactly as-is); page entrance animations belong inside each page component, not here.
 
 Return JSON array of ALL bugs:
 [{"issue":"one sentence with exact wrong code","fix":"corrected 5-20 line snippet with the fix"}]
