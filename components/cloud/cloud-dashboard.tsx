@@ -139,7 +139,7 @@ function Overview({ onGo }: { onGo: (s: Sub) => void }) {
       id: 'database', label: 'Database', icon: DatabaseIcon,
       status: databaseId ? 'live' : 'off',
       value: databaseId ? 'Neon Postgres' : 'No database',
-      action: neonProvisioned ? 'Browse →' : 'Add database →',
+      action: databaseId ? 'Browse →' : 'Add database →',
     },
     {
       id: 'auth', label: 'Authentication', icon: KeyRoundIcon,
