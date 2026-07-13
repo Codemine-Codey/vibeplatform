@@ -3,6 +3,7 @@ import { tool } from 'ai'
 import z from 'zod/v3'
 import { logRead } from '@/lib/telemetry'
 import { recordRead, READ_CAP } from '../read-budget'
+import { markFileRead } from '../edit-tracker'
 
 // Batch read: fetches MANY files in ONE tool call instead of one round-trip per
 // file. Each serial readFile is a full model step (call -> cat -> resume); doing
@@ -44,6 +45,8 @@ export const readFiles = () =>
                 const stderr = await done.stderr()
                 return { path, error: `Not found or unreadable: ${stderr || 'unknown error'}` }
               }
+              // Read-first invariant: mark each file the model has now seen.
+              markFileRead(sandboxId, path)
               return { path, content: await done.stdout() }
             } catch (e) {
               return { path, error: e instanceof Error ? e.message : String(e) }

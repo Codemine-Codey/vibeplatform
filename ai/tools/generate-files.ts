@@ -8,6 +8,7 @@ import { computeMissingKnownPackages } from './generate-files/import-gate'
 import { scanFootguns } from './generate-files/footgun-scan'
 import { detectEmptyRender, computeCssClosure } from '../gates/semantic-gate'
 import { SCAFFOLD_PATH_SET } from './scaffold'
+import { markFileWritten } from '../edit-tracker'
 import { tool } from 'ai'
 import description from './generate-files.md'
 import z from 'zod/v3'
@@ -711,6 +712,11 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       } catch {
         // Non-fatal
       }
+
+      // Read-first invariant: the model just authored these files, so it may patch
+      // them later without a redundant read. (Edits to files it did NOT generate this
+      // turn still require a readFile first — that's the anti-drift guarantee.)
+      for (const f of uploaded) markFileWritten(sandboxId, f.path)
 
       writer.write({
         id: toolCallId,

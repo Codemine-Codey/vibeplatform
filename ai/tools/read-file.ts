@@ -3,6 +3,7 @@ import { tool } from 'ai'
 import z from 'zod/v3'
 import { logRead } from '@/lib/telemetry'
 import { recordRead, READ_CAP } from '../read-budget'
+import { markFileRead } from '../edit-tracker'
 
 export const readFile = () =>
   tool({
@@ -32,6 +33,9 @@ export const readFile = () =>
         if (done.exitCode !== 0) {
           return { error: `File not found or unreadable: ${stderr || 'unknown error'}`, path }
         }
+        // Read-first invariant: record that the model has now seen this file's
+        // current content, so a subsequent patchFile on it is allowed.
+        markFileRead(sandboxId, path)
         return { content: stdout, path }
       } catch (err) {
         return { error: `Could not read file: ${err instanceof Error ? err.message : String(err)}`, path }

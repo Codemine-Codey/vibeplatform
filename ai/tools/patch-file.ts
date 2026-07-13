@@ -4,6 +4,7 @@ import z from 'zod/v3'
 import { mergePackageJson } from './scaffold'
 import { ensureValidCss } from '@/lib/css-guard'
 import { resetReadBudget } from '../read-budget'
+import { hasReadFile, markFileWritten } from '../edit-tracker'
 import { logPatch } from '@/lib/telemetry'
 
 const VITE_CONFIG_NAMES = new Set(['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs'])
@@ -45,6 +46,19 @@ export const patchFile = () =>
     }),
     execute: async ({ sandboxId, path, oldString, newString }) => {
       try {
+        // Read-first invariant (Lovable's #1 fix): refuse to patch a file the model
+        // has not read this session. Forces the edit to be grounded in the CURRENT
+        // content — this is what stops whole-file regeneration and dropped content.
+        if (!hasReadFile(sandboxId, path)) {
+          return {
+            success: false,
+            error:
+              `You must read ${path} before patching it. Call readFile("${path}") ` +
+              `(or readFiles for several files), then patchFile with an oldString copied ` +
+              `exactly from what you read. Never edit a file from memory.`,
+          }
+        }
+
         const sandbox = await Sandbox.get({ sandboxId })
         // A write begins a fresh edit cycle — reset the read budget so the next
         // change gets a clean allowance of reads.
@@ -90,6 +104,7 @@ export const patchFile = () =>
           updated = ensureValidCss(updated)
           if (updated !== before) {
             await sandbox.writeFiles([{ path, content: Buffer.from(updated, 'utf8') }])
+            markFileWritten(sandboxId, path)
             return {
               success: true,
               path,
@@ -102,6 +117,7 @@ export const patchFile = () =>
           updated = stripSvgs(updated, path)
         }
         await sandbox.writeFiles([{ path, content: Buffer.from(updated, 'utf8') }])
+        markFileWritten(sandboxId, path)
         return {
           success: true,
           path,

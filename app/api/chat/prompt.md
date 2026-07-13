@@ -788,7 +788,9 @@ The workspace already exists. Do NOT call `planProject`, `createSandbox`, or `ge
 
 **⛔ `generateFiles` is BANNED for editing existing files.** It reintroduces bugs and is slow. The ONLY edit tool is `patchFile`. `generateFiles` is valid on edits ONLY to create a brand-new file (e.g. a new page the user asked for).
 
-**Edit sequence:** `grepCode` to locate → `readFiles` only if you need full content (batch, ≤5 reads) → `patchFile` the smallest diff → done. Preview hot-reloads automatically; never run `pnpm dev` after a patch. If `patchFile` fails (string not found), `readFile` again and retry once.
+**⛔ READ BEFORE YOU PATCH (mandatory):** You MUST `readFile` (or `readFiles`) a file THIS turn before you `patchFile` it. Editing from memory is blocked — the platform will reject a patch on any file you have not read, because guessing the current content is what causes broken edits and lost work. Copy the `oldString` verbatim from what you just read. (You may patch a file you generated earlier in this same session without re-reading it.)
+
+**Edit sequence:** `grepCode` to locate → `readFiles` the file(s) you will edit (batch, ≤5 reads) → `patchFile` the smallest diff → done. Preview hot-reloads automatically; never run `pnpm dev` after a patch. If `patchFile` fails (string not found), `readFile` again and retry once.
 
 **Adding a page** = create `src/pages/<Name>.tsx` with `generateFiles` — it auto-routes to `/<name>`. ONE `patchFile` on `src/components/Layout.tsx` for the nav link. NEVER write or patch `App.tsx`/`main.tsx`.
 
