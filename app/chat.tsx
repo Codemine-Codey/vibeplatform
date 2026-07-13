@@ -1,8 +1,7 @@
 'use client'
 
 import type { ChatUIMessage } from '@/components/chat/types'
-import { TEST_PROMPTS } from '@/ai/constants'
-import { MessageCircleIcon, SendIcon } from 'lucide-react'
+import { MessageCircleIcon, SendIcon, GlobeIcon, LayoutDashboardIcon, GamepadIcon, SparklesIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Conversation,
@@ -25,6 +24,87 @@ interface Props {
   className: string
 }
 
+const PROMPT_CATEGORIES = [
+  {
+    id: 'website',
+    label: 'Website',
+    Icon: GlobeIcon,
+    prompts: [
+      'Build a landing page for a Japanese sushi restaurant called Sakura',
+      'Create a portfolio site for a freelance photographer',
+      'Design a SaaS landing page for a project management tool',
+    ],
+  },
+  {
+    id: 'webapp',
+    label: 'Web App',
+    Icon: LayoutDashboardIcon,
+    prompts: [
+      'Create a task manager app with drag and drop',
+      'Build a habit tracker with streaks and charts',
+      'Make a budget tracker with categories and monthly view',
+    ],
+  },
+  {
+    id: 'game',
+    label: 'Game',
+    Icon: GamepadIcon,
+    prompts: [
+      'Make a snake game with neon glow effects',
+      'Build a flappy bird clone with a space theme',
+      'Create a breakout brick game with power-ups',
+    ],
+  },
+]
+
+function EmptyState({ onPrompt }: { onPrompt: (p: string) => void }) {
+  return (
+    <div className="flex flex-col h-full px-3 pt-4 pb-2 gap-4">
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-1.5">
+          <SparklesIcon className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-xs font-semibold text-foreground">Start building</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Describe what you want and Codemine builds it live.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {PROMPT_CATEGORIES.map(({ id, label, Icon, prompts }) => (
+          <div key={id} className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <Icon className="w-3 h-3 text-muted-foreground" />
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              {prompts.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => onPrompt(p)}
+                  className="text-left text-xs px-3 py-2 rounded-md border border-primary/10 bg-secondary/40 text-foreground/80 hover:bg-accent hover:text-foreground hover:border-primary/20 transition-colors"
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const BUILD_PHASES: Array<[number, string]> = [
+  [0,   'Understanding your idea...'],
+  [8,   'Planning the project...'],
+  [20,  'Writing your code...'],
+  [55,  'Starting your preview...'],
+  [90,  'Almost there — finalizing...'],
+  [150, 'Finishing up — thanks for your patience...'],
+]
+
 function BuildingIndicator() {
   const [elapsed, setElapsed] = useState(0)
 
@@ -38,32 +118,32 @@ function BuildingIndicator() {
     return m > 0 ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s}s`
   }
 
-  const isThinking = elapsed < 60
-  const label = isThinking ? 'Thinking...' : 'Building your project...'
-  const showHint = elapsed >= 90
+  const label = BUILD_PHASES.filter(([t]) => elapsed >= t).at(-1)?.[1] ?? BUILD_PHASES[0][1]
+  const phaseIndex = BUILD_PHASES.filter(([t]) => elapsed >= t).length - 1
 
   return (
-    <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-secondary border border-primary/12 flex flex-col gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+    <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-secondary border border-primary/12 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div className="flex items-center gap-3">
-        <div className="flex gap-1.5 shrink-0">
-          {isThinking ? (
-            <span className="inline-block w-2 h-2 rounded-full bg-foreground/50 animate-pulse" />
-          ) : (
-            <>
-              <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '0ms' }} />
-              <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '200ms' }} />
-              <span className="typing-dot inline-block w-2 h-2 rounded-full bg-foreground/70" style={{ animationDelay: '400ms' }} />
-            </>
-          )}
+        <div className="flex gap-1 shrink-0">
+          <span className="typing-dot inline-block w-1.5 h-1.5 rounded-full bg-amber-500" style={{ animationDelay: '0ms' }} />
+          <span className="typing-dot inline-block w-1.5 h-1.5 rounded-full bg-amber-500" style={{ animationDelay: '180ms' }} />
+          <span className="typing-dot inline-block w-1.5 h-1.5 rounded-full bg-amber-500" style={{ animationDelay: '360ms' }} />
         </div>
-        <span className="text-xs font-mono text-foreground/70 leading-none">{label}</span>
-        <span className="ml-auto text-xs font-mono text-foreground/35 leading-none tabular-nums">{fmt(elapsed)}</span>
+        <span className="text-xs text-foreground/70 leading-none flex-1" key={label}>{label}</span>
+        <span className="text-xs font-mono text-foreground/30 leading-none tabular-nums shrink-0">{fmt(elapsed)}</span>
       </div>
-      {showHint && (
-        <p className="text-[10px] text-foreground/35 leading-snug animate-in fade-in duration-500">
-          Projects can take a few minutes depending on complexity — please wait.
-        </p>
-      )}
+      {/* Progress segments — one per phase */}
+      <div className="flex gap-0.5">
+        {BUILD_PHASES.map((_, i) => (
+          <div
+            key={i}
+            className={cn(
+              'h-0.5 flex-1 rounded-full transition-colors duration-700',
+              i <= phaseIndex ? 'bg-amber-500/70' : 'bg-foreground/10'
+            )}
+          />
+        ))}
+      </div>
     </div>
   )
 }
@@ -108,6 +188,7 @@ export function Chat({ className }: Props) {
 
   const setChatStatus = useSandboxStore((s) => s.setChatStatus)
   const setProjectName = useSandboxStore((s) => s.setProjectName)
+  const projectName = useSandboxStore((s) => s.projectName)
   const setStreamError = useSandboxStore((s) => s.setStreamError)
   const streamError = useSandboxStore((s) => s.streamError)
   const sandboxId = useSandboxStore((s) => s.sandboxId)
@@ -265,11 +346,30 @@ export function Chat({ className }: Props) {
   return (
     <Panel className={className}>
       <PanelHeader>
-        <div className="flex items-center font-mono font-semibold uppercase">
-          <MessageCircleIcon className="mr-2 w-4" />
-          Chat
+        <div className="flex items-center gap-2">
+          <MessageCircleIcon className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-xs font-semibold">
+            {projectName ? projectName : 'Codemine'}
+          </span>
         </div>
-        <div className="ml-auto font-mono text-xs opacity-50">[{status}]</div>
+        <div className="ml-auto flex items-center gap-1.5">
+          {status === 'streaming' || status === 'submitted' ? (
+            <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Building
+            </span>
+          ) : status === 'error' ? (
+            <span className="flex items-center gap-1 text-xs text-destructive">
+              <span className="w-1.5 h-1.5 rounded-full bg-destructive" />
+              Error
+            </span>
+          ) : messages.length > 0 ? (
+            <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              Ready
+            </span>
+          ) : null}
+        </div>
       </PanelHeader>
 
       {/* Messages Area */}
@@ -282,23 +382,8 @@ export function Chat({ className }: Props) {
           <p className="font-mono text-sm text-muted-foreground animate-pulse">Getting a couple quick questions ready…</p>
         </div>
       ) : messages.length === 0 ? (
-        <div className="flex-1 min-h-0">
-          <div className="flex flex-col justify-center items-center h-full font-mono text-sm text-muted-foreground">
-            <p className="flex items-center font-semibold">
-              Click and try one of these prompts:
-            </p>
-            <ul className="p-4 space-y-1 text-center">
-              {TEST_PROMPTS.map((prompt, idx) => (
-                <li
-                  key={idx}
-                  className="px-4 py-2 rounded-sm border border-dashed shadow-sm cursor-pointer border-border hover:bg-secondary/50 hover:text-primary"
-                  onClick={() => validateAndSubmitMessage(prompt)}
-                >
-                  {prompt}
-                </li>
-              ))}
-            </ul>
-          </div>
+        <div className="flex-1 min-h-0 overflow-auto">
+          <EmptyState onPrompt={validateAndSubmitMessage} />
         </div>
       ) : (
         <Conversation className="relative w-full">
