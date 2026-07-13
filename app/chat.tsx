@@ -289,6 +289,9 @@ export function Chat({ className }: Props) {
   // Detect if a preview URL is showing — if it is, generation is done and we shouldn't resume
   const previewUrl = useSandboxStore((s) => s.url)
   const setUrl = useSandboxStore((s) => s.setUrl)
+  // Context-aware follow-up suggestion pills (server-generated after a verified build).
+  const suggestions = useSandboxStore((s) => s.suggestions)
+  const setSuggestions = useSandboxStore((s) => s.setSuggestions)
 
   useEffect(() => {
     if (!streamError || isWorking) return
@@ -441,6 +444,22 @@ export function Chat({ className }: Props) {
 
       {/* Building indicator — shows above the input while AI is working */}
       {isWorking && <BuildingIndicator messages={messages} />}
+
+      {/* Context-aware follow-up suggestion pills — click to fill the input */}
+      {!isWorking && suggestions && suggestions.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-3 pb-2 animate-in fade-in slide-in-from-bottom-1 duration-300">
+          {suggestions.map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => { setInput(s); setSuggestions([]) }}
+              className="text-xs px-2.5 py-1 rounded-full border border-primary/20 bg-secondary text-foreground/80 hover:bg-accent hover:text-foreground transition-colors"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Input form */}
       <form

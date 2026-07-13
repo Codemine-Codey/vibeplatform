@@ -47,6 +47,8 @@ interface SandboxStore {
   upsertCommand: (command: Omit<Command, 'startedAt'>) => void
   url?: string
   urlUUID?: string
+  suggestions?: string[]
+  setSuggestions: (items: string[]) => void
 }
 
 function getBackgroundCommandErrorLines(commands: Command[]) {
@@ -181,6 +183,7 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
     })),
   setStatus: (status) => set(() => ({ status })),
   setUrl: (url, urlUUID) => set(() => ({ url, urlUUID })),
+  setSuggestions: (suggestions) => set(() => ({ suggestions })),
   upsertCommand: (cmd) => {
     set((state) => {
       const existingIdx = state.commands.findIndex((c) => c.cmdId === cmd.cmdId)
@@ -286,6 +289,9 @@ export function useDataStateMapper() {
           break
         case 'data-database-created':
           setDatabaseState({ databaseId: data.data.databaseId, databaseName: data.data.databaseName })
+          break
+        case 'data-suggestions':
+          useSandboxStore.getState().setSuggestions(data.data.items)
           break
         default:
           break

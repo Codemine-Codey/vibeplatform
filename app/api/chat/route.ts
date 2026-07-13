@@ -13,6 +13,7 @@ import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL, VISION_MODEL, getMaxO
 import { NextResponse } from 'next/server'
 import { getModelOptions } from '@/ai/gateway'
 import { tools } from '@/ai/tools'
+import { generateSuggestions } from '@/ai/suggestions'
 import { generateFiles } from '@/ai/tools/generate-files'
 import { getUnsplashBatch } from '@/ai/tools/get-unsplash-batch'
 import { generateImageBatch } from '@/ai/tools/generate-image-batch'
@@ -2375,6 +2376,20 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   // on the "Building…" indicator.
   writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
   if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: url }).catch(() => {})
+
+  // ── Context-aware follow-up suggestion pills (#84) — background, non-blocking ──────
+  // After a verified build, a lightweight model proposes 3 short next steps based on the
+  // request + files. Rendered as clickable chips that fill the chat input.
+  void (async () => {
+    try {
+      const items = await generateSuggestions({
+        request: getLastUserText(messages),
+        skill,
+        filePaths: planBox.manifest?.files.map((f) => f.path) ?? [],
+      })
+      if (items.length) writer.write({ id: 'srv-suggestions', type: 'data-suggestions', data: { items } })
+    } catch { /* non-fatal */ }
+  })()
 
   // ── Design-improvement pass via HMR ──────────────────────────────────────────────
   if (
