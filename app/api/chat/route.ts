@@ -36,7 +36,7 @@ import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { createRun, appendRunEvent, updateRun } from '@/lib/runs'
 import { runResumableEnrichment } from '@/lib/enrichment'
-import { stampShellsForManifest, stampShell } from '@/lib/shell-template'
+import { stampShellsForManifest, stampShell, navTargetPageFiles } from '@/lib/shell-template'
 import { reviewGeneratedCode } from '@/lib/code-review-gate'
 import {
   readSandboxFile,
@@ -1544,7 +1544,10 @@ async function runPipeline({
     `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
     `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
     `WORKFLOW: ${skill === 'website'
-      ? `(1) gather ALL images in parallel with your first message: use generateImageBatch for EVERY image slot — hero, sections, backgrounds, product/food photos. It produces unique on-brand visuals that look nothing like stock. Only fall back to getUnsplashBatch if generateImageBatch returns empty/fails. Every project must have a strong hero visual. (2) call planProject with the complete file list (every file path you will generate), (3) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`
+      ? `SPEED IS CRITICAL — the user must see a live hero in ~90s, so DO THE FAST THING FIRST. ` +
+        `(1) IMMEDIATELY call generateFiles with the EXACTLY 4 Phase-1 files (src/index.css, src/components/Layout.tsx, src/pages/Home.tsx hero-only, src/components/Phase2Sections.tsx placeholder) — NO images, NO planProject, NO getUnsplashBatch before this. The hero uses a solid brand-colored background, so it needs no image. This gets the preview live fast. ` +
+        `(2) THEN, AFTER the Phase-1 preview: call generateImageBatch for the section images + planProject for the remaining files (these run while the user already sees the hero). ` +
+        `(3) THEN call generateFiles again for the Phase-2 section components. NEVER put images or planProject before the first generateFiles — that delays the preview by minutes.`
       : skill === 'webapp'
       ? `(1) call planProject with the COMPLETE file list (every path you will generate — Phase 1 + all remaining), (2) FIRST generateFiles call: ONLY src/index.css + src/pages/Home.tsx, (3) SECOND generateFiles call: all remaining component files`
       : `(1) call planProject with the complete file list (every path you will generate), (2) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`}\n` +
@@ -1666,6 +1669,10 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
         // Write only Phase 1 files; if none qualified (AI sent all Phase 2), use originals
         const filteredPaths = phase1Paths.length > 0 ? phase1Paths : nonScaffold.length > 0 ? nonScaffold : args.paths
         const p1Result = await phase1GF.execute({ ...args, paths: filteredPaths }, ctx)
+
+        // Guarantee no nav link 404s: stamp a branded shell for any route the Layout links
+        // to that has no page yet (deferred sub-pages, or ones the AI forgot to plan).
+        await ensureNavShells(sandbox, brandName ?? undefined)
 
         // ── EARLY URL EMIT ─────────────────────────────────────────────────────
         // Phase 1 files are now on disk. Fire the dev server immediately while the AI
@@ -2371,6 +2378,31 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
 // Poll the sandbox URL until the dev server responds (non-502 = port is listening).
 // Returns an error string if the page is serving 500s (Vite/PostCSS crash), null if healthy.
 // Times out after maxWaitMs and emits URL anyway.
+// Nav-link 404 guarantee: for every internal route the Layout links to, make sure the
+// page file exists. Any target with no page (deferred/never-planned) gets a branded shell
+// stamped so the link renders a real "coming together" page instead of the 404 screen.
+// Deterministic, cheap, and idempotent — runs right after Phase-1 files land.
+async function ensureNavShells(sandbox: Sandbox, brandName?: string): Promise<void> {
+  try {
+    const layout = await readSandboxFile(sandbox, 'src/components/Layout.tsx')
+    if (!layout) return
+    const wanted = navTargetPageFiles(layout)
+    if (wanted.length === 0) return
+    const missing: Array<{ path: string; content: string }> = []
+    for (const path of wanted) {
+      const existing = await readSandboxFile(sandbox, path)
+      if (existing && existing.trim().length > 20) continue
+      missing.push({ path, content: stampShell({ path, exports: ['default'], brandName }) })
+    }
+    if (missing.length > 0) {
+      await sandbox.writeFiles(missing.map((m) => ({ path: m.path, content: Buffer.from(m.content, 'utf8') })))
+      console.log(`[nav-shells] stamped ${missing.length} shell page(s) for nav links: ${missing.map((m) => m.path.split('/').pop()).join(', ')}`)
+    }
+  } catch (e) {
+    console.warn('[nav-shells] failed (non-fatal):', e instanceof Error ? e.message : e)
+  }
+}
+
 async function waitForDevServer(url: string, maxWaitMs = 45_000): Promise<string | null> {
   const deadline = Date.now() + maxWaitMs
   let consecutiveFiveHundreds = 0

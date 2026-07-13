@@ -304,6 +304,10 @@ These patterns WILL break the build. The post-generation fixer catches some but 
   // ❌ Plain function component — breaks AnimatePresence
   <AnimatePresence><MyCard /></AnimatePresence>
   ```
+- **NEVER pass a `ref` to a plain function component** (`<MyThing ref={x} />` where MyThing is not `forwardRef`). It throws "Function components cannot be given refs". Attach the ref to a real DOM element or a `motion.*` element instead.
+- **`useScroll` scroll animations — STRICT RULES (this is a top source of console errors):**
+  - PREFER `whileInView` / `useInView` for scroll reveals — they need no ref plumbing and never warn.
+  - If you use `useScroll({ target: ref })`, the `ref` MUST be attached to a plain DOM/`motion` element **in the SAME component** that calls `useScroll` — never a ref defined in a parent and passed down, never a ref on a custom function component. Otherwise you get "target ref is not yet hydrated" warnings and broken parallax. When unsure, use `useScroll()` with no target (whole-page scroll) or `whileInView`.
 - `async function useEffect(...)` — useEffect cannot be async. Use inner async function:
   ```tsx
   useEffect(() => { async function load() { ... } load() }, [])

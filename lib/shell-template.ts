@@ -81,6 +81,23 @@ export function stampComponentShell(opts: {
 `
 }
 
+// Extract the page files that MUST exist so no nav link 404s. Scans a Layout/Nav source
+// for router targets (to="/about" / href="/menu") and maps each to its page file, matching
+// the scaffold router (route = filename.toLowerCase(), so /about → src/pages/About.tsx).
+// Only single-segment, lowercase-leading internal paths — never external URLs or #anchors.
+export function navTargetPageFiles(layoutSource: string): string[] {
+  const out = new Set<string>()
+  const re = /(?:to|href)\s*=\s*["'`]\/([a-z0-9][a-z0-9-]*)["'`]/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(layoutSource)) !== null) {
+    const seg = m[1].toLowerCase()
+    if (!seg || seg === 'home' || seg === 'index') continue
+    const fname = seg.charAt(0).toUpperCase() + seg.slice(1) // lowercases back to seg → route matches
+    out.add(`src/pages/${fname}.tsx`)
+  }
+  return [...out]
+}
+
 // Stamp all deferred-phase shells for a manifest. Returns files ready for sandbox.writeFiles.
 // Detects page vs. component files by path pattern and uses the appropriate shell type:
 // pages get the full branded placeholder; components get a minimal animated skeleton stub.

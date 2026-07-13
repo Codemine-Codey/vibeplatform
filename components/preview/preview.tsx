@@ -1,7 +1,7 @@
 'use client'
 
 import { BarLoader } from 'react-spinners'
-import { CompassIcon, RefreshCwIcon } from 'lucide-react'
+import { RefreshCwIcon } from 'lucide-react'
 import { Panel, PanelHeader } from '@/components/panels/panels'
 import { ScrollArea } from '@radix-ui/react-scroll-area'
 import { useEffect, useRef, useState } from 'react'
@@ -88,9 +88,7 @@ export function Preview({ className, disabled, lastFilesUploadedAt, url }: Props
     <Panel className={className}>
       <PanelHeader>
         <div className="absolute flex items-center space-x-1">
-          <a href={currentUrl} target="_blank" className="cursor-pointer px-1">
-            <CompassIcon className="w-4" />
-          </a>
+          {/* Open-in-new-tab intentionally hidden — preview stays in-panel only. */}
           <button
             onClick={refreshIframe}
             type="button"

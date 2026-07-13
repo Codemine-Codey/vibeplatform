@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   MonitorIcon, FolderOpenIcon, LoaderIcon, CloudIcon,
-  MaximizeIcon, ScanIcon, ExternalLinkIcon,
+  MaximizeIcon, ScanIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Preview } from '@/app/preview'
@@ -103,18 +103,7 @@ export function RightPanel({ className }: Props) {
         {/* Preview view controls — only when on Preview tab */}
         {activeTab === 'preview' && (
           <div className={cn('flex items-center gap-0.5', isWorking ? 'mr-0' : 'ml-auto')}>
-            {/* Open in new tab — only when a preview URL is available */}
-            {previewUrl && !isWorking && (
-              <a
-                href={previewUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Open preview in new tab"
-                className="flex items-center justify-center w-7 h-7 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                <ExternalLinkIcon className="w-3.5 h-3.5" />
-              </a>
-            )}
+            {/* Open-in-new-tab intentionally hidden — the preview lives in-panel only. */}
             <button
               type="button"
               title="Fit to screen"
