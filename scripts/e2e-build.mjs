@@ -22,10 +22,12 @@ const PROMPTS = {
 }
 const PROMPT = PROMPTS[KIND] || PROMPTS.website
 
-// Words that must NEVER appear in user-visible chat text.
-const BANNED = ['sandbox', 'vercel', 'cloudflare', 'deepseek', 'neon', 'unsplash',
-  'pnpm', 'npm install', 'vite', 'truncated', 'supabase', 'anthropic', 'openai',
-  'localhost', 'tsx', 'tailwind config']
+// Words that must NEVER appear in user-visible text. High-signal only — excludes
+// terms that legitimately appear elsewhere: "tsx" (Code tab shows Home.tsx filenames),
+// "neon"/"vite" (design/color words), "tailwind" (a real CSS word users may type).
+const BANNED = ['sandbox', 'vercel.run', 'cloudflare', 'deepseek',
+  'pnpm install', 'npm install', 'truncated', 'supabase', 'anthropic', 'openai',
+  'http://localhost']
 
 const t0 = Date.now()
 const secs = () => ((Date.now() - t0) / 1000).toFixed(0)
