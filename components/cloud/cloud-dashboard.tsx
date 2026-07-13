@@ -241,8 +241,7 @@ function AiInfo() {
 
       <div className="flex flex-col gap-2">
         {[
-          { label: 'Model', value: 'Codemine Codey (DeepSeek V4 Flash)' },
-          { label: 'Endpoint', value: '/api/ai — injected automatically' },
+          { label: 'Model', value: 'Codemine Codey AI' },
           { label: 'Billing', value: 'Deducted from your Codey tokens' },
           { label: 'Rate limit', value: 'Based on your plan' },
         ].map(({ label, value }) => (
