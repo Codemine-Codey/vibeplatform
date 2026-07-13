@@ -106,7 +106,7 @@ export async function POST(req: Request) {
   if (action === 'provision') {
     if (!NEON_API_KEY) {
       return NextResponse.json(
-        { error: 'Neon API key not configured. Add NEON_API_KEY to environment variables.' },
+        { error: 'The database service isn\'t set up yet. Please try again shortly.' },
         { status: 503 }
       )
     }
@@ -147,11 +147,16 @@ export async function POST(req: Request) {
 
     if (!neonRes.ok) {
       const errText = await neonRes.text()
-      console.error('[neon] provision failed:', errText)
-      return NextResponse.json(
-        { error: 'Failed to create Neon database. Please try again.' },
-        { status: 502 }
-      )
+      console.error('[neon] provision failed:', neonRes.status, errText)
+      // Surface the real cause in plain English (never the vendor name).
+      const lower = errText.toLowerCase()
+      let userMsg = 'Couldn\'t set up your database right now. Please try again in a moment.'
+      if (/limit|exceeded|quota|maximum|too many/.test(lower)) {
+        userMsg = 'You\'ve reached the database limit for your plan. Delete an unused project\'s database, then try again.'
+      } else if (neonRes.status === 401 || neonRes.status === 403) {
+        userMsg = 'The database service rejected the request. Please try again shortly.'
+      }
+      return NextResponse.json({ error: userMsg }, { status: 502 })
     }
 
     const neonData = (await neonRes.json()) as NeonProjectResponse

@@ -354,10 +354,10 @@ export function NeonPanel({ className }: Props) {
             <DatabaseIcon className="h-7 w-7 text-foreground" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold">Postgres Database</h3>
+            <h3 className="text-sm font-semibold">Database</h3>
             <p className="mt-1 max-w-[260px] text-xs leading-relaxed text-muted-foreground">
-              Power your app with a serverless Postgres database. Scales to zero, instant
-              provisioning, SQL browser built in.
+              Store your app's data — users, posts, orders, anything. One click to set up,
+              with a built-in viewer to browse your data.
             </p>
           </div>
         </div>
@@ -365,10 +365,10 @@ export function NeonPanel({ className }: Props) {
         {/* Feature list */}
         <ul className="space-y-1.5 text-left">
           {[
-            'Serverless Postgres (scale to zero)',
+            'A real database for your app',
             '500 MB storage included',
-            'SQL query browser built in',
-            'Auto-injects DATABASE_URL into your app',
+            'Browse your data right here',
+            'Connects to your app automatically',
           ].map((feat) => (
             <li key={feat} className="flex items-center gap-2 text-xs text-muted-foreground">
               <CheckCircle2Icon className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
