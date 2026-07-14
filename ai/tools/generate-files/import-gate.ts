@@ -147,6 +147,10 @@ export const KNOWN_PACKAGES: Record<string, string> = {
   'qrcode.react': '^4.2.0',
   'react-helmet-async': '^2.0.5',
 
+  // ── On-device vision / ML (browser, no server) — for camera/face/hand/pose apps ──
+  '@mediapipe/tasks-vision': '^0.10.18',
+  '@mediapipe/tasks-audio': '^0.10.18',
+
   // ── 2D game engines (canvas/webgl, framework-agnostic) ──
   phaser: '^3.87.0',
   kaplay: '^3001.0.0',

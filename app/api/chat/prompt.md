@@ -170,6 +170,7 @@ Only for the rare build that needs them. Add to `package.json` in the SAME `gene
 - Drag and drop: `@dnd-kit/core` + `@dnd-kit/sortable`
 - Confetti: `canvas-confetti` → `import confetti from 'canvas-confetti'`
 - GSAP: `gsap` → `import { gsap } from 'gsap'`
+- **On-device vision/camera (face, hand, pose, gesture, object detection — runs in the browser, no server):** `@mediapipe/tasks-vision` → `import { FilesetResolver, HandLandmarker, FaceLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision'`. Use `navigator.mediaDevices.getUserMedia` for the camera. Great for gesture games, face filters, pose/fitness trackers, sign-language demos. Load the WASM fileset from the CDN: `await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm')`.
 
 If a package is NOT in §3.1 or §3.2: do NOT import it. Substitute with what we have.
 
