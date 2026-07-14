@@ -1678,7 +1678,8 @@ async function runPipeline({
       `  3. src/pages/Home.tsx — hero section ONLY, strictly ≤100 lines. Zero sections below the hero — no features, no about, no testimonials. Import and render <Phase2Sections /> at the bottom. That is ALL.\n` +
       `  4. src/components/Phase2Sections.tsx — EXACTLY: export default function Phase2Sections(){ return <div className="bg-background" style={{minHeight:'60vh'}} /> }\n` +
       `Phase 1 must stream in under 90 seconds — keep each file minimal and tight.\n` +
-      `Phase 2 = all remaining section components + sub-pages in the SECOND generateFiles call.\n` +
+      `Phase 2 = all remaining home-page SECTION components in the SECOND generateFiles call. SINGLE-PAGE LANDING by default: NO separate sub-page route files (About/Menu/Contact) — nav uses anchor-scroll to section ids on the home page, so it can never 404. Create routed sub-pages ONLY if the user explicitly asked for a multi-page site.\n` +
+      `MOBILE-ADAPTIVE (required): every section must be fully responsive — mobile-first Tailwind (base styles for phones, sm:/md:/lg: for larger), a working hamburger menu on small screens, fluid type/spacing, no fixed pixel widths or horizontal overflow. Test mentally at 375px wide.\n` +
       `NEVER dump all files into one generateFiles call — that pattern is for GAMES only.`
     : skill === 'webapp'
     ? `WEBAPP BUILD SPLIT (mandatory — same pattern as WEBSITE):
