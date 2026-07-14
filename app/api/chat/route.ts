@@ -730,7 +730,9 @@ async function headlessRuntimeCheck(
           const c = document.querySelector('canvas') as HTMLCanvasElement | null
           if (!c) return false
           const r = c.getBoundingClientRect()
-          return r.width > window.innerWidth * 0.5 && r.height > window.innerHeight * 0.4
+          // Any REAL game canvas (≥240px each side) — not just full-viewport ones. Fixed-size
+          // canvases (300×600 flappy, 480×480 board) were being skipped and never smoke-tested.
+          return r.width >= 240 && r.height >= 240
         })
         .catch(() => false)
       if (bigCanvas) {
@@ -775,17 +777,26 @@ async function headlessRuntimeCheck(
         await new Promise((r) => setTimeout(r, 450))
         const snap3 = await snap()
 
-        // Also check RAF frame count — verifies the loop is actually running
-        const frameCount = await page
-          .evaluate(() => (window as typeof window & { __cmFrameCount?: number }).__cmFrameCount ?? 0)
-          .catch(() => 0)
-        console.log(`[runtime-check] canvas game: frameCount=${frameCount}`)
+        // RAF frame count — only meaningful when the baked engine is used (it sets
+        // __cmFrameCount). For a CUSTOM game loop it's undefined → we must NOT flag the
+        // game broken on that alone (that false-positive was repairing working games).
+        const frameInfo = await page
+          .evaluate(() => {
+            const fc = (window as typeof window & { __cmFrameCount?: number }).__cmFrameCount
+            return { defined: typeof fc === 'number', count: typeof fc === 'number' ? fc : 0 }
+          })
+          .catch(() => ({ defined: false, count: 0 }))
+        const frameCount = frameInfo.count
+        console.log(`[runtime-check] canvas game: frameCount=${frameCount} (engine=${frameInfo.defined})`)
 
         if (snap0 && snap1 && snap2 && snap3 && snap0 !== 'tainted') {
           const noResponseAtAll = snap0 === snap1 && snap1 === snap2 && snap2 === snap3
           const frozeAfterStart = snap0 !== snap1 && snap1 === snap2 && snap2 === snap3
+          // Engine present but loop stalled = broken. Custom loop (frameInfo undefined) →
+          // trust the pixels only, so a working custom-RAF game is never wrongly flagged.
+          const engineLoopStalled = frameInfo.defined && frameCount < 10
 
-          if (noResponseAtAll || frameCount < 10) {
+          if (noResponseAtAll || engineLoopStalled) {
             return {
               status: 'broken',
               detail:

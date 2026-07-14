@@ -151,6 +151,12 @@ export const KNOWN_PACKAGES: Record<string, string> = {
   '@mediapipe/tasks-vision': '^0.10.18',
   '@mediapipe/tasks-audio': '^0.10.18',
 
+  // ── Game utilities ──
+  'simplex-noise': '^4.0.3',        // procedural terrain/worlds (hill climb, infinite runners)
+  nipplejs: '^0.10.2',              // on-screen joystick for MOBILE game controls
+  '@tweenjs/tween.js': '^25.0.0',   // smooth easing/tweening for movement + UI
+  'detect-collisions': '^9.30.0',   // fast 2D collision detection (broadphase)
+
   // ── 2D game engines (canvas/webgl, framework-agnostic) ──
   phaser: '^3.87.0',
   kaplay: '^3001.0.0',
