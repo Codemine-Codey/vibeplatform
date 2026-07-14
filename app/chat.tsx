@@ -372,9 +372,15 @@ export function Chat({ className }: Props) {
         <div className="flex items-center gap-2">
           <MessageCircleIcon className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="text-xs font-semibold truncate max-w-[200px]">
-            {/* Show the short project NAME only — never the raw prompt (long strings are
-                the prompt leaking through, so fall back to the brand). */}
-            {projectName && projectName.length <= 32 ? projectName : 'Codemine'}
+            {/* Show ONLY a real brand NAME (starts capitalized, ≤3 words, short). A prompt/
+                tagline like "your firm's digital presence" starts lowercase / is a phrase →
+                fall back to the brand so the user's prompt never leaks into the header. */}
+            {projectName &&
+            /^[A-Z0-9]/.test(projectName.trim()) &&
+            projectName.trim().split(/\s+/).length <= 3 &&
+            projectName.trim().length <= 24
+              ? projectName.trim()
+              : 'Codemine'}
           </span>
         </div>
         <div className="ml-auto flex items-center gap-1.5">

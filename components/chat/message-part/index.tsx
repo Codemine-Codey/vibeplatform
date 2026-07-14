@@ -21,12 +21,14 @@ export const MessagePart = memo(function MessagePart({
   part,
   partIndex,
 }: Props) {
-  // The user-facing chat is kept CLEAN. Internal build activity (workspace init, file
-  // writes, shell commands, reasoning, error reports, "starting preview…") is NOT shown —
-  // the animated BuildingIndicator covers progress while working. We render ONLY: the AI's
-  // prose, warm narration, and the get-sandbox-url message ONCE it is VERIFIED (url present),
-  // never its "getting preview ready" loading state.
-  if (part.type === 'data-get-sandbox-url') {
+  // The user-facing chat SHOWS: the AI's prose, warm narration, the file-creation
+  // animation (users like watching files build + the small code window), and the
+  // get-sandbox-url message ONLY once VERIFIED (url present). It HIDES the raw internal
+  // status noise: workspace init, shell commands ("starting preview server…"), reasoning,
+  // and error reports — those stay internal (the BuildingIndicator covers progress).
+  if (part.type === 'data-generating-files') {
+    return <GenerateFiles message={part.data} />
+  } else if (part.type === 'data-get-sandbox-url') {
     return part.data.url ? <GetSandboxURL message={part.data} /> : null
   } else if (part.type === 'data-narration') {
     return <Narration message={part.data} />
@@ -34,10 +36,9 @@ export const MessagePart = memo(function MessagePart({
     if (!part.text.trim()) return null
     return <Text part={part} />
   }
-  // Hidden from chat (internal only): data-generating-files, data-create-sandbox,
-  // data-run-command, reasoning, data-report-errors.
+  // Hidden from chat (internal only): data-create-sandbox, data-run-command, reasoning,
+  // data-report-errors.
   return null
 })
-// Keep imports referenced so linters don't flag them; these components are intentionally
-// no longer rendered in the user-facing chat (kept for potential internal/debug views).
-void GenerateFiles; void CreateSandbox; void RunCommand; void Reasoning; void ReportErrors
+// Intentionally not rendered in the user-facing chat (kept for potential internal views).
+void CreateSandbox; void RunCommand; void Reasoning; void ReportErrors
