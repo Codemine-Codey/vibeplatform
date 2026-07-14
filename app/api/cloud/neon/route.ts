@@ -141,6 +141,9 @@ export async function POST(req: Request) {
         project: {
           name: `cm-${projectId.slice(0, 20)}`,
           pg_version: 16,
+          // Neon now REQUIRES org_id to create a project (API keys are org-scoped).
+          // Without it the API returns 400 "org_id is required".
+          ...(process.env.NEON_ORG_ID ? { org_id: process.env.NEON_ORG_ID } : {}),
         },
       }),
     })
