@@ -1895,6 +1895,19 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   // app/game: text + (loadSkill?) + planProject + generateFiles + slack
   const maxSteps = skill === 'website' ? 14 : skill === 'webapp' ? 12 : 9 // website+webapp use 2-phase build
 
+  // ── #89: GENERATION DEADLINE (never die mid-generation → never blank) ─────────────
+  // Bound the AI generation so the pipeline ALWAYS has time to reach verify-before-reveal +
+  // the fallback within the 800s function budget. A complex build that overruns must NOT let
+  // the invocation die during `await aiResult.text` (which leaves the user on an infinite
+  // "Building…" with no preview). We abort generation ~210s before the cap; whatever files
+  // exist are then salvaged (shells from the manifest) and the render-check reveals a working
+  // preview or a clean branded fallback — never a blank/infinite spinner.
+  const genBudgetMs = Math.max(
+    60_000,
+    (invocationStart ?? Date.now()) + (maxDuration * 1000 - 210_000) - Date.now()
+  )
+  const genAbort = AbortSignal.timeout(genBudgetMs)
+
   const aiResult = streamText({
     ...getModelOptions(DEFAULT_MODEL),
     system: fullSystem,
@@ -1903,21 +1916,22 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     // Model's max output — planProject manifests and tool args must never truncate.
     maxOutputTokens: getMaxOutputTokens(DEFAULT_MODEL),
     tools: pipelineTools,
+    abortSignal: genAbort,
     onError: error => console.error('Pipeline AI error:', error),
   })
 
   writer.merge(aiResult.toUIMessageStream({ sendReasoning: false, sendStart: false }))
 
-  // Wait for generation (all files) to complete. No deadline-abort — cutting generation off
-  // mid-way is exactly what left a half-built project (App.tsx never written). One-shot on a
-  // scaffold is small enough to finish well inside the function budget.
-  const genHitDeadline = false
+  // Wait for generation. If it hits the deadline, we STOP and salvage — the render-check +
+  // fallback below still deliver a working preview or a clean fallback (never blank).
+  let genHitDeadline = false
   try {
     await aiResult.text
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (/abort|timeout|cancel/i.test(msg)) {
-      console.warn('Pipeline AI stopped early (non-fatal):', msg)
+      genHitDeadline = genAbort.aborted
+      console.warn(`Pipeline AI stopped early (non-fatal, deadline=${genHitDeadline}):`, msg)
     } else {
       console.error('Pipeline AI failed:', msg)
       writer.write({
