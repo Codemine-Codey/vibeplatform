@@ -371,8 +371,10 @@ export function Chat({ className }: Props) {
       <PanelHeader>
         <div className="flex items-center gap-2">
           <MessageCircleIcon className="w-3.5 h-3.5 text-muted-foreground" />
-          <span className="text-xs font-semibold">
-            {projectName ? projectName : 'Codemine'}
+          <span className="text-xs font-semibold truncate max-w-[200px]">
+            {/* Show the short project NAME only — never the raw prompt (long strings are
+                the prompt leaking through, so fall back to the brand). */}
+            {projectName && projectName.length <= 32 ? projectName : 'Codemine'}
           </span>
         </div>
         <div className="ml-auto flex items-center gap-1.5">

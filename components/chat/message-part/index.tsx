@@ -21,23 +21,23 @@ export const MessagePart = memo(function MessagePart({
   part,
   partIndex,
 }: Props) {
-  if (part.type === 'data-generating-files') {
-    return <GenerateFiles message={part.data} />
-  } else if (part.type === 'data-create-sandbox') {
-    return <CreateSandbox message={part.data} />
-  } else if (part.type === 'data-get-sandbox-url') {
-    return <GetSandboxURL message={part.data} />
-  } else if (part.type === 'data-run-command') {
-    return <RunCommand message={part.data} />
-  } else if (part.type === 'reasoning') {
-    return <Reasoning part={part} partIndex={partIndex} />
-  } else if (part.type === 'data-report-errors') {
-    return <ReportErrors />
+  // The user-facing chat is kept CLEAN. Internal build activity (workspace init, file
+  // writes, shell commands, reasoning, error reports, "starting preview…") is NOT shown —
+  // the animated BuildingIndicator covers progress while working. We render ONLY: the AI's
+  // prose, warm narration, and the get-sandbox-url message ONCE it is VERIFIED (url present),
+  // never its "getting preview ready" loading state.
+  if (part.type === 'data-get-sandbox-url') {
+    return part.data.url ? <GetSandboxURL message={part.data} /> : null
   } else if (part.type === 'data-narration') {
     return <Narration message={part.data} />
   } else if (part.type === 'text') {
     if (!part.text.trim()) return null
     return <Text part={part} />
   }
+  // Hidden from chat (internal only): data-generating-files, data-create-sandbox,
+  // data-run-command, reasoning, data-report-errors.
   return null
 })
+// Keep imports referenced so linters don't flag them; these components are intentionally
+// no longer rendered in the user-facing chat (kept for potential internal/debug views).
+void GenerateFiles; void CreateSandbox; void RunCommand; void Reasoning; void ReportErrors
