@@ -670,6 +670,18 @@ async function headlessRuntimeCheck(
       return { status: 'broken', detail: 'Runtime errors detected on the live page:\n' + errors.slice(0, 8).join('\n') }
     }
 
+    // Double-nav / hidden-content bug: a page that renders its OWN nav while Layout already
+    // wraps every page with a nav gives TWO navs and buries the real content (footer-only
+    // homepage). High-confidence structural break — precise repair instruction.
+    const navCount = await page.evaluate(() => document.querySelectorAll('nav').length).catch(() => 1)
+    if (navCount > 1) {
+      return {
+        status: 'broken',
+        detail:
+          `Double navigation bar (${navCount} <nav> elements): a page (e.g. src/pages/Home.tsx) renders its OWN <nav>/<header>/<footer>, but src/components/Layout.tsx ALREADY wraps every page with the nav + footer — so there are two navs and the page content is hidden. FIX: remove <nav>, <header>, and <footer> from Home.tsx (and any page file). Home must render ONLY its section components; Layout provides the nav + footer. Do this as a patchFile on Home.tsx.`,
+      }
+    }
+
     // ── Per-route verification: home renders, but do the OTHER pages? ──────────
     // Navigate every internal link the page exposes and confirm each route renders
     // without error. Catches a broken /shop or /about even when home is fine — the
@@ -1661,10 +1673,8 @@ async function runPipeline({
     `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
     `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
     `WORKFLOW: ${skill === 'website'
-      ? `SPEED IS CRITICAL — the user must see a live hero in ~90s, so DO THE FAST THING FIRST. ` +
-        `(1) IMMEDIATELY call generateFiles with the EXACTLY 4 Phase-1 files (src/index.css, src/components/Layout.tsx, src/pages/Home.tsx hero-only, src/components/Phase2Sections.tsx placeholder) — NO images, NO planProject, NO getUnsplashBatch before this. The hero uses a solid brand-colored background, so it needs no image. This gets the preview live fast. ` +
-        `(2) THEN, AFTER the Phase-1 preview: call generateImageBatch for the section images + planProject for the remaining files (these run while the user already sees the hero). ` +
-        `(3) THEN call generateFiles again for the Phase-2 section components. NEVER put images or planProject before the first generateFiles — that delays the preview by minutes.`
+      ? `SINGLE-PASS, COMPLETE landing page (quality over speed). (1) getUnsplashBatch/generateImageBatch for ALL section images + planProject with the COMPLETE file list (index.css, Layout.tsx, Home.tsx, and one component per section under src/components/sections/) — ONE phase, NO sub-pages. (2) generateFiles ALL those files in ONE call, complete and detailed. ` +
+        `STRUCTURE RULE (critical): Layout.tsx = nav + {children} + footer ONLY. Home.tsx = the section components ONLY (NO nav/header/footer inside Home — App.tsx already wraps it in Layout; duplicating chrome causes double navs + hidden content). Each section wrapped in <section id="..."> for anchor-scroll nav.`
       : skill === 'webapp'
       ? `(1) call planProject with the COMPLETE file list (every path you will generate — Phase 1 + all remaining), (2) FIRST generateFiles call: ONLY src/index.css + src/pages/Home.tsx, (3) SECOND generateFiles call: all remaining component files`
       : `(1) call planProject with the complete file list (every path you will generate), (2) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`}\n` +
@@ -1672,15 +1682,13 @@ async function runPipeline({
     `If you need packages not in the scaffold, include package.json in your generateFiles paths.\n`
 
   const fileCountGuidance = skill === 'website'
-    ? `WEBSITE BUILD SPLIT (mandatory — see §12): Phase 1 = EXACTLY 4 files:\n` +
-      `  1. src/index.css — CSS vars + @import font ONLY (~40 lines, no component styles)\n` +
-      `  2. src/components/Layout.tsx — nav + footer only (~70 lines max)\n` +
-      `  3. src/pages/Home.tsx — hero section ONLY, strictly ≤100 lines. Zero sections below the hero — no features, no about, no testimonials. Import and render <Phase2Sections /> at the bottom. That is ALL.\n` +
-      `  4. src/components/Phase2Sections.tsx — EXACTLY: export default function Phase2Sections(){ return <div className="bg-background" style={{minHeight:'60vh'}} /> }\n` +
-      `Phase 1 must stream in under 90 seconds — keep each file minimal and tight.\n` +
-      `Phase 2 = all remaining home-page SECTION components in the SECOND generateFiles call. SINGLE-PAGE LANDING by default: NO separate sub-page route files (About/Menu/Contact) — nav uses anchor-scroll to section ids on the home page, so it can never 404. Create routed sub-pages ONLY if the user explicitly asked for a multi-page site.\n` +
-      `MOBILE-ADAPTIVE (required): every section must be fully responsive — mobile-first Tailwind (base styles for phones, sm:/md:/lg: for larger), a working hamburger menu on small screens, fluid type/spacing, no fixed pixel widths or horizontal overflow. Test mentally at 375px wide.\n` +
-      `NEVER dump all files into one generateFiles call — that pattern is for GAMES only.`
+    ? `WEBSITE — SINGLE-PASS COMPLETE LANDING PAGE (see §12). Generate ALL files in ONE generateFiles call:\n` +
+      `  • src/index.css — brand tokens + bold Google font @import (never Inter).\n` +
+      `  • src/components/Layout.tsx — nav (brand + anchor-scroll links + mobile hamburger) + {children} + footer. NOTHING else.\n` +
+      `  • src/components/sections/*.tsx — ONE component per section, each a FULL rich section (real copy + real Unsplash images), each wrapped in <section id="...">. AT LEAST 6-7 sections (hero, about/story, services/features, stats or gallery, testimonials, pricing or process, CTA) unless the user asked for something smaller.\n` +
+      `  • src/pages/Home.tsx — imports + renders ALL the section components in order, NOTHING else. NO nav, NO header, NO footer inside Home (Layout provides them — duplicating = double nav + hidden content, the #1 website bug).\n` +
+      `MOBILE-ADAPTIVE (required): mobile-first Tailwind, working hamburger, fluid type/spacing, no fixed widths or horizontal overflow — great at 375px AND desktop.\n` +
+      `SINGLE-PAGE by default: NO separate sub-page route files — anchor-scroll nav can never 404. Build routed multi-page ONLY if the user's prompt explicitly asked for it (then YOU plan the pages).`
     : skill === 'webapp'
     ? `WEBAPP BUILD SPLIT (mandatory — same pattern as WEBSITE):
 Phase 1 = EXACTLY 2 files in the FIRST generateFiles call:
@@ -1754,7 +1762,10 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const phase1GF = generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, skipQualityGates: true }) as any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const guardedGF: any = (skill !== 'website' && skill !== 'webapp') ? rawGF : {
+  // Websites now build the COMPLETE landing page in ONE pass (rawGF) — the old 2-phase +
+  // enrichment split left footer-only homepages when the enrichment pass didn't fill the
+  // sections. Only webapp keeps the guarded 2-phase (its phase-1 is a self-contained app).
+  const guardedGF: any = (skill !== 'webapp') ? rawGF : {
     ...rawGF,
     execute: async (args: { sandboxId: string; paths: string[] }, ctx: unknown) => {
       if (!p1GFCalled) {
@@ -2022,7 +2033,10 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   // URLs + the locked manifest) is what a self-contained enrichment phase re-uses so
   // each full page matches phase 1. Persist the manifest on the run row now (sets up
   // STEP 3's resume). All best-effort — never blocks the preview.
-  const enrichManifest = planBox.manifest
+  // Websites are SINGLE-PASS now (complete landing page in one generateFiles call) — never
+  // run enrichment/shells for them. The old 2-phase enrichment is what left footer-only
+  // homepages when it didn't fill the sections. Only webapp (self-contained phase-1) enriches.
+  const enrichManifest = skill === 'website' ? null : planBox.manifest
   let genContext: import('ai').ModelMessage[] = []
   if (enrichManifest && enrichManifest.multiPhase) {
     try {

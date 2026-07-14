@@ -756,46 +756,27 @@ Rule: load AT MOST what you need. Never loop on skill loads.
 9. `getSandboxURL` immediately if clean; fix with `patchFile` if flagged.
 10. Confirm to the user (2–3 lines).
 
-### FOR WEBSITES — MANDATORY TWO-PHASE PREVIEW BUILD:
+### FOR WEBSITES — SINGLE-PASS, COMPLETE, DETAILED LANDING PAGE:
 
-⚠️ **CRITICAL:** Websites ALWAYS use this 2-phase build. NEVER do "all files in one generateFiles call" for a website. The 2-file pattern (index.css + Home.tsx) is for GAMES only — websites require 4 files in Phase 1 and 5+ more files in Phase 2.
+Quality over speed. Build the WHOLE landing page in ONE pass so it's complete and correct when the preview appears — no fragile "fill it in later" step that can leave an empty page.
 
-**WHY 2-PHASE:** The user sees a live hero preview in ~2 minutes instead of waiting 10+ minutes. Phase 1 gets the hero live FIRST — before images or planning. Phase 2 fills in the rest silently while they explore.
+**⛔ THE #1 STRUCTURAL RULE (prevents the double-nav / blank-content bug):**
+- `src/App.tsx` (scaffold) ALREADY wraps every page in `src/components/Layout.tsx`.
+- So `Layout.tsx` = the CHROME: the nav bar + the footer, and `{children}` between them. NOTHING else.
+- `src/pages/Home.tsx` = the PAGE CONTENT ONLY: the hero + all the sections. **Home.tsx must contain NO `<nav>`, NO `<header>`, NO `<footer>` — Layout already provides them.** Putting nav/footer in BOTH gives double navs and HIDES the content (this is exactly what breaks the homepage). Home renders ONLY sections.
 
----
-
-**PHASE 1 — 4 FILES IMMEDIATELY, NO UNSPLASH, NO PLAN:**
-
-Phase 1 files have NO images and need no plan — write them first, get the preview live fast.
-
-1. One sentence confirming what you're building (with a specific detail about its visual identity).
-2. `generateFiles` — **EXACTLY THESE 4 PATHS, NO MORE, NO FEWER** (do this FIRST, immediately after step 1):
-   - `src/index.css` — CSS variables + Google font `@import` ONLY. No component styles. ≤50 lines. Pick a bold, specific Google font pair that fits the brand — never default to Inter.
-   - `src/components/Layout.tsx` — nav + footer ONLY. ≤80 lines. No section components here. Nav links are ANCHOR SCROLL to home-page section ids (`href="#about"` / scrollIntoView) — NOT routes. (Only build routed nav links if the user explicitly asked for a multi-page site.)
-   - `src/pages/Home.tsx` — **HERO SECTION ONLY. ≤100 lines strictly.** Use a solid brand-colored background (no image needed here — keep it clean and fast). Include: heading, subheading, CTA button. The ONLY content beyond the hero wrapper is: `import Phase2Sections from '@/components/Phase2Sections'` and `<Phase2Sections />` as the last child.
-   - `src/components/Phase2Sections.tsx` — ONLY this placeholder, nothing else:
-     ```tsx
-     export default function Phase2Sections() {
-       return <div className="bg-background" style={{ minHeight: '60vh' }} />
-     }
-     ```
-   **Do NOT include package.json, vite.config.ts, tsconfig.json, src/App.tsx, src/main.tsx — they are pre-written by the platform and must not be regenerated.**
-3. The platform handles install + dev server + preview URL automatically. Say NOTHING to the user — go straight to Phase 2 without any chat text.
-
----
-
-**PHASE 2 — IMMEDIATELY AFTER STEP 3, NO USER INPUT:**
-
-4. `getUnsplashBatch` + `planProject` in the SAME step (fetch all project images + commit the Phase 2 file manifest simultaneously).
-5. `generateFiles` for the COMPLETE HOMEPAGE — every homepage section as its own component (new files only — never touch Phase 1 files):
-   - Each section as its own component: `src/components/sections/FeaturesSection.tsx`, `PricingSection.tsx`, `TestimonialsSection.tsx`, `CTASection.tsx`, etc. — FULL implementations with real Unsplash image URLs, no stubs. Give each section a matching `id` (`<section id="features">`) for anchor nav.
-   - **SINGLE-PAGE LANDING BY DEFAULT — do NOT create ANY separate sub-page route files** (no `src/pages/About.tsx`, `Menu.tsx`, `Contact.tsx`). Everything lives on the ONE home page. Nav links use **anchor scroll** to the section ids on the same page (`<a href="#about">` or `onClick={() => document.getElementById('about')?.scrollIntoView({behavior:'smooth'})}`). This means nav can NEVER 404. Do NOT declare sub-pages in `planProject`.
-   - After the homepage is live, OFFER separate pages: "Want an About or Menu page as its own route? Just ask." ONLY when the user explicitly asks do you create a routed `src/pages/<Name>.tsx` + add a real nav link to it. (If the user's ORIGINAL prompt asked for a multi-page site, build the routed pages from the start instead.)
-6. `patchFile` on `src/components/Phase2Sections.tsx` — replace the placeholder body with imports and renders of all homepage sections. Hot-reload shows each section appearing live in the user's preview.
-7. Confirm to user (2–3 lines — homepage is live, what to explore first, and OFFER the sub-pages: "I can add an About, Menu, and Contact page whenever you want — just tell me which.").
-
-**Phase 2 `generateFiles` is ALLOWED** — all Phase 2 files are brand-new (never existed in Phase 1).
-**After Phase 1:** NEVER re-read Phase 1 files, NEVER regenerate them, NEVER patch `vite.config.ts`.
+**Steps:**
+1. One sentence confirming what you're building (one specific visual detail).
+2. `getUnsplashBatch` (or `generateImageBatch`) for ALL section images, and `planProject` with the COMPLETE file list — in the same step. Files: `src/index.css`, `src/components/Layout.tsx`, `src/pages/Home.tsx`, and one component per section under `src/components/sections/` (HeroSection, AboutSection, ServicesSection, StatsSection, TestimonialsSection, CTASection, etc.). ONE phase — no sub-pages.
+3. `generateFiles` — ALL of those files in ONE call, complete and detailed:
+   - `src/index.css` — brand tokens + a bold Google font pair (`@import`). Never default to Inter.
+   - `src/components/Layout.tsx` — nav (with the brand + anchor-scroll links) + `{children}` + footer. Nav links ANCHOR-SCROLL to section ids (`href="#about"` / `scrollIntoView`), NEVER routes. Mobile hamburger menu.
+   - `src/components/sections/*.tsx` — each a FULL, rich section with real copy and real Unsplash image URLs, each wrapped in `<section id="about">` etc. No stubs, no lorem, no placeholder greys.
+   - `src/pages/Home.tsx` — imports and renders ALL the section components in order. NOTHING else (no nav, no footer). ~30-60 lines.
+   - **Do NOT generate** package.json/vite.config.ts/tsconfig.json/src/App.tsx/src/main.tsx (scaffold-owned).
+4. **MOBILE-ADAPTIVE (required):** every section responsive, mobile-first Tailwind, working hamburger, fluid type/spacing, no fixed widths or horizontal overflow. Must look great at 375px AND desktop.
+5. **SINGLE-PAGE BY DEFAULT — no separate sub-page route files** (`About.tsx`/`Menu.tsx`/`Contact.tsx`). Everything is one scroll. (Build routed sub-pages ONLY if the user's prompt explicitly asked for a multi-page site.)
+6. Confirm (2-3 lines — what's live, what to scroll to first) and OFFER: "Want an About or Services page as its own route? Just ask."
 
 ---
 
