@@ -323,6 +323,18 @@ export function fixUnknownLocalImports(
     return known.has(spec) || known.has(normalized) || known.has(spec + '/index')
   }
 
+  // Only STRIP a genuinely-unresolvable import: a hallucinated shadcn primitive
+  // (@/components/ui/<name> that isn't one of the real scaffold components). EVERY other
+  // unknown local import (@/components/HomeSections, @/pages/About, @/lib/foo, ./X, ../X)
+  // is a plausible SOURCE FILE that the import-closure pass will GENERATE — so we KEEP it.
+  // Stripping those was the bug: it deleted the reference to a not-yet-generated file
+  // BEFORE the closure could see it → a load-bearing missing file (e.g. HomeSections) →
+  // blank preview with nothing flagged. Keep → closure creates the file → app renders.
+  function isStrippable(spec: string): boolean {
+    return /^@\/components\/ui\//.test(spec.replace(/\/index$/, ''))
+  }
+  const keep = (spec: string): boolean => isKnown(spec) || !isStrippable(spec)
+
   const lines = content.split('\n')
   const out: string[] = []
   let multilineBuffer: string[] = []
@@ -336,10 +348,10 @@ export function fixUnknownLocalImports(
       if (closeMatch) {
         inMultiline = false
         const spec = closeMatch[1]
-        if (isKnown(spec)) {
+        if (keep(spec)) {
           out.push(...multilineBuffer)
         } else {
-          console.warn(`[import-gate] stripped unknown multi-line @/ import: ${spec} from ${filePath}`)
+          console.warn(`[import-gate] stripped invalid multi-line @/ import: ${spec} from ${filePath}`)
         }
         multilineBuffer = []
       }
@@ -351,10 +363,10 @@ export function fixUnknownLocalImports(
     const singleMatch = line.match(/^\s*(?:import|export)\b.+?from\s+['"](@\/[^'"]+)['"]/)
     if (singleMatch) {
       const spec = singleMatch[1]
-      if (isKnown(spec)) {
+      if (keep(spec)) {
         out.push(line)
       } else {
-        console.warn(`[import-gate] stripped unknown @/ import: ${spec} from ${filePath}`)
+        console.warn(`[import-gate] stripped invalid @/ import: ${spec} from ${filePath}`)
         // Don't push — drops the line
       }
       continue
