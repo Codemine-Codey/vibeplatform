@@ -2487,6 +2487,20 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     }
   }
 
+  // ── Multi-page 404 GUARD (websites) ───────────────────────────────────────────────
+  // The per-route render-check DETECTS a nav link that 404s, but the LLM repair can only
+  // EDIT existing files — it can't CREATE a missing page. ensureNavShells is the
+  // deterministic creator: it reads Layout.tsx, finds every page the nav links to, and
+  // writes a real branded page for any that doesn't exist. It already ran for webapps but
+  // NOT websites (single-pass rawGF) — which is exactly why multi-page sites 404'd on every
+  // page but Home. Runs BEFORE the render check so it verifies clean. Idempotent (fills
+  // gaps only), so pages the AI DID build are untouched.
+  if (skill === 'website' && !devError) {
+    try { await ensureNavShells(sandbox, brandName ?? undefined) } catch (e) {
+      console.warn('[nav-shells] website guard failed (non-fatal):', e instanceof Error ? e.message : e)
+    }
+  }
+
   // ── Step 6.5: Headless quality check (repairs arrive live via Vite HMR) ───────────
   // Client already has the URL — any file writes done here are picked up automatically.
   let rtResult: { status: 'ok' | 'broken' | 'skipped'; detail: string; score?: number | null; screenshot?: Buffer } | null = null

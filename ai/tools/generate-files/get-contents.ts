@@ -236,6 +236,7 @@ const GEN_SYSTEM =
   '- Use the contract\'s exact font pairing via Google Fonts @import in src/index.css. The fonts MUST be available on Google Fonts (the brief picks Google-available families). NEVER use Geist/Satoshi/Cabinet Grotesk (not on Google Fonts) — they will fail to load.\n' +
   '- Honor the layout archetype and signature moves. No generic three-equal-cards, no centered-mesh hero, no default Inter/Roboto as the display face.\n' +
   '- Establish a clear type scale (one large display size, one heading size, one body size) and consistent spacing.\n' +
+  '- BACKGROUND = LEGIBILITY FIRST. Any background treatment (grain, gradient, particles, blobs, 3D) sits QUIETLY behind content at LOW opacity — it must NEVER make text hard to read or fight the content. Grain/noise ≤ ~6% opacity. If in doubt, use a clean solid token background. A busy/noisy background that hurts readability is a FAILURE — subtle and readable beats loud every time.\n' +
   '\n## ROUTING & LINKS — never strand the user on a blank screen.\n' +
   '- The app MUST include a catch-all route LAST: <Route path="*" element={<NotFound />} /> rendering a simple, on-brand "page not found" with a link home. A blank screen is never acceptable.\n' +
   '- Only use <Link to="/x"> for pages you ACTUALLY build a <Route> for. For a link you are NOT building a page for (e.g. a footer "Terms"/"Privacy" you did not create), DO NOT navigate — render it as a non-navigating element (a <button>/<span> styled as a link, or href="#" with onClick preventDefault). A visible link must either work or do nothing — never lead to a blank route.\n' +
@@ -277,111 +278,96 @@ export async function* getContents(
   const allPaths = orderForResilience(params.paths)
   const written = new Set<string>()
 
-  // ── RAW-TEXT, NONCE-FENCED TRANSPORT + P0-A MANIFEST CLOSURE ───────────────────────────────
-  // Files are streamed as PLAIN TEXT between unguessable fences — never encoded inside a JSON
-  // tool-call string. Because the body is never JSON-escaped, it CANNOT be mangled by bad escaping
-  // (the `true]}` / dropped-import class is impossible here) and file size stops mattering.
+  // ── PER-FILE SCOPED GENERATION (anti-drift — the single biggest quality lever) ─────────────
+  // Instead of ONE model call writing every file (which DRIFTS — the model forgets the palette/
+  // tokens/archetype by file 6 and leaves later sections thin/generic), generate ONE file per
+  // call, each with the SAME design plan (DESIGN CONTRACT) pinned at the top and the full file
+  // list for imports. A fresh, focused call per file cannot drift — this is what keeps every
+  // section on-theme and fully filled. SERIAL, not parallel: parallel streamText destabilized
+  // the dev server here twice (see note above) — serial keeps that stability while killing drift.
   //
-  // CLOSURE CONTRACT (P0-A): a file is written ONLY when its CMEND fence arrives — a truncated file
-  // (no END) is dropped, never shipped partial. Then we LOOP: any manifest path still unwritten
-  // (truncated or skipped) is re-requested — ONLY the missing files — for up to MAX_ROUNDS. This
-  // turns the old manual "Please continue from where you left off" click into a deterministic job
-  // the pipeline does itself. Truncation stops being a user-visible failure.
-  const MAX_ROUNDS = 3
-  for (let round = 0; round < MAX_ROUNDS; round++) {
-    const pending = allPaths.filter(p => !written.has(p))
-    if (pending.length === 0) break
+  // Transport stays the raw-text, nonce-fenced format (never JSON-escaped → the `true]}`/dropped-
+  // import class is impossible). A file is kept ONLY when its CMEND fence arrives; a truncated/
+  // corrupt file is retried (up to 2 attempts/file), then left to the pipeline's missing-file
+  // backstop + the section-completeness gate.
+  for (const path of allPaths) {
+    if (abortSignal?.aborted) break
+    if (written.has(path)) continue
+    const others = allPaths.filter(p => p !== path)
 
-    const nonce = randomUUID().replace(/-/g, '').slice(0, 16)
-    const header =
-      round === 0
-        ? `Output EVERY file listed below as RAW TEXT in EXACTLY this delimited format`
-        : `The previous output was cut off before all files were finished. Output ONLY the files listed below — each one COMPLETE, start to finish — in EXACTLY this delimited format`
-    const instruction =
-      `${header} — NO JSON, NO markdown code fences, NO commentary between blocks:\n\n` +
-      `<<<CMFILE:${nonce}:relative/path/here.tsx>>>\n` +
-      `<the complete file content, written literally exactly as it should be saved to disk>\n` +
-      `<<<CMEND:${nonce}>>>\n\n` +
-      `Rules:\n` +
-      `- The path on each CMFILE line MUST exactly match one path from the list below.\n` +
-      `- Put the ENTIRE file between its CMFILE and CMEND lines. Write the code LITERALLY — do not escape quotes or newlines, do not wrap in backticks.\n` +
-      `- One CMFILE/CMEND block per file. Output nothing outside the blocks.\n\n` +
-      `Write them IN THIS ORDER (foundation + pages first, the App/router that imports them LAST — so the app stays coherent even if generation is interrupted):\n` +
-      pending.map(p => `- ${p}`).join('\n')
+    for (let attempt = 0; attempt < 2 && !written.has(path); attempt++) {
+      const nonce = randomUUID().replace(/-/g, '').slice(0, 16)
+      const instruction =
+        `Generate EXACTLY ONE file — \`${path}\` — as RAW TEXT in this delimited format ` +
+        `(NO JSON, NO markdown code fences, NO commentary):\n\n` +
+        `<<<CMFILE:${nonce}:${path}>>>\n` +
+        `<the complete file content, written literally exactly as it should be saved to disk>\n` +
+        `<<<CMEND:${nonce}>>>\n\n` +
+        `Rules:\n` +
+        `- Output ONLY this one file, COMPLETE start to finish, between the fences. Nothing else.\n` +
+        `- Write the code LITERALLY — do not escape quotes or newlines, do not wrap in backticks.\n` +
+        `- Stay 100% consistent with the DESIGN CONTRACT (identical colour tokens, fonts, archetype, spacing) — this file is one part of a cohesive site, so it MUST match the others.\n` +
+        `- Make it RICH and COMPLETE: real copy, real imagery, full styling. Never a thin stub, placeholder, or "coming soon".\n` +
+        (others.length
+          ? `\nOther files in this project (they EXIST — import from them as needed, do NOT redefine them):\n${others.map(p => `- ${p}`).join('\n')}`
+          : '')
 
-    // Cap each round at 120s regardless of the outer deadline. Without this,
-    // a single round for a physics-heavy game can run 3-5 min per attempt,
-    // and MAX_ROUNDS=3 compounds that to 9-15 min of wall time.
-    const roundTimeout = AbortSignal.timeout(120_000)
-    const effectiveSignal = abortSignal
-      ? AbortSignal.any([abortSignal, roundTimeout])
-      : roundTimeout
+      // Per-file cap so a single stubborn file can't burn the whole budget; the outer
+      // deadline (abortSignal) still wins if the invocation nears the function cap.
+      const perFileTimeout = AbortSignal.timeout(90_000)
+      const effectiveSignal = abortSignal
+        ? AbortSignal.any([abortSignal, perFileTimeout])
+        : perFileTimeout
 
-    const result = streamText({
-      ...getModelOptions(modelId),
-      maxOutputTokens: getMaxOutputTokens(modelId),
-      system: buildGenSystem(designContext),
-      messages: [...messages, { role: 'user' as const, content: instruction }],
-      abortSignal: effectiveSignal,
-      onError: err => console.error('[getContents] stream error:', err),
-    })
+      let buffer = ''
+      let got = false
+      try {
+        const result = streamText({
+          ...getModelOptions(modelId),
+          maxOutputTokens: getMaxOutputTokens(modelId),
+          system: buildGenSystem(designContext),
+          messages: [...messages, { role: 'user' as const, content: instruction }],
+          abortSignal: effectiveSignal,
+          onError: err => console.error(`[getContents] stream error for ${path}:`, err),
+        })
 
-    // Parse for COMPLETE <<<CMFILE:nonce:path>>> … <<<CMEND:nonce>>> blocks. Match on fence
-    // STRUCTURE, not the exact nonce — the marker is already unique enough that it can't collide
-    // with real code, and tolerating a mangled nonce means one stray char never breaks the parse.
-    const blockRe = /<<<CMFILE:[^:>\n]+:(.+?)>>>\r?\n([\s\S]*?)\r?\n?<<<CMEND[^>\n]*>>>/g
-    let buffer = ''
-    for await (const delta of result.textStream) {
-      buffer += delta
-      blockRe.lastIndex = 0
-      let consumedTo = 0
-      let m: RegExpExecArray | null
-      while ((m = blockRe.exec(buffer)) !== null) {
-        consumedTo = m.index + m[0].length
-        const filePath = m[1].trim()
-        if (!allPaths.includes(filePath) || written.has(filePath)) continue
-        // INTEGRITY GATE (defence in depth) — reject empty/garbage before it's written; the missing
-        // file is then re-requested in the next round instead of shipping corruption.
-        const clean = sanitizeContent(filePath, m[2])
-        if (clean === null) {
-          console.warn(`[getContents] rejected corrupted/empty content for ${filePath} — will re-request`)
-          continue
-        }
-        written.add(filePath)
-        for (const file of splitConcatenated(filePath, clean, allPaths)) {
-          // Mark EVERY produced path written (incl. concatenated splits) so closure sees them.
-          written.add(file.path)
-          const fixed = fixIcons(file.path, fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content)))))
-          // Hard pre-write gate: strip any @/ imports that don't resolve to a scaffold
-          // path or a file in this generation batch. Converts "module not found" (kills
-          // ALL rendering) into "X is not defined" (only breaks the component using it),
-          // giving verifyAndRepair a precise, fixable target instead of a fatal cascade.
-          const gated = fixUnknownLocalImports(file.path, fixed, allPaths)
-          // Log any remaining unknown imports for telemetry (should be zero after fix)
-          const badImports = auditLocalImports(file.path, gated, allPaths)
-          if (badImports.length > 0) {
-            console.warn(`[import-audit] ${file.path} still has unknown @/ imports after gate: ${badImports.join(', ')}`)
+        const blockRe = /<<<CMFILE:[^:>\n]+:(.+?)>>>\r?\n([\s\S]*?)\r?\n?<<<CMEND[^>\n]*>>>/g
+        for await (const delta of result.textStream) {
+          buffer += delta
+          blockRe.lastIndex = 0
+          let m: RegExpExecArray | null
+          while ((m = blockRe.exec(buffer)) !== null) {
+            const echoed = m[1].trim()
+            // Accept the block: use the echoed path if it's a known target, else the requested one.
+            const filePath = allPaths.includes(echoed) ? echoed : path
+            if (written.has(filePath)) continue
+            const clean = sanitizeContent(filePath, m[2])
+            if (clean === null) {
+              console.warn(`[getContents] rejected corrupted/empty content for ${filePath} — will retry`)
+              continue
+            }
+            written.add(filePath)
+            for (const file of splitConcatenated(filePath, clean, allPaths)) {
+              written.add(file.path)
+              const fixed = fixIcons(file.path, fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content)))))
+              const gated = fixUnknownLocalImports(file.path, fixed, allPaths)
+              const badImports = auditLocalImports(file.path, gated, allPaths)
+              if (badImports.length > 0) console.warn(`[import-audit] ${file.path} unknown @/ imports after gate: ${badImports.join(', ')}`)
+              yield { files: [{ path: file.path, content: gated }], paths: [file.path], written: [] }
+            }
+            got = true
           }
-          yield {
-            files: [{ path: file.path, content: gated }],
-            paths: [file.path],
-            written: [],
-          }
+          if (got) break // this file is complete — stop reading, move to the next file
         }
+      } catch (e) {
+        console.warn(`[getContents] per-file gen failed for ${path} (attempt ${attempt + 1}):`, e instanceof Error ? e.message : e)
       }
-      if (consumedTo > 0) buffer = buffer.slice(consumedTo)
-    }
-
-    if (round > 0) {
-      const recovered = pending.filter(p => written.has(p)).length
-      console.warn(`[getContents] auto-continue round ${round}: re-requested ${pending.length}, recovered ${recovered}`)
+      if (abortSignal?.aborted) break
     }
   }
 
   const stillMissing = allPaths.filter(p => !written.has(p))
   if (stillMissing.length > 0) {
-    // Rare: after MAX_ROUNDS a file never completed. The pipeline's import-closure / missing-file
-    // handling is the final backstop; log loudly so it's visible in the reliability metrics.
-    console.warn(`[getContents] CLOSURE INCOMPLETE — ${stillMissing.length} file(s) unrecovered after ${MAX_ROUNDS} rounds: ${stillMissing.join(', ')}`)
+    console.warn(`[getContents] per-file INCOMPLETE — ${stillMissing.length} file(s) unrecovered: ${stillMissing.join(', ')}`)
   }
 }
