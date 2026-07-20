@@ -1259,6 +1259,16 @@ export async function POST(req: Request) {
             return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
           }
 
+          // INSTANT reassurance — emitted BEFORE classify + brief + the AI's opening line.
+          // Those now THINK (reasoning on for brief/planning), so the AI's own first line
+          // takes longer to arrive; the user must never stare at silence. This subtle line
+          // shows immediately, the moment the build starts.
+          writer.write({
+            id: 'srv-hello',
+            type: 'data-narration',
+            data: { text: "Starting your workspace — I'm on it. Your preview will be ready in a few minutes." },
+          })
+
         let skill: Skill | null = null
         let clarify = false
 
@@ -2090,7 +2100,10 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   const genAbort = AbortSignal.timeout(genBudgetMs)
 
   const aiResult = streamText({
-    ...getModelOptions(DEFAULT_MODEL),
+    // Thinking ON for the ORCHESTRATION/PLANNING loop (it decides the file plan + tool
+    // calls; the actual file CONTENT is generated separately in getContents WITHOUT
+    // reasoning). So planning gets a deliberate think while per-file generation stays fast.
+    ...getModelOptions(DEFAULT_MODEL, { reasoning: true }),
     system: fullSystem,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(maxSteps),

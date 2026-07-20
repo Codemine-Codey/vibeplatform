@@ -21,10 +21,10 @@ export async function expandPrompt(
     await generateText({
       // The brief is a structured tool call whose fields (archetype, palette, fonts,
       // signature moves, multi-page pageMap) pin the ENTIRE design direction — so it runs
-      // on the strong BRIEF_MODEL, not the fast classifier model. Token budget is generous
-      // so the richer schema (visualNarrative + pageMap + signature moves) never truncates
-      // the tool call into a failure → basic fallback.
-      ...getModelOptions(BRIEF_MODEL),
+      // on the strong BRIEF_MODEL WITH THINKING ON (reasoning:true → effort high): a short
+      // deliberate think measurably sharpens the archetype/palette/page-plan decisions.
+      // Token budget is generous so the richer schema never truncates into a fallback.
+      ...getModelOptions(BRIEF_MODEL, { reasoning: true }),
       maxOutputTokens: 16000,
       stopWhen: stepCountIs(2),
       system: `You are a creative director for a premium web builder. Expand the user's prompt into a detailed project brief.

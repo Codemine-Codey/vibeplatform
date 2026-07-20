@@ -136,6 +136,32 @@ const deepseekProvider = createOpenAI({
   },
 })
 
+// Direct DeepSeek WITH thinking ON — used ONLY for the design BRIEF + planning, where a
+// short deliberate think measurably improves the archetype/palette/page-plan decisions.
+// Per DeepSeek's API docs: thinking is enabled via `thinking:{type:'enabled'}`; effort is
+// `reasoning_effort` — but low/medium both MAP TO high, so "medium" == high here (only
+// high + max are distinct). We use high (the sensible default). Thinking mode does NOT
+// support temperature/top_p/presence_penalty/frequency_penalty, so we strip them.
+const deepseekReasoningProvider = createOpenAI({
+  baseURL: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com/v1',
+  apiKey: process.env.DEEPSEEK_API_KEY ?? '',
+  fetch: async (url, init) => {
+    if (init?.body) {
+      try {
+        const body = JSON.parse(init.body as string)
+        body.thinking = { type: 'enabled' }
+        body.reasoning_effort = 'high' // low/medium → high on DeepSeek; high is the effective "medium"
+        delete body.temperature
+        delete body.top_p
+        delete body.presence_penalty
+        delete body.frequency_penalty
+        init = { ...init, body: JSON.stringify(body) }
+      } catch { }
+    }
+    return fetch(url, init)
+  },
+})
+
 export interface ModelOptions {
   model: LanguageModelV3
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -170,6 +196,8 @@ export function getModelOptions(
       },
     }
   }
-  // Direct DeepSeek (Flash) via CF AI Gateway
-  return { model: instrument(deepseekProvider.chat(modelId) as LanguageModelV3, modelId) }
+  // Direct DeepSeek. Brief/planning opt into thinking (reasoning:true) via the
+  // reasoning provider; everything else stays on the fast thinking-disabled provider.
+  const provider = opts?.reasoning ? deepseekReasoningProvider : deepseekProvider
+  return { model: instrument(provider.chat(modelId) as LanguageModelV3, modelId) }
 }
