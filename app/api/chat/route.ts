@@ -132,24 +132,75 @@ function buildProjectConstraints(messages: ChatUIMessage[]): string {
 // the edit system prompt (Lovable/Google "active codebase tree every turn" pattern). This
 // grounds the AI in the REAL current files — more reliable than the message-derived list,
 // which goes stale after enrichment or a reopen. One cheap round-trip (~1-2s).
+// W3 — Graphify-style code map for EDITS. The graphify CLI is a local/interactive-assistant
+// tool (Python, tree-sitter) that doesn't drop into a serverless edit pipeline; so we build
+// its CORE VALUE natively: a queryable structural map (what's defined where + how files
+// connect + who renders what). File contents are parsed server-side; only the COMPACT map is
+// injected — the AI edits the exact right file instead of grep-guessing (which produced the
+// "no change was made" edits), at a fraction of the tokens of reading every file.
 async function readActiveCodebase(sandboxId: string): Promise<string> {
   try {
     const sandbox = await Sandbox.get({ sandboxId })
-    const treeCmd = await sandbox.runCommand({
+    // One command dumps every source file (bounded) with a delimiter, so we can parse
+    // structure in TS without a round-trip per file.
+    const dumpCmd = await sandbox.runCommand({
       detached: true, cmd: 'bash',
-      args: ['-c', "cd /vercel/sandbox && find src -type f \\( -name '*.tsx' -o -name '*.ts' -o -name '*.css' \\) 2>/dev/null | sort | head -100"],
+      args: ['-c', "cd /vercel/sandbox && find src -type f \\( -name '*.tsx' -o -name '*.ts' -o -name '*.css' \\) 2>/dev/null | sort | head -90 | while IFS= read -r f; do echo \"@@CMFILE@@$f\"; head -c 9000 \"$f\"; echo; done"],
     })
-    const tree = (await (await treeCmd.wait()).stdout()).trim()
-    if (!tree) return ''
+    const dump = (await (await dumpCmd.wait()).stdout())
+    if (!dump.trim()) return ''
+
+    const chunks = dump.split('@@CMFILE@@').map(c => c.trim()).filter(Boolean)
+    interface FileInfo { path: string; exports: string[]; localImports: string[]; rendered: string[] }
+    const files: FileInfo[] = []
+    for (const chunk of chunks) {
+      const nl = chunk.indexOf('\n')
+      const path = (nl === -1 ? chunk : chunk.slice(0, nl)).trim()
+      const content = nl === -1 ? '' : chunk.slice(nl + 1)
+      if (!path || (!path.endsWith('.tsx') && !path.endsWith('.ts') && !path.endsWith('.css'))) continue
+      if (path.endsWith('.css')) { files.push({ path, exports: [], localImports: [], rendered: [] }); continue }
+      const exports = new Set<string>()
+      for (const m of content.matchAll(/export\s+default\s+(?:function|class)?\s*([A-Z][A-Za-z0-9_]*)/g)) exports.add(m[1])
+      if (/export\s+default\s+(?:function|\()/.test(content) && exports.size === 0) exports.add('default')
+      for (const m of content.matchAll(/export\s+(?:const|function|class)\s+([A-Za-z0-9_]+)/g)) exports.add(m[1])
+      for (const m of content.matchAll(/export\s*\{([^}]+)\}/g)) for (const n of m[1].split(',')) { const t = n.split(/\s+as\s+/)[0].trim(); if (t) exports.add(t) }
+      const localImports = new Set<string>()
+      for (const m of content.matchAll(/from\s*['"]((?:@\/|\.\.?\/)[^'"]+)['"]/g)) localImports.add(m[1])
+      const rendered = new Set<string>()
+      for (const m of content.matchAll(/<([A-Z][A-Za-z0-9]+)[\s/>]/g)) rendered.add(m[1])
+      files.push({ path, exports: [...exports], localImports: [...localImports].slice(0, 8), rendered: [...rendered].slice(0, 10) })
+    }
+    if (files.length === 0) return ''
+
+    // Reverse index: which files render/use each exported component (the "who uses X" edge).
+    const usedBy = new Map<string, Set<string>>()
+    for (const f of files) for (const comp of f.rendered) {
+      if (!usedBy.has(comp)) usedBy.set(comp, new Set())
+      usedBy.get(comp)!.add(f.path.replace(/^src\//, ''))
+    }
+
     let deps = ''
     try {
       const pkgCmd = await sandbox.runCommand({ detached: true, cmd: 'cat', args: ['package.json'] })
       const pkg = JSON.parse(await (await pkgCmd.wait()).stdout())
       deps = Object.keys(pkg.dependencies ?? {}).join(', ')
     } catch { /* deps optional */ }
+
+    const lines = files.map(f => {
+      const short = f.path.replace(/^src\//, '')
+      if (f.path.endsWith('.css')) return `- ${short} (styles/tokens)`
+      const exp = f.exports.length ? `exports ${f.exports.join(', ')}` : 'no exports'
+      const usersFor = f.exports.map(e => [...(usedBy.get(e) ?? [])]).flat()
+      const uniqUsers = [...new Set(usersFor)].filter(u => u !== short).slice(0, 5)
+      const usedByStr = uniqUsers.length ? ` · used by ${uniqUsers.join(', ')}` : ''
+      const rend = f.rendered.length ? ` · renders ${f.rendered.slice(0, 6).join(', ')}` : ''
+      return `- ${short} — ${exp}${rend}${usedByStr}`
+    })
+
     return (
-      `\n\n## CURRENT FILES ON DISK (the live project — edit THESE, never invent paths)\n` +
-      tree +
+      `\n\n## PROJECT MAP (live on-disk structure — edit the EXACT file, never invent paths or grep-guess)\n` +
+      `Each line: file — what it exports · what it renders · which files use it. To change a thing, find the file that EXPORTS/RENDERS it, readFiles it, then patchFile.\n` +
+      lines.join('\n') +
       (deps ? `\n\nInstalled packages: ${deps}` : '')
     )
   } catch {
