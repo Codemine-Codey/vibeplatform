@@ -30,6 +30,14 @@ export type Archetype =
   | 'luxury-serif'         // restrained high-end, tall serif, muted palette, negative space
   | 'playful-rounded'      // bright, bouncy, rounded shapes, friendly
   | 'corporate-clean'      // trustworthy, structured, refined, confident
+  | 'art-deco'             // geometric symmetry, gold linework, tall elegant type, fan motifs
+  | 'cyber-neon'           // dark futuristic, neon grid + glow, glitch, tech/gaming
+  | 'organic-blob'         // flowing blob shapes, soft gradients, curvy sections
+  | 'maximalist-collage'   // layered busy collage energy, mixed type, sticker/cut-out feel
+  | 'scandinavian-clean'   // light wood/muted tones, functional, cozy-minimal (softer than swiss)
+  | 'dark-luxe'            // black + gold/jewel tones, opulent high-contrast premium
+  | 'vibrant-gradient'     // bold saturated gradients, energetic modern consumer
+  | 'neo-memphis'          // 80s memphis — squiggles, confetti shapes, bold primaries, playful geometry
 
 export type NavStyle =
   | 'left-logo-right-links'   // classic
@@ -50,6 +58,10 @@ export type BackgroundTreatment =
   | 'aurora-glow'       // blurred glowing colour blobs
   | 'particles'         // lightweight particle field
   | '3d-scene'          // three.js / r3f scene (only when requested + suitable)
+  | 'dot-grid'          // subtle dot or line grid (blueprint/technical feel)
+  | 'topographic'       // layered topographic/contour lines drifting slowly
+  | 'spotlight-follow'  // a soft radial spotlight that follows the cursor
+  | 'video-loop'        // a muted looping background video with an overlay (hero only)
 
 // Multi-page routing plan: which sections live on which page/route. One entry with
 // route "/" = a single-page site. Multiple entries = a real multi-page site.
@@ -109,6 +121,14 @@ const ARCHETYPE_CONTRACT: Record<Archetype, string> = {
   'luxury-serif': 'Restrained luxury: a tall elegant serif, muted sophisticated palette, enormous negative space, small refined UI, slow subtle motion. Nothing shouts; everything is deliberate.',
   'playful-rounded': 'Bright saturated palette, bouncy rounded shapes, playful blobs, chunky rounded buttons, springy hover, friendly oversized emoji-free iconography. Fun and energetic.',
   'corporate-clean': 'Confident and trustworthy: a clear grid, refined type, structured cards, a professional restrained palette with one strong accent, crisp spacing. Polished, not boring — art-directed corporate.',
+  'art-deco': 'Geometric symmetry, gold/brass linework and thin frames, tall elegant condensed type, fan/sunburst motifs (CSS gradients + borders), rich jewel background. Glamorous 1920s poise.',
+  'cyber-neon': 'Dark futuristic base, neon accent glow (text-shadow/box-shadow), a faint tech grid, glitch/scanline touches, monospace accents. For gaming/tech/web3 — never for warm/food brands.',
+  'organic-blob': 'Flowing organic blob shapes (border-radius morphing, SVG-free CSS blobs), soft multi-stop gradients, curved section dividers, generous rounded forms. Friendly-premium and fluid.',
+  'maximalist-collage': 'Layered, deliberately busy collage energy: overlapping cut-out images, mixed type sizes/weights, sticker-like badges, bold clashing-but-curated colour. Confident and loud.',
+  'scandinavian-clean': 'Light, calm, functional: muted warm neutrals + soft wood tones, plenty of air, simple rounded UI, cozy imagery, understated type. Softer and warmer than swiss-minimal.',
+  'dark-luxe': 'Opulent dark: near-black base with gold or deep jewel accents, high contrast, thin refined serif, subtle sheen/gradient on surfaces, generous spacing. Expensive and dramatic.',
+  'vibrant-gradient': 'Bold saturated gradient hero and accents, high-energy modern-consumer feel, big rounded type, gradient buttons and glows. Fresh and punchy — great for apps/startups/events.',
+  'neo-memphis': 'Playful 80s Memphis: squiggles, confetti dots, zig-zags and geometric shapes (CSS), bold primary colours on a light base, chunky type. Retro-fun and energetic.',
 }
 
 const NAV_CONTRACT: Record<NavStyle, string> = {
@@ -131,6 +151,10 @@ const BG_CONTRACT: Record<BackgroundTreatment, string> = {
   'aurora-glow': 'Large blurred glowing colour blobs (blur-3xl, palette hues, low opacity) drifting slowly behind content. Premium dark look.',
   'particles': 'A lightweight particle/constellation field (canvas or tsparticles) behind the hero. Keep it subtle and performant.',
   '3d-scene': 'A three.js / @react-three/fiber scene (floating geometry, a product, or an abstract shader) as the hero backdrop. Only when the brief calls for it and performance allows.',
+  'dot-grid': 'A subtle dot or line grid (CSS radial-gradient or repeating-linear-gradient) at low opacity — a blueprint/technical texture behind content.',
+  'topographic': 'Layered topographic/contour lines (repeating conic/linear gradients or a tiling pattern) drifting very slowly. Adds quiet depth.',
+  'spotlight-follow': 'A soft radial spotlight that follows the cursor (a radial-gradient div positioned from pointer coords). Premium on dark backgrounds; disable on touch/reduced-motion.',
+  'video-loop': 'A muted, autoplay, looping background video in the hero with a dark gradient overlay for legibility. Hero only; provide a poster + token-colour fallback.',
 }
 
 function designLanguageBlock(brief: ProjectBrief): string {
