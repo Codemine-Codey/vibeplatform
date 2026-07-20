@@ -13,6 +13,52 @@ export interface ColorTokens {
   accent: string           // secondary highlight
 }
 
+// W2 Design Director — enumerated VISUAL LANGUAGE. The single biggest anti-sameness
+// lever: the model must COMMIT to one distinct archetype (not freeform "clean minimal"),
+// one nav style, and a background treatment. Each maps to concrete structural rules in
+// the design skills/library so "picked X" turns into a genuinely different-looking build.
+export type Archetype =
+  | 'editorial-magazine'   // asymmetric columns, big serif headlines, drop caps, generous margins
+  | 'bento-grid'           // modular rounded cards of varying sizes, dense but airy
+  | 'swiss-minimal'        // strict grid, oversized type, vast whitespace, 1-2 colours
+  | 'brutalist-mono'       // raw borders, monospace, exposed structure, high contrast
+  | 'immersive-parallax'   // full-bleed imagery, scroll-linked depth, layered
+  | 'glassmorphic-dark'    // dark bg, frosted glass panels, glowing accents
+  | 'warm-boutique'        // soft, organic, rounded, textured, earthy
+  | 'kinetic-type'         // oversized animated typography as the hero
+  | 'retro-print'          // vintage poster, halftone, bold flat colour blocks
+  | 'luxury-serif'         // restrained high-end, tall serif, muted palette, negative space
+  | 'playful-rounded'      // bright, bouncy, rounded shapes, friendly
+  | 'corporate-clean'      // trustworthy, structured, refined, confident
+
+export type NavStyle =
+  | 'left-logo-right-links'   // classic
+  | 'centered-logo'           // logo centre, links split either side
+  | 'split-cta'               // logo left, links centre, CTA button right
+  | 'floating-pill'           // detached rounded pill floating over content
+  | 'transparent-over-hero'   // transparent, turns solid on scroll
+  | 'minimal-underline'       // text-only, animated underline on hover/active
+  | 'sidebar-drawer'          // hamburger → slide-in drawer (mobile-first)
+  | 'mega-menu'               // grouped columns for content-heavy multi-page
+
+export type BackgroundTreatment =
+  | 'flat'              // solid token background
+  | 'gradient-mesh'     // soft multi-hue gradient field
+  | 'noise-grain'       // subtle grain/texture over the background
+  | 'animated-gradient' // slowly shifting gradient
+  | 'scroll-parallax'   // parallax layers that move on scroll
+  | 'aurora-glow'       // blurred glowing colour blobs
+  | 'particles'         // lightweight particle field
+  | '3d-scene'          // three.js / r3f scene (only when requested + suitable)
+
+// Multi-page routing plan: which sections live on which page/route. One entry with
+// route "/" = a single-page site. Multiple entries = a real multi-page site.
+export interface PageSpec {
+  page: string        // e.g. "Home", "About", "Services", "Contact"
+  route: string       // e.g. "/", "/about", "/services", "/contact"
+  sections: string[]  // ordered sections that render on this page
+}
+
 export interface ProjectBrief {
   brandName: string
   tagline: string
@@ -30,6 +76,11 @@ export interface ProjectBrief {
   layoutStyle: string        // layout archetype, e.g. "editorial dark", "bento"
   motionIntensity: 'subtle' | 'moderate' | 'dramatic'
   gameDesign?: string        // Stage 1 (games) — core loop, controls, win/lose, juice
+  // W2 Design Director additions (optional for back-compat with the fallback brief)
+  archetype?: Archetype
+  navStyle?: NavStyle
+  backgroundTreatment?: BackgroundTreatment
+  pageMap?: PageSpec[]       // websites — the multi-page routing plan
 }
 
 function motionContract(intensity: ProjectBrief['motionIntensity']): string {
@@ -41,6 +92,64 @@ function motionContract(intensity: ProjectBrief['motionIntensity']): string {
     default:
       return 'Purposeful — durations ~0.7s, translateY 32px, hover lifts, smooth stagger on lists.'
   }
+}
+
+// Each archetype → concrete, buildable structural rules. This is what makes "picked X"
+// produce a genuinely different-looking site instead of the same stacked template.
+const ARCHETYPE_CONTRACT: Record<Archetype, string> = {
+  'editorial-magazine': 'Asymmetric multi-column layouts, an oversized serif display headline that overlaps imagery, a drop-cap intro paragraph, thin rule dividers, generous outer margins, captions in small caps. Think a printed magazine spread.',
+  'bento-grid': 'A modular grid of rounded cards in varying spans (2x1, 1x2, 2x2). Each feature/stat/testimonial is a card. Uneven but balanced. Soft shadows, rounded-2xl, hover lift. NOT plain equal columns.',
+  'swiss-minimal': 'A strict typographic grid, HUGE headlines (7xl+), vast whitespace, 1-2 colours only, left-aligned, hairline rules. Restraint is the point — almost no decoration, let type + space carry it.',
+  'brutalist-mono': 'Exposed structure: thick visible borders, monospace type, raw high-contrast blocks, offset/overlapping elements, no rounded corners, stark black/white + one loud accent. Deliberately raw.',
+  'immersive-parallax': 'Full-bleed edge-to-edge imagery, scroll-linked parallax depth (background moves slower than foreground), layered sections that overlap, a cinematic scroll journey. Sections bleed into each other.',
+  'glassmorphic-dark': 'Dark background, frosted-glass panels (backdrop-blur + translucent surface + subtle border), glowing accent edges, soft neon highlights, depth via blur and light. Premium and futuristic.',
+  'warm-boutique': 'Soft organic shapes, rounded-3xl, earthy textured palette, hand-crafted feel, imagery with warmth, gentle curves, cozy generous padding. Inviting, tactile, human.',
+  'kinetic-type': 'Typography IS the design: oversized animated words as the hero, marquee/ticker rows, letters that react to scroll/hover, minimal imagery. The headline is the art.',
+  'retro-print': 'Vintage poster energy: bold flat colour blocks, halftone/grain texture, chunky condensed type, offset print look, a limited retro palette. Nostalgic and confident.',
+  'luxury-serif': 'Restrained luxury: a tall elegant serif, muted sophisticated palette, enormous negative space, small refined UI, slow subtle motion. Nothing shouts; everything is deliberate.',
+  'playful-rounded': 'Bright saturated palette, bouncy rounded shapes, playful blobs, chunky rounded buttons, springy hover, friendly oversized emoji-free iconography. Fun and energetic.',
+  'corporate-clean': 'Confident and trustworthy: a clear grid, refined type, structured cards, a professional restrained palette with one strong accent, crisp spacing. Polished, not boring — art-directed corporate.',
+}
+
+const NAV_CONTRACT: Record<NavStyle, string> = {
+  'left-logo-right-links': 'Logo left, primary links + CTA on the right. Classic and clear.',
+  'centered-logo': 'Logo centred, links split to either side (2-3 left, 2-3 right). Balanced, editorial.',
+  'split-cta': 'Logo left, links centred, a distinct primary CTA button pinned right.',
+  'floating-pill': 'A detached rounded-full pill nav floating with a margin from the top, backdrop-blur, subtle shadow — hovers over the hero.',
+  'transparent-over-hero': 'Transparent over the hero, no background; becomes a solid/blurred bar with a shadow after scrolling ~80px (track scrollY).',
+  'minimal-underline': 'Text-only links, no buttons, an animated underline that slides in on hover and marks the active route. Very restrained.',
+  'sidebar-drawer': 'Compact top bar; a hamburger opens a full slide-in drawer (mobile-first, also works on desktop for a minimal look). Great for content-heavy sites.',
+  'mega-menu': 'Top bar where a primary item opens a wide grouped panel of links in columns. For content-heavy multi-page sites.',
+}
+
+const BG_CONTRACT: Record<BackgroundTreatment, string> = {
+  'flat': 'Solid token background. Let layout + type carry it.',
+  'gradient-mesh': 'A soft multi-hue mesh gradient (2-3 blurred radial blobs from the palette) behind content. CSS only.',
+  'noise-grain': 'A subtle grain/noise texture over the background (a tiling data-URI or a low-opacity animated grain div). Adds tactility.',
+  'animated-gradient': 'A slowly shifting CSS gradient (background-position or hue over ~12s ease-in-out infinite). Calm, alive.',
+  'scroll-parallax': 'Background layers that translate on scroll (useScroll/useTransform) slower than the foreground for depth.',
+  'aurora-glow': 'Large blurred glowing colour blobs (blur-3xl, palette hues, low opacity) drifting slowly behind content. Premium dark look.',
+  'particles': 'A lightweight particle/constellation field (canvas or tsparticles) behind the hero. Keep it subtle and performant.',
+  '3d-scene': 'A three.js / @react-three/fiber scene (floating geometry, a product, or an abstract shader) as the hero backdrop. Only when the brief calls for it and performance allows.',
+}
+
+function designLanguageBlock(brief: ProjectBrief): string {
+  const parts: string[] = []
+  if (brief.archetype) parts.push(`- **Archetype: ${brief.archetype}** — ${ARCHETYPE_CONTRACT[brief.archetype]}\n  BUILD to this archetype; do NOT regress to a generic centered stacked-section template.`)
+  if (brief.navStyle) parts.push(`- **Nav style: ${brief.navStyle}** — ${NAV_CONTRACT[brief.navStyle]} (Always fully responsive with a working mobile menu.)`)
+  if (brief.backgroundTreatment && brief.backgroundTreatment !== 'flat') parts.push(`- **Background: ${brief.backgroundTreatment}** — ${BG_CONTRACT[brief.backgroundTreatment]}`)
+  return parts.length ? `\n### Design Language (committed — this is what makes it look distinct)\n${parts.join('\n')}\n` : ''
+}
+
+function routingBlock(brief: ProjectBrief): string {
+  if (brief.skill !== 'website' || !brief.pageMap || brief.pageMap.length === 0) return ''
+  if (brief.pageMap.length === 1) {
+    return `\n### Routing — SINGLE PAGE\nEverything on one scrolling page at "/". Nav items are in-page ANCHORS (href="#section-id") that scroll to the matching section — NEVER routes.\n`
+  }
+  const rows = brief.pageMap
+    .map((p) => `- **${p.page}** → \`src/pages/${p.page.replace(/[^A-Za-z0-9]/g, '')}.tsx\` (route \`${p.route}\`): ${p.sections.join(', ')}`)
+    .join('\n')
+  return `\n### Routing — MULTI-PAGE (${brief.pageMap.length} pages)\nBuild one \`src/pages/*.tsx\` per page (filename → route, auto-routed). Nav links to OTHER pages use \`<Link to="/route">\`; links to a section on the CURRENT page use \`href="#id"\`. Every nav target must be a real page or a real on-page anchor — never a route you didn't build.\n${rows}\n`
 }
 
 export function formatBrief(brief: ProjectBrief): string {
@@ -89,9 +198,12 @@ ${moves}
 - **Layout archetype:** ${brief.layoutStyle} — commit to it; do not fall back to a generic stacked-section template.
 - **Brand personality:** ${brief.brandPersonality} · Tone: ${brief.tone}
 - **Motion:** ${motionContract(brief.motionIntensity)}
-${gameBlock}
+${designLanguageBlock(brief)}${routingBlock(brief)}${gameBlock}
 ### Build Spec
 - **Structure:** ${sectionList}
 - **Features:** ${featureList}
-- **Tech:** ${brief.techStack}`
+- **Tech:** ${brief.techStack}
+
+### SECTION QUALITY BAR (non-negotiable — every section must be "aww", never a placeholder)
+Each section is a distinctly-composed, fully-realized block — NOT the same centered headline+paragraph repeated. Vary the composition section to section (split 60/40, offset, overlap, full-bleed, grid, marquee) so no two sections look alike. Every section: real contextual copy, real imagery, a scroll-reveal or scroll-linked motion, and craft in spacing/type/colour from the tokens. Fill it beautifully — empty, thin, or lorem sections are a failure.`
 }

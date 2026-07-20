@@ -21,7 +21,7 @@ import { planProject, type NormalizedManifest } from '@/ai/tools/plan-project'
 import { lookupReference, tavilySearch } from '@/ai/tools/lookup-reference'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
-import { formatBrief } from '@/ai/types/project-brief'
+import { formatBrief, type PageSpec } from '@/ai/types/project-brief'
 import { lockPaletteInCss } from '@/lib/design-tokens'
 import type { ColorTokens } from '@/ai/types/project-brief'
 import { getSkillPack } from '@/ai/packs'
@@ -1328,7 +1328,7 @@ export async function POST(req: Request) {
         // makes is summed into tokens_used on the project row.
         const tokenBox = { total: 0 }
         const pipelineResult = await tokenStore.run(tokenBox, () =>
-          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise, tokens: brief.colorTokens, brandName: brief.brandName, runId, invocationStart })
+          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise, tokens: brief.colorTokens, brandName: brief.brandName, pageMap: brief.pageMap, runId, invocationStart })
         )
         // Durable-runs STEP 3: a chained handoff means enrichment ran out of invocation
         // budget and passed the run to a fresh continuation (status already 'continuing').
@@ -1606,6 +1606,7 @@ async function runPipeline({
   sandboxPromise,
   tokens,
   brandName,
+  pageMap: briefPageMap,
   runId,
   invocationStart,
 }: {
@@ -1619,6 +1620,7 @@ async function runPipeline({
   sandboxPromise?: Promise<Sandbox>
   tokens?: ColorTokens
   brandName?: string
+  pageMap?: PageSpec[]
   runId?: string | null
   invocationStart?: number
 }): Promise<{ chained: boolean }> {
@@ -1762,6 +1764,14 @@ async function runPipeline({
   // even when two users submit the same prompt. Injected into context so it
   // influences color palette, layout structure, and typographic decisions.
   const creativeSeed = Math.random().toString(36).slice(2, 10).toUpperCase()
+  // W2 — the Design Director's pageMap drives single- vs multi-page. Multi-page is the new
+  // default for substantial sites; the per-route render-check (W1) verifies every page paints
+  // and no nav link 404s, so multi-page is safe to build in one pass (no server enrichment).
+  const pageMap = (skill === 'website' && briefPageMap && briefPageMap.length > 0) ? briefPageMap : null
+  const isMultiPage = !!pageMap && pageMap.length > 1
+  const pageFileList = pageMap
+    ? pageMap.map((p: PageSpec) => `src/pages/${p.page.replace(/[^A-Za-z0-9]/g, '')}.tsx (${p.route})`).join(', ')
+    : 'src/pages/Home.tsx'
   const pipelineAddendum =
     `\n\n## SERVER PIPELINE — WORKSPACE READY\n` +
     `sandboxId: ${sandboxId}\n` +
@@ -1771,8 +1781,11 @@ async function runPipeline({
     `DO NOT call runCommand or getSandboxURL — the server handles those after you finish.\n` +
     `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
     `WORKFLOW: ${skill === 'website'
-      ? `SINGLE-PASS, COMPLETE landing page (quality over speed). (1) getUnsplashBatch/generateImageBatch for ALL section images + planProject with the COMPLETE file list (index.css, Layout.tsx, Home.tsx, and one component per section under src/components/sections/) — ONE phase, NO sub-pages. (2) generateFiles ALL those files in ONE call, complete and detailed. ` +
-        `STRUCTURE RULE (critical): Layout.tsx = nav + {children} + footer ONLY. Home.tsx = the section components ONLY (NO nav/header/footer inside Home — App.tsx already wraps it in Layout; duplicating chrome causes double navs + hidden content). Each section wrapped in <section id="..."> for anchor-scroll nav.`
+      ? (isMultiPage
+        ? `MULTI-PAGE website, ${pageMap!.length} pages (quality over speed — build every page fully). (1) getUnsplashBatch/generateImageBatch for ALL images across all pages + planProject with the COMPLETE file list: index.css, Layout.tsx, ONE page file per route (${pageFileList}), and one component per section under src/components/sections/. (2) generateFiles ALL of them, complete and detailed. ` +
+          `STRUCTURE RULE (critical): Layout.tsx = nav + {children} + footer ONLY — nav links to OTHER pages use <Link to="/route">, links to a section on the CURRENT page use href="#id". Each src/pages/*.tsx renders ONLY its own section components (NO nav/header/footer inside pages — App.tsx wraps every page in Layout; duplicating chrome causes double navs + hidden content). Each section wrapped in <section id="...">. Build EVERY page richly — no empty or stub pages; each nav target must be a real page you created.`
+        : `SINGLE-PASS, COMPLETE landing page (quality over speed). (1) getUnsplashBatch/generateImageBatch for ALL section images + planProject with the COMPLETE file list (index.css, Layout.tsx, Home.tsx, and one component per section under src/components/sections/) — ONE scrolling page. (2) generateFiles ALL those files in ONE call, complete and detailed. ` +
+          `STRUCTURE RULE (critical): Layout.tsx = nav + {children} + footer ONLY. Home.tsx = the section components ONLY (NO nav/header/footer inside Home — App.tsx already wraps it in Layout; duplicating chrome causes double navs + hidden content). Each section wrapped in <section id="...">; nav uses href="#id" anchor-scroll (never routes to pages you didn't build).`)
       : skill === 'webapp'
       ? `(1) call planProject with the COMPLETE file list (every path you will generate — Phase 1 + all remaining), (2) FIRST generateFiles call: ONLY src/index.css + src/pages/Home.tsx, (3) SECOND generateFiles call: all remaining component files`
       : `(1) call planProject with the complete file list (every path you will generate), (2) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`}\n` +
@@ -1780,13 +1793,21 @@ async function runPipeline({
     `If you need packages not in the scaffold, include package.json in your generateFiles paths.\n`
 
   const fileCountGuidance = skill === 'website'
-    ? `WEBSITE — SINGLE-PASS COMPLETE LANDING PAGE (see §12). Generate ALL files in ONE generateFiles call:\n` +
-      `  • src/index.css — brand tokens + bold Google font @import (never Inter).\n` +
-      `  • src/components/Layout.tsx — nav (brand + anchor-scroll links + mobile hamburger) + {children} + footer. NOTHING else.\n` +
-      `  • src/components/sections/*.tsx — ONE component per section, each a FULL rich section (real copy + real Unsplash images), each wrapped in <section id="...">. AT LEAST 6-7 sections (hero, about/story, services/features, stats or gallery, testimonials, pricing or process, CTA) unless the user asked for something smaller.\n` +
-      `  • src/pages/Home.tsx — imports + renders ALL the section components in order, NOTHING else. NO nav, NO header, NO footer inside Home (Layout provides them — duplicating = double nav + hidden content, the #1 website bug).\n` +
-      `MOBILE-ADAPTIVE (required): mobile-first Tailwind, working hamburger, fluid type/spacing, no fixed widths or horizontal overflow — great at 375px AND desktop.\n` +
-      `SINGLE-PAGE by default: NO separate sub-page route files — anchor-scroll nav can never 404. Build routed multi-page ONLY if the user's prompt explicitly asked for it (then YOU plan the pages).`
+    ? (isMultiPage
+      ? `WEBSITE — MULTI-PAGE (${pageMap!.length} pages, see §12). Generate ALL files, every page fully realized:\n` +
+        `  • src/index.css — brand tokens + bold Google font @import (never Inter as display).\n` +
+        `  • src/components/Layout.tsx — nav (brand + links + mobile hamburger) + {children} + footer. NOTHING else. Nav links to OTHER pages use <Link to="/route">; links to a section on the current page use href="#id".\n` +
+        `  • One src/pages/*.tsx per page: ${pageFileList}. Each renders ONLY its own section components (NO nav/header/footer). The Home page is a rich 5-7 section landing; every other page is fully built too (real copy + real images), NEVER a stub.\n` +
+        `  • src/components/sections/*.tsx — ONE component per section, each a FULL rich section (real copy + real Unsplash images), each wrapped in <section id="...">. Vary the composition section to section — no two look alike.\n` +
+        `MOBILE-ADAPTIVE (required): mobile-first Tailwind, working hamburger, fluid type/spacing, no fixed widths or horizontal overflow — great at 375px AND desktop.\n` +
+        `EVERY nav target must be a real page you created (no 404s) or a real on-page anchor.`
+      : `WEBSITE — SINGLE-PASS COMPLETE LANDING PAGE (see §12). Generate ALL files in ONE generateFiles call:\n` +
+        `  • src/index.css — brand tokens + bold Google font @import (never Inter).\n` +
+        `  • src/components/Layout.tsx — nav (brand + anchor-scroll links + mobile hamburger) + {children} + footer. NOTHING else.\n` +
+        `  • src/components/sections/*.tsx — ONE component per section, each a FULL rich section (real copy + real Unsplash images), each wrapped in <section id="...">. AT LEAST 6-7 sections (hero, about/story, services/features, stats or gallery, testimonials, pricing or process, CTA) unless the user asked for something smaller.\n` +
+        `  • src/pages/Home.tsx — imports + renders ALL the section components in order, NOTHING else. NO nav, NO header, NO footer inside Home (Layout provides them — duplicating = double nav + hidden content, the #1 website bug).\n` +
+        `MOBILE-ADAPTIVE (required): mobile-first Tailwind, working hamburger, fluid type/spacing, no fixed widths or horizontal overflow — great at 375px AND desktop.\n` +
+        `SINGLE-PAGE: NO separate sub-page route files — anchor-scroll nav can never 404.`)
     : skill === 'webapp'
     ? `WEBAPP BUILD SPLIT (mandatory — same pattern as WEBSITE):
 Phase 1 = EXACTLY 2 files in the FIRST generateFiles call:
