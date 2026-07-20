@@ -621,11 +621,33 @@ async function headlessRuntimeCheck(
         (window as typeof window & { __cmFrameCount: number }).__cmFrameCount++
         return _raf(cb)
       }
+      // Capture uncaught exceptions + unhandled promise rejections that fire BEFORE
+      // puppeteer's own listeners attach (React render throws during mount — e.g.
+      // useScroll without a target, a missing import used as a component). These are
+      // the exact throws that produced the user-facing "Something went wrong" screen.
+      const w = window as typeof window & { __cmErrors: string[] }
+      w.__cmErrors = []
+      window.addEventListener('error', (e) => {
+        const m = (e && (e.error?.stack || e.error?.message || e.message)) || 'window error'
+        w.__cmErrors.push(String(m))
+      })
+      window.addEventListener('unhandledrejection', (e) => {
+        const r = (e && ((e as PromiseRejectionEvent).reason)) as { stack?: string; message?: string } | string
+        const m = typeof r === 'string' ? r : (r?.stack || r?.message || 'unhandled rejection')
+        w.__cmErrors.push(String(m))
+      })
     }).catch(() => {})
     const errors: string[] = []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     page.on('console', (msg: any) => {
       if (msg.type() === 'error') errors.push(String(msg.text()))
+    })
+    // Uncaught exceptions surfaced by Chromium (page context throws) — the primary signal
+    // for a component that throws during render. Without this, a render-time throw only
+    // showed as a blank/near-empty root and lost the actual stack + culprit file.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    page.on('pageerror', (err: any) => {
+      errors.push(String(err?.stack || err?.message || err))
     })
 
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 15_000 }).catch(() => {})
@@ -633,6 +655,31 @@ async function headlessRuntimeCheck(
     await new Promise(r => setTimeout(r, 2000))
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {})
     await new Promise(r => setTimeout(r, 500))
+
+    // Pull in-page captured throws (error/unhandledrejection listeners set above) + detect
+    // the two "looks-like-content-but-is-actually-broken" states that slipped past the blank
+    // check before: the Vite dev error overlay, and a React error-boundary fallback ("Something
+    // went wrong"). Either means the app threw — must be repaired, never revealed.
+    const domSignals = await page
+      .evaluate(() => {
+        const w = window as typeof window & { __cmErrors?: string[] }
+        const captured = Array.isArray(w.__cmErrors) ? w.__cmErrors.slice(0, 8) : []
+        // Vite injects <vite-error-overlay> (custom element) on a compile/runtime error.
+        const overlay = document.querySelector('vite-error-overlay')
+        let overlayText = ''
+        if (overlay) {
+          const sr = (overlay as HTMLElement & { shadowRoot?: ShadowRoot }).shadowRoot
+          overlayText = (sr?.textContent || overlay.textContent || 'Vite error overlay present').trim().slice(0, 400)
+        }
+        // React error-boundary fallbacks almost always render one of these phrases AND are
+        // sparse (a fallback card, not a full page). Gate on short body text so a rich page
+        // that merely CONTAINS the phrase in its copy is never falsely flagged.
+        const bodyText = (document.body?.innerText || '').trim()
+        const boundaryHit = bodyText.length < 400 &&
+          /something went wrong|this section (couldn'?t|could not) load|an error occurred|failed to render|oops[,! ]/i.test(bodyText)
+        return { captured, overlayText, boundaryHit, bodyTextSample: bodyText.slice(0, 200) }
+      })
+      .catch(() => ({ captured: [] as string[], overlayText: '', boundaryHit: false, bodyTextSample: '' }))
 
     // P1-B: require MEANINGFUL PAINT, not merely "a node exists". Read the root's
     // child count, innerHTML length (the paint floor), total descendant element count,
@@ -652,6 +699,25 @@ async function headlessRuntimeCheck(
         }
       })
       .catch(() => ({ children: -1, htmlLen: 0, elCount: 0, textLen: 0, hasCanvas: false }))
+
+    // Fold the in-page captured throws into the error list (dedup, keep order).
+    for (const c of domSignals.captured) if (c && !errors.includes(c)) errors.push(c)
+
+    // Vite dev overlay or a React error-boundary fallback = the app threw. These PAINT real
+    // DOM, so the meaningful-paint check alone would pass them — but the user would see
+    // "Something went wrong". Treat as broken and hand the captured stack to the repair loop.
+    if (domSignals.overlayText) {
+      return { status: 'broken', detail: 'Vite compile/runtime error overlay is showing:\n' + domSignals.overlayText + (errors.length ? '\n' + errors.slice(0, 6).join('\n') : '') }
+    }
+    if (domSignals.boundaryHit) {
+      return {
+        status: 'broken',
+        detail:
+          `A React error boundary rendered its fallback ("${domSignals.bodyTextSample}") — a child component threw during render. ` +
+          `Identify the throwing component and fix the actual bug (do NOT just widen the boundary).\n` +
+          (errors.length ? errors.slice(0, 8).join('\n') : 'No console stack captured; inspect the section components most recently added.'),
+      }
+    }
 
     // Meaningful paint = a real subtree mounted. A canvas (game) is always enough; every
     // other page must clear a small innerHTML floor + have ≥1 real element. This catches
@@ -708,22 +774,54 @@ async function headlessRuntimeCheck(
         const dest = new URL(href, url).toString()
         await page.goto(dest, { waitUntil: 'networkidle2', timeout: 8_000 }).catch(() => {})
         await new Promise(r => setTimeout(r, 600))
-        // P1-B: same meaningful-paint floor per route (not just childElementCount>0).
+        // P1-B: same meaningful-paint floor per route (not just childElementCount>0), PLUS the
+        // overlay / error-boundary / captured-throw signals used on the home page — a broken
+        // sub-page must fail exactly as strongly as a broken home page. No errors allowed.
         const rp = await page
           .evaluate(() => {
             const r = document.getElementById('root')
-            if (!r) return { children: -1, htmlLen: 0, elCount: 0, hasCanvas: false }
-            return { children: r.childElementCount, htmlLen: r.innerHTML.trim().length, elCount: r.querySelectorAll('*').length, hasCanvas: !!document.querySelector('canvas') }
+            const w = window as typeof window & { __cmErrors?: string[] }
+            const captured = Array.isArray(w.__cmErrors) ? w.__cmErrors.slice(0, 6) : []
+            const overlay = document.querySelector('vite-error-overlay')
+            const overlayText = overlay ? ((overlay as HTMLElement & { shadowRoot?: ShadowRoot }).shadowRoot?.textContent || overlay.textContent || 'Vite error overlay present').trim().slice(0, 300) : ''
+            const bodyText = (document.body?.innerText || '').trim()
+            const boundaryHit = bodyText.length < 400 &&
+              /something went wrong|this section (couldn'?t|could not) load|an error occurred|failed to render|oops[,! ]/i.test(bodyText)
+            // The router's catch-all renders <NotFound> for any path without a page. It PAINTS
+            // content, so the paint check passes it — but a NAV LINK that lands here is a 404.
+            // The scaffold marks NotFound with data-cm-notfound so we can detect it precisely.
+            const notFound = !!document.querySelector('[data-cm-notfound]')
+            if (!r) return { children: -1, htmlLen: 0, elCount: 0, hasCanvas: false, captured, overlayText, boundaryHit, notFound }
+            return { children: r.childElementCount, htmlLen: r.innerHTML.trim().length, elCount: r.querySelectorAll('*').length, hasCanvas: !!document.querySelector('canvas'), captured, overlayText, boundaryHit, notFound }
           })
-          .catch(() => ({ children: -1, htmlLen: 0, elCount: 0, hasCanvas: false }))
+          .catch(() => ({ children: -1, htmlLen: 0, elCount: 0, hasCanvas: false, captured: [] as string[], overlayText: '', boundaryHit: false, notFound: false }))
         page.off('pageerror', onErr)
         page.off('console', onConsole)
+        for (const c of rp.captured) if (c && !routeErrors.includes(c)) routeErrors.push(c)
         const routePainted = rp.children >= 1 && rp.elCount >= 1 && (rp.htmlLen >= 40 || rp.hasCanvas)
-        if (!routePainted || routeErrors.length > 0) {
+        if (rp.notFound) {
+          // A nav link points to a page that doesn't exist → 404. Name the nav-bearing files so
+          // the repair loop rewrites them: either scroll to an on-page section (single-page site)
+          // or build the missing page. Route-links to nothing are never acceptable.
+          const slug = href.replace(/^\//, '')
           return {
             status: 'broken',
-            detail: `The page "${href}" is broken (blank or threw a runtime error) even though Home works. ` +
-              `Fix the component for that route.\n` + routeErrors.slice(0, 4).join('\n'),
+            detail:
+              `The navigation link "${href}" points to a page that does not exist — it lands on the 404 screen. ` +
+              `A user clicking it hits a dead end. FIX the navigation in src/components/Layout.tsx (and src/components/Navbar.tsx / src/components/Header.tsx if present): ` +
+              `if this is a single-page site, change that link to an in-page anchor that scrolls to the matching section — use <a href="#${slug}"> and add id="${slug}" to that section on src/pages/Home.tsx. ` +
+              `If it should be a real separate page, create src/pages/${slug.charAt(0).toUpperCase() + slug.slice(1)}.tsx with full content. Never leave a nav link that 404s.`,
+          }
+        }
+        if (!routePainted || routeErrors.length > 0 || rp.overlayText || rp.boundaryHit) {
+          const why = rp.overlayText
+            ? `Vite error overlay on "${href}":\n${rp.overlayText}`
+            : rp.boundaryHit
+              ? `An error boundary rendered its fallback on "${href}" — a component on that route threw during render.`
+              : `The page "${href}" is broken (blank or threw a runtime error) even though Home works.`
+          return {
+            status: 'broken',
+            detail: `${why} Fix the component for that route.\n` + routeErrors.slice(0, 4).join('\n'),
           }
         }
       }

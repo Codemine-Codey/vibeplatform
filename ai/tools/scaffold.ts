@@ -189,34 +189,37 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
     return { error }
   }
   componentDidCatch(error: Error, info: ErrorInfo) {
+    // Always report the crash to the platform so it can auto-repair. It is NEVER the
+    // user's job to copy a stack trace or type "fix the error" — the platform fixes it.
     try {
       window.parent.postMessage(
         { type: 'cm-error', message: (error?.stack || String(error)) + '\\n' + (info?.componentStack || ''), source: 'error-boundary' },
         '*'
       )
     } catch {}
-    // Auto-recover once — transient errors (HMR race, async first-load) clear on reload.
-    // Use sessionStorage so a persistent error only gets one reload attempt, not an infinite loop.
+    try { sessionStorage.setItem('_cm_crashed', '1') } catch {}
+    // Transient errors (HMR race, async first-load) clear on a single reload.
     try {
-      if (!sessionStorage.getItem('_cm_err_recovered')) {
-        sessionStorage.setItem('_cm_err_recovered', '1')
-        setTimeout(() => window.location.reload(), 2500)
+      if (!sessionStorage.getItem('_cm_reloaded')) {
+        sessionStorage.setItem('_cm_reloaded', '1')
+        setTimeout(() => window.location.reload(), 2000)
       }
     } catch {}
   }
   render() {
     if (this.state.error) {
-      let alreadyTried = false
-      try { alreadyTried = sessionStorage.getItem('_cm_err_recovered') === '1' } catch {}
+      // ONE calm, honest message — the app is being fixed automatically. We never expose
+      // internals or ask the user to do anything; the crashed tree self-heals the moment a
+      // repair lands (see the vite:afterUpdate reload hook below).
       return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', fontFamily: 'system-ui, sans-serif', background: '#fafafa', color: '#111' }}>
           <div style={{ maxWidth: '26rem', textAlign: 'center' }}>
             <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>✨</div>
             <h1 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-              {alreadyTried ? 'Something went wrong' : 'Putting the final touches on this page'}
+              Putting the final touches on this page
             </h1>
             <p style={{ fontSize: '0.9rem', opacity: 0.65 }}>
-              {alreadyTried ? 'Type "fix the error" in the chat to repair it.' : 'One moment — refreshing automatically.'}
+              One moment — this updates automatically.
             </p>
           </div>
         </div>
@@ -224,6 +227,21 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
     }
     return this.props.children
   }
+}
+
+// Self-heal: the instant a code fix is hot-applied by the dev server, a crashed React tree
+// cannot recover on its own (its error state is stuck), so reload to mount the fixed code.
+// Event-driven — fires exactly when a repair lands, no polling, no timing guesses.
+if (import.meta.hot) {
+  import.meta.hot.on('vite:afterUpdate', () => {
+    try {
+      if (sessionStorage.getItem('_cm_crashed')) {
+        sessionStorage.removeItem('_cm_crashed')
+        sessionStorage.removeItem('_cm_reloaded')
+        window.location.reload()
+      }
+    } catch {}
+  })
 }
 
 createRoot(document.getElementById('root')!).render(
@@ -640,7 +658,7 @@ const NOTFOUND_TSX = `import { Link } from 'react-router-dom'
 
 export default function NotFound() {
   return (
-    <div className="flex min-h-[70vh] flex-col items-center justify-center gap-4 px-6 text-center">
+    <div data-cm-notfound="1" className="flex min-h-[70vh] flex-col items-center justify-center gap-4 px-6 text-center">
       <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">404</p>
       <h1 className="font-display text-4xl font-bold tracking-tight text-foreground">This page wandered off</h1>
       <p className="max-w-md text-muted-foreground">The page you're looking for doesn't exist or may have moved.</p>
