@@ -22,11 +22,16 @@ export const FILE_GENERATION_MODEL = 'deepseek-v4-pro'
 // (Pro took minutes for a one-line copy change). Initial generation stays on Pro.
 export const EDIT_MODEL = 'deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek-v4-flash'
-// Orchestration (classify intent + expand the brief) — these run BEFORE the workspace
-// is created, so they must be FAST, not Pro. Flash classifies + briefs in ~3-5s each
-// vs Pro's ~20-40s; quality of the final code is unaffected (generation stays Pro).
-// This is the fix for "2 minutes and no workspace" — the pre-sandbox steps were on Pro.
-export const ORCHESTRATION_MODEL = 'deepseek-v4-flash'
+// Orchestration — CLASSIFY (skill + clarify). Part of the BUILD path, so on Pro too:
+// Flash is reserved for edits + chat + error-fix triage ONLY, never initial build steps.
+export const ORCHESTRATION_MODEL = 'deepseek-v4-pro'
+// The BRIEF (expand prompt → archetype, palette, multi-page pageMap, signature moves,
+// the whole design direction) is the DESIGN DNA of the build. It MUST be produced by the
+// strong model — a weak model picks bland archetypes, skips the pageMap (→ single-page,
+// basic), or fails the richer tool call and falls back to the generic default brief,
+// which is exactly what makes results look "eh" no matter how good the design law is.
+// Quality > speed: the extra ~20-30s on the brief is negligible at the full build budget.
+export const BRIEF_MODEL = 'deepseek-v4-pro'
 // Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
 // gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
 // and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),

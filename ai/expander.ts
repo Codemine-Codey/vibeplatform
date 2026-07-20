@@ -1,4 +1,4 @@
-import { ORCHESTRATION_MODEL } from './constants'
+import { BRIEF_MODEL } from './constants'
 import { getModelOptions } from './gateway'
 import { guardColorTokens } from '@/lib/contrast'
 import { generateText, stepCountIs, tool } from 'ai'
@@ -19,12 +19,13 @@ export async function expandPrompt(
 
   try {
     await generateText({
-      // Speed v2 Lever 6: reasoning OFF. The brief is a structured tool call whose
-      // fields (palette, fonts, signature moves, archetype) already pin the design
-      // decisions — extended thinking added 15-30s for little gain. Score-gated:
-      // if design quality dips on the test prompts, restore { reasoning: true }.
-      ...getModelOptions(ORCHESTRATION_MODEL),
-      maxOutputTokens: 8000,
+      // The brief is a structured tool call whose fields (archetype, palette, fonts,
+      // signature moves, multi-page pageMap) pin the ENTIRE design direction — so it runs
+      // on the strong BRIEF_MODEL, not the fast classifier model. Token budget is generous
+      // so the richer schema (visualNarrative + pageMap + signature moves) never truncates
+      // the tool call into a failure → basic fallback.
+      ...getModelOptions(BRIEF_MODEL),
+      maxOutputTokens: 16000,
       stopWhen: stepCountIs(2),
       system: `You are a creative director for a premium web builder. Expand the user's prompt into a detailed project brief.
 
@@ -123,6 +124,11 @@ Use the create_brief tool.`,
 
   if (output) {
     const brief = { ...(output as Omit<ProjectBrief, 'skill'>), skill }
+    // Visibility: log the design DNA the brief committed to, so a bland/single-page result
+    // can be traced to the brief (not the generator). Shows in Vercel function logs.
+    console.log(
+      `[brief] skill=${skill} archetype=${brief.archetype ?? 'NONE'} nav=${brief.navStyle ?? 'NONE'} bg=${brief.backgroundTreatment ?? 'NONE'} pages=${brief.pageMap?.length ?? 0} sections=${brief.sections?.length ?? 0}`
+    )
     // A3 — contrast guard: guarantee readable text by math. If the model produced
     // a low-contrast palette (text near the background), auto-correct before the
     // painter ever sees it, so headlines can never blend into the background.
@@ -136,11 +142,23 @@ Use the create_brief tool.`,
     return brief
   }
 
-  // Fallback brief when expansion fails
+  // Fallback brief when expansion fails. Even here we ship a committed archetype + a
+  // MULTI-PAGE plan + a background treatment, so a failed brief is still distinct and
+  // multi-page — never the old bland single-page default.
+  console.warn('[brief] expansion failed — using hardened fallback (archetype + multi-page)')
   const defaults: Record<Skill, Partial<ProjectBrief>> = {
     website: {
-      sections: ['Hero', 'About', 'Services', 'Testimonials', 'CTA', 'Footer'],
+      sections: ['Hero', 'About', 'Services', 'Gallery', 'Testimonials', 'Contact', 'Footer'],
       features: [],
+      archetype: 'editorial-magazine',
+      navStyle: 'split-cta',
+      backgroundTreatment: 'noise-grain',
+      pageMap: [
+        { page: 'Home', route: '/', sections: ['Hero', 'About', 'Services', 'Testimonials', 'CTA'] },
+        { page: 'About', route: '/about', sections: ['Story', 'Team', 'Values'] },
+        { page: 'Services', route: '/services', sections: ['Services', 'Process', 'Pricing'] },
+        { page: 'Contact', route: '/contact', sections: ['Contact form', 'Map', 'Hours'] },
+      ],
     },
     webapp: {
       sections: ['Dashboard', 'Main View', 'Settings'],
