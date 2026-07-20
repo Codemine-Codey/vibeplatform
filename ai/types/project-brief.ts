@@ -213,6 +213,8 @@ every page inherits the same craft.
 ### Typography
 - **Pairing:** ${brief.fontPairing} — load via Google Fonts \`@import\` at the very top of src/index.css.
   Display font for headings at large scale with tight tracking; body font for copy at 16–18px.
+- **Fluid scale (mandatory):** size the hero + headings with \`clamp()\` (e.g. \`text-[clamp(2.5rem,8vw,7rem)]\`) so type is huge on desktop but never overflows a 375px phone. A clear scale: display → h2 → h3 → body → caption, distinct in size AND weight.
+- **Animate the headline:** the hero headline and 1–2 key titles get ONE text-motion idiom (word/line reveal, character stagger, gradient sweep, or scroll-linked emphasis) scaled to the motion dial. Respect reduced-motion.
 - BANNED defaults: Inter, Poppins, Roboto, Arial, system-ui as the *display* face. Use the pairing above.
 
 ### Signature Moves (must appear in the build — this is what makes it look art-directed)

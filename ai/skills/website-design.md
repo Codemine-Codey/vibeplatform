@@ -55,10 +55,21 @@ Pick nav targets deliberately: on a multi-page site the primary nav points to th
 - Off-black not pure black (zinc-950/charcoal). Desaturate accents to blend with neutrals. Tint shadows to the background hue.
 - Headlines/body MUST be high-contrast against their background — never near-background text.
 
-## 4. Typography — the fastest way to look expensive
+## 4. Typography — the fastest way to look expensive (SIZE, SCALE, ANIMATION all matter)
 - Use the brief's Google-Fonts pairing: a **distinctive display face** + a **refined body face**. Define `--font-display` / `--font-body`. Never both generic sans.
-- **Type scale**: ONE giant display (text-5xl→text-8xl, `tracking-tight`, `leading-none`), one heading, one body (16-18px, `leading-relaxed`, `max-w-[65ch]`). Don't drift.
-- Control hierarchy with **weight + color + size**, not size alone. Serif only when the brand justifies it (editorial/luxury/fashion).
+- **A real type scale, not flat text.** Hero display is HUGE and commands the viewport; body is calm and readable. Establish clear steps: display → h2 → h3 → body → caption, each visibly distinct in size AND weight.
+- **Fluid + responsive sizing (mandatory — must read well at 375px AND desktop):** use `clamp()` for the display and headings so type scales with the viewport, e.g. `text-[clamp(2.5rem,8vw,7rem)]` for the hero, `clamp(1.75rem,4vw,3rem)` for section headings. Never a fixed `text-8xl` that overflows a phone. Body 16–18px, `leading-relaxed`, `max-w-[65ch]`. Display `tracking-tight` `leading-[0.95]`; body normal tracking.
+- Control hierarchy with **weight + color + size**, not size alone. Serif only when the brand justifies it (editorial/luxury/fashion). Set `text-balance` on headlines and `text-pretty` on paragraphs.
+
+## 4b. TEXT ANIMATION — the headline should feel alive (scale to the MOTION dial)
+The hero headline and key section titles deserve motion — this is a big part of the modern "aww". Pick ONE idiom per page and apply it consistently (framer-motion):
+- **Word-by-word or line reveal** — split the headline into words/lines, `staggerChildren` 0.06–0.1s, each rising `y:20→0` + fade over ~0.6s ease `[0.22,1,0.36,1]`.
+- **Character stagger** — for short punchy headlines (kinetic-type/agency), animate letters in with a tight stagger.
+- **Gradient sweep / shimmer** — an animated gradient across the headline text (background-clip:text) for premium/dark brands.
+- **Scroll-linked emphasis** — `useScroll`+`useTransform` to fade/scale a title as it enters, or a word that highlights on scroll.
+- **Type-in / counter** — `react-countup` for stats; a subtle type-on for a tagline (sparingly).
+- **Marquee** — a looping `react-fast-marquee` band of words for kinetic-type/retro brands.
+Respect `prefers-reduced-motion` (render final state, no animation). Never animate every heading on the page — restraint reads premium; the hero + 1–2 key titles is enough.
 
 ## 5. Layout — earn each section, vary every one
 - **Hero** fits the viewport (max ~`pt-24`), stack ≤ 4 elements. Prefer **asymmetric** over centered when VARIANCE > 4: split 50/50, left-text/right-asset, or full-bleed image with a graceful fade into the background color.
@@ -94,6 +105,13 @@ Rotate ~6-8 of these per page; adjacent sections must differ in structure AND rh
 - **particles** — `@tsparticles/react` (slim) constellation, OR a small custom `<canvas>` particle field. Subtle, capped count, behind the hero only.
 - **3d-scene** — `@react-three/fiber` + `@react-three/drei` (`Float`, `MeshDistortMaterial`, `Environment`) as a hero backdrop; lazy-load, `dpr={[1,1.5]}`, gate on `prefers-reduced-motion`. Agency/tech/product/portfolio only — NEVER restaurants/wellness/warm brands. `cobe` for a globe on SaaS/global brands.
 All ambience sits BEHIND content at low opacity and must never hurt legibility or performance.
+
+## 6d. MOBILE ADAPTATION — a designed phone experience, not a squeezed desktop
+Every site is built mobile-first and must look intentional at 375px. Adapt, don't shrink:
+- **A DISTINCT mobile nav.** Desktop nav links do NOT just wrap on phones. On mobile, collapse to a hamburger that opens a real designed menu — a full-screen overlay or a slide-in drawer with large tap targets (min 44px), the logo, all links stacked, and the primary CTA. Animate it open/closed. The desktop nav (inline links / centered / split) and the mobile nav (drawer/overlay) are two different components sharing state — `hidden md:flex` for desktop links, a `md:hidden` hamburger for mobile.
+- **Proper positioning at every breakpoint.** Multi-column grids collapse to ONE column on mobile (`grid-cols-1 md:grid-cols-3`). Absolutely-positioned decorative elements (blobs, floating shapes, offset images) are repositioned or hidden on small screens so nothing overlaps text or overflows. NO fixed pixel widths, NO horizontal scroll — test that nothing bleeds past the viewport.
+- **Sections reflow, don't crush.** Split 60/40 heroes STACK (image above/below text). Bento collapses to 1–2 columns. Horizontal-scroll rails stay swipeable (`overflow-x-auto snap-x`) or stack. Big `clamp()` type stays readable, not clipped. Generous mobile padding (`px-5`), comfortable tap spacing.
+- **Text stays inside the screen.** Long headings wrap (`text-balance`), no `whitespace-nowrap` on mobile, images `max-w-full h-auto`. A statement must never run off-screen.
 
 ## 7. Motion (scale to the MOTION dial)
 - framer-motion: hero entrance (fade + rise, `staggerChildren` 0.08-0.12s), `useInView` scroll reveals, hover-lift on cards, optional `useScroll`/`useTransform` parallax. Animate transform/opacity ONLY (never layout props). Durations 0.4-0.8s, ease `[0.22,1,0.36,1]`.
