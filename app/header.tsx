@@ -29,7 +29,7 @@ export async function Header({ className, page = 'builder' }: Props) {
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <LayoutDashboardIcon className="w-3.5 h-3.5" />
-            Dashboard
+            <span className="hidden sm:inline">Dashboard</span>
           </Link>
         ) : (
           <Link

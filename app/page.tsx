@@ -5,10 +5,9 @@ import { Horizontal } from '@/components/layout/panels'
 import { Logs } from './logs'
 import { Preview } from './preview'
 import { RightPanel } from '@/components/layout/right-panel'
-import { DeployPanel } from '@/components/deploy/deploy-panel'
-import { DatabasePanel } from '@/components/deploy/database-panel'
-import { AuthPanel } from '@/components/deploy/auth-panel'
-import { TabContent, TabItem } from '@/components/tabs'
+import { CloudDashboard } from '@/components/cloud/cloud-dashboard'
+import { MobileTabs } from '@/components/layout/mobile-tabs'
+import { TabContent } from '@/components/tabs'
 import { Welcome } from '@/components/modals/welcome'
 import { SandboxLifecycle } from '@/components/sandbox-lifecycle'
 import { ProjectLoader } from '@/components/project-loader'
@@ -25,41 +24,31 @@ export default async function Page() {
       <SandboxLifecycle />
       <ProjectLoader />
       <Welcome defaultOpen={banner} onDismissAction={hideBanner} />
-      <div className="flex flex-col h-screen max-h-screen overflow-hidden p-2 space-x-2">
+      <div className="flex flex-col h-screen max-h-screen overflow-hidden p-2 gap-y-1">
         <Header className="flex items-center w-full" />
-        <ul className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-sm tracking-tight px-1 py-2 md:hidden">
-          <TabItem tabId="chat">Chat</TabItem>
-          <TabItem tabId="preview">Preview</TabItem>
-          <TabItem tabId="file-explorer">Code</TabItem>
-          <TabItem tabId="logs">Logs</TabItem>
-          <TabItem tabId="deploy">Deploy</TabItem>
-          <TabItem tabId="database">Database</TabItem>
-          <TabItem tabId="auth">Auth</TabItem>
-        </ul>
+        <div className="md:hidden">
+          <MobileTabs />
+        </div>
 
-        {/* Mobile layout */}
-        <div className="flex flex-1 w-full overflow-hidden pt-2 md:hidden">
-          <TabContent tabId="chat" className="flex-1">
+        {/* Mobile layout — matches desktop: Chat / Preview / Code / Cloud (unified).
+            Logs stays mounted (hidden) so the error-monitor keeps receiving dev-server logs. */}
+        <div className="flex flex-1 w-full min-h-0 overflow-hidden pt-2 md:hidden">
+          <TabContent tabId="chat" className="flex-1 min-w-0">
             <Chat className="flex-1 overflow-hidden" />
           </TabContent>
-          <TabContent tabId="preview" className="flex-1">
+          <TabContent tabId="preview" className="flex-1 min-w-0">
             <Preview className="flex-1 overflow-hidden" />
           </TabContent>
-          <TabContent tabId="file-explorer" className="flex-1">
+          <TabContent tabId="file-explorer" className="flex-1 min-w-0">
             <FileExplorer className="flex-1 overflow-hidden" />
           </TabContent>
-          <TabContent tabId="logs" className="flex-1">
-            <Logs className="flex-1 overflow-hidden" />
+          <TabContent tabId="cloud" className="flex-1 min-w-0">
+            <CloudDashboard className="flex-1 overflow-hidden" />
           </TabContent>
-          <TabContent tabId="deploy" className="flex-1">
-            <DeployPanel className="flex-1 overflow-hidden" />
-          </TabContent>
-          <TabContent tabId="database" className="flex-1">
-            <DatabasePanel className="flex-1 overflow-hidden" />
-          </TabContent>
-          <TabContent tabId="auth" className="flex-1">
-            <AuthPanel className="flex-1 overflow-hidden" />
-          </TabContent>
+          {/* Mounted but never shown — feeds the error-monitor. */}
+          <div className="hidden">
+            <Logs />
+          </div>
         </div>
 
         {/* Desktop layout — 30% chat / 70% tabbed right panel */}
