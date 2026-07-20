@@ -548,7 +548,23 @@ export function detectEmptyRender(path: string, content: string): EmptyRenderFin
     }
   }
 
-  // Advisory smells (escalated to a regen only on page files).
+  // Section content floor: a website section is meant to be RICH (real copy + imagery).
+  // One that has almost no text AND no image/data/visual is a thin/empty section — exactly
+  // the "beautifully filled, never a placeholder" bar. Conservative: a legitimately image-
+  // or data-driven section (gallery, stats) has a visual/data source and is NOT flagged.
+  if (kind === 'section') {
+    const stripped = stripCode(content)
+    const textChars = [...stripped.matchAll(/>([^<>{}]+)</g)]
+      .map((m) => m[1].replace(/\s+/g, ' ').trim())
+      .filter((s) => /[A-Za-z]{2,}/.test(s))
+      .join(' ').length
+    const hasVisual = /<img|unsplash\.com|source\.unsplash|images\.unsplash|background(?:-image|Image)|url\(|<canvas|<Canvas|<video|\.map\(|useState|useQuery|useLoaderData|fetch|axios/i.test(content)
+    if (textChars < 30 && !hasVisual) {
+      reasons.push(`This section is nearly empty (${textChars} chars of text, no image or data) — fill it with real copy and imagery so it looks complete.`)
+    }
+  }
+
+  // Advisory smells (escalated to a regen on page AND section files — both must be rich).
   if (/DATA\s*=\s*\[\s*\]/.test(content) && /DATA\.map\(/.test(content)) {
     advisories.push('A component maps over a DATA array that is defined empty in the same file — nothing renders from it.')
   }
@@ -556,7 +572,7 @@ export function detectEmptyRender(path: string, content: string): EmptyRenderFin
     advisories.push('Placeholder / "coming soon" / lorem markers present.')
   }
 
-  const escalate = kind === 'page' ? advisories : []
+  const escalate = (kind === 'page' || kind === 'section') ? advisories : []
   const allReasons = [...reasons, ...escalate]
   if (allReasons.length === 0) return null
   return {
