@@ -37,10 +37,10 @@ function EmptyState({ onPrompt }: { onPrompt: (p: string) => void }) {
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-1.5">
           <SparklesIcon className="w-3.5 h-3.5" />
-          <span className="text-sm font-semibold">What would you like to build?</span>
+          <span className="text-sm font-semibold">Hello there, I&apos;m Codemine.</span>
         </div>
         <p className="text-xs text-muted-foreground">
-          Describe your idea and Codemine builds it live — websites, apps, games.
+          Share your idea and I&apos;ll bring it to life — websites, apps, games.
         </p>
       </div>
 

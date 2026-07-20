@@ -1266,7 +1266,7 @@ export async function POST(req: Request) {
           writer.write({
             id: 'srv-hello',
             type: 'data-narration',
-            data: { text: "Starting your workspace — I'm on it. Your preview will be ready in a few minutes." },
+            data: { text: "Starting your workspace, I'll be with you in a minute." },
           })
 
         let skill: Skill | null = null
@@ -2519,6 +2519,13 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   let rtResult: { status: 'ok' | 'broken' | 'skipped'; detail: string; score?: number | null; screenshot?: Buffer } | null = null
   if (!devError) {
     try {
+      // Files are done; bringing the preview up + verifying it renders takes ~30s. Tell the
+      // user so the gap between "files done" and the live preview never feels like a stall.
+      writer.write({
+        id: 'srv-preview-starting',
+        type: 'data-narration',
+        data: { text: 'Starting preview — this may take up to 30 seconds, please wait.' },
+      })
       writer.write({
         id: 'srv-runtime',
         type: 'data-run-command',
