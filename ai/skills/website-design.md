@@ -18,13 +18,16 @@ State the direction in one line ("premium spa: calm, editorial, restrained, warm
 - E-commerce/retail: "Product catalog" — product imagery grid, collection previews, add-to-cart flow.
 - Personal/portfolio: "Minimal editorial" — large name, curated work, subtle transitions.
 
-## 1b. NAVIGATION — real pages only (hard ban on anchor-link nav)
+## 1b. NAVIGATION — every link resolves to something real (no 404s, no dead anchors)
 
-Every nav item that isn't "Home" MUST be a real page file (`src/pages/About.tsx`, `src/pages/Menu.tsx`, `src/pages/Contact.tsx`) routing to real URLs (`/about`, `/menu`, `/contact`). These are generated in Phase 2.
+The build is MULTI-PAGE by default (the brief's pageMap lists the pages). The rule is simple and absolute — **every nav link resolves to something that exists:**
+- **Link to another PAGE** (a page in the pageMap you actually created) → `<Link to="/about">`, `<Link to="/menu">`. Only for pages you built.
+- **Link to a SECTION on the current page** → in-page anchor `<a href="#menu">` / `scrollIntoView` to a `<section id="menu">` that exists on this page.
+- **Single-page site** (pageMap has one entry): ALL nav links are anchors to sections on the one page.
 
-**HARD BAN:** `<a href="#menu">`, `<a href="#about">`, `<Link to="/#features">` as navigation items — these are NOT pages. Users click them and stay on the same page with a scroll jump. This reads as broken/amateur to any visitor. Use `<Link to="/menu">` + real page files only.
+**HARD BANS:** a `<Link to="/x">` to a page you did NOT create (→ 404). An `<a href="#x">` where no `<section id="x">` exists (→ dead click). A footer "Terms"/"Privacy" you didn't build → `<button onClick={e => e.preventDefault()}>`, never a broken route.
 
-The ONLY valid `#anchor` usage: in-page skip links (jump to a form, jump to a FAQ accordion on the SAME page). Never between "pages" in the nav.
+Pick nav targets deliberately: on a multi-page site the primary nav points to the other PAGES; a page's own sub-sections can still use anchors within that page.
 
 ## 2. BANNED — signals that scream "AI-generated" (zero tolerance, with examples)
 
@@ -66,6 +69,31 @@ The ONLY valid `#anchor` usage: in-page skip links (jump to a form, jump to a FA
 
 ## 6. The creative arsenal — pull from these to look distinctive
 Choose what fits the brand; don't use all. **Layout:** Bento grid · Masonry · Split-screen scroll · Sticky-stack cards (cards pin + stack on scroll) · Horizontal-scroll gallery · Asymmetric whitespace. **Hero:** asymmetric split · editorial type-forward · full-bleed image with fade · subtle parallax depth. **Cards/sections:** spotlight-border on cursor · tilt-on-hover · glass panel with 1px inner border + inner shadow (`shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]`) · pull-quote band · stat strip · marquee of logos/accolades. **Type:** oversized kinetic headline · text mask over image · gradient-stroke outline (sparingly). **Texture:** fixed grain/noise overlay (`fixed inset-0 pointer-events-none`, NEVER on scrolling containers). **3D (agency/tech/creative/portfolio only):** React Three Fiber particle field as hero background · floating geometric shapes (icosahedron, torus, octahedron) with `Float` + `MeshDistortMaterial` · scroll-driven camera flythrough with `ScrollControls`. All R3F patterns are in the website skill pack — import them as lazy components, always cap `dpr={[1, 1.5]}`, always gate on `prefers-reduced-motion`. NEVER use R3F for restaurants/cafés/wellness/warm brands.
+
+## 6b. SECTION COMPOSITION LIBRARY — vary every section, fill every one
+Pick a DIFFERENT pattern for each section so no two look alike. Every section is fully realized (real copy + real image + motion), never a thin placeholder. Concrete patterns (Tailwind):
+- **Split hero 60/40** — `grid md:grid-cols-[3fr_2fr]`, headline+CTA left, full-bleed image right that bleeds off the edge.
+- **Full-bleed image band** — `relative min-h-[80vh]`, image `absolute inset-0 object-cover`, gradient overlay `bg-gradient-to-t from-background`, content bottom-left.
+- **Bento mosaic** — `grid grid-cols-2 md:grid-cols-4 auto-rows-[minmax(140px,auto)]`, feature cards spanning `col-span-2`/`row-span-2` unevenly, `rounded-2xl` + hover lift.
+- **Sticky-stack cards** — cards that pin and stack on scroll (`position: sticky; top: 6rem` per card, slight scale/offset).
+- **Horizontal scroll gallery** — `flex overflow-x-auto snap-x` row of work/menu cards, or a framer `useScroll` → `x` translate rail.
+- **Zig-zag alternating** — alternating `md:flex-row` / `md:flex-row-reverse` image+text pairs (NOT three equal cards).
+- **Stat strip** — a band of 3-4 big animated numbers (`react-countup`) over a token-tinted surface.
+- **Pull-quote band** — one oversized testimonial in display type, portrait to the side, generous negative space.
+- **Marquee row** — `react-fast-marquee` of logos/accolades/menu items.
+- **Split feature list** — sticky heading left, a tall scannable list of features right (numbered or iconed).
+- **FAQ accordion** + **Contact/CTA** with a real form (labels above inputs).
+Rotate ~6-8 of these per page; adjacent sections must differ in structure AND rhythm (tight vs airy).
+
+## 6c. BACKGROUND & AMBIENCE RECIPES (match the brief's backgroundTreatment — modern sites are alive)
+- **gradient-mesh** — 2-3 `absolute` radial-gradient blobs (`bg-[radial-gradient(...)]`) in palette hues, `blur-3xl`, low opacity, behind content.
+- **noise-grain** — a `fixed inset-0 pointer-events-none` div with a tiny tiling noise data-URI at ~4-8% opacity. NEVER on a scrolling container.
+- **animated-gradient** — a gradient with `background-size:200%` animating `background-position` over ~12s `ease-in-out infinite` (CSS keyframes).
+- **aurora-glow** — large blurred colour blobs (`blur-[100px]`, palette hues, low opacity) slowly drifting via framer `animate` loop. Premium on dark.
+- **scroll-parallax** — `useScroll()` + `useTransform` to translate background layers slower than foreground; or `lenis` for smooth scroll. Cap movement; respect reduced-motion.
+- **particles** — `@tsparticles/react` (slim) constellation, OR a small custom `<canvas>` particle field. Subtle, capped count, behind the hero only.
+- **3d-scene** — `@react-three/fiber` + `@react-three/drei` (`Float`, `MeshDistortMaterial`, `Environment`) as a hero backdrop; lazy-load, `dpr={[1,1.5]}`, gate on `prefers-reduced-motion`. Agency/tech/product/portfolio only — NEVER restaurants/wellness/warm brands. `cobe` for a globe on SaaS/global brands.
+All ambience sits BEHIND content at low opacity and must never hurt legibility or performance.
 
 ## 7. Motion (scale to the MOTION dial)
 - framer-motion: hero entrance (fade + rise, `staggerChildren` 0.08-0.12s), `useInView` scroll reveals, hover-lift on cards, optional `useScroll`/`useTransform` parallax. Animate transform/opacity ONLY (never layout props). Durations 0.4-0.8s, ease `[0.22,1,0.36,1]`.

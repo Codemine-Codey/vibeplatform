@@ -202,6 +202,13 @@ export const KNOWN_PACKAGES: Record<string, string> = {
   animejs: '^3.2.2',
   '@formkit/auto-animate': '^0.8.2',
 
+  // ── Ambient backgrounds (hero depth/motion — the "alive, not flat" look) ──
+  cobe: '^0.6.3',                    // tiny WebGL globe (SaaS/agency hero backdrop)
+  '@tsparticles/react': '^3.0.0',    // particle/constellation fields
+  '@tsparticles/slim': '^3.8.1',
+  '@tsparticles/engine': '^3.8.1',
+  ogl: '^1.0.11',                    // lightweight WebGL for shader/gradient backdrops
+
   // ── Storage / cookies / clipboard / hooks / slugs ──
   localforage: '^1.10.0',
   'js-cookie': '^3.0.5',
