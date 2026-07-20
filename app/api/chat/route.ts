@@ -2508,23 +2508,30 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
         await new Promise(r => setTimeout(r, 4000))
         rt = await headlessRuntimeCheck(url, sandboxId)
       }
-      // LLM repair round
+      // LLM repair rounds — up to 2 passes (any skill). Each pass targets the CURRENT
+      // error's file(s); fixing one error commonly surfaces the next, so a second pass
+      // meaningfully raises the odds of a REAL fix that keeps the user's actual build,
+      // instead of dropping to the generic fallback page. Bounded + budget-aware (#89
+      // guarantees this all finishes before the function cap).
       if (rt.status === 'broken') {
-        const files = extractErrorFiles(rt.detail)
-        let repaired = false
-        for (const path of files.slice(0, 4)) {
-          const content = await readSandboxFile(sandbox, path)
-          if (!content) continue
-          const fixed = await repairFile(path, content, rt.detail)
-          if (fixed && fixed !== content) {
-            const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : sanitizeTsx(path, fixed)
-            await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
-            repaired = true
+        for (let attempt = 1; attempt <= 2 && rt.status === 'broken'; attempt++) {
+          const files = extractErrorFiles(rt.detail)
+          if (files.length === 0) break // nothing nameable to repair — fall through
+          let repaired = false
+          for (const path of files.slice(0, 4)) {
+            const content = await readSandboxFile(sandbox, path)
+            if (!content) continue
+            const fixed = await repairFile(path, content, rt.detail)
+            if (fixed && fixed !== content) {
+              const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : sanitizeTsx(path, fixed)
+              await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
+              repaired = true
+            }
           }
-        }
-        if (repaired) {
+          if (!repaired) break // repair produced no change — looping again won't help
           await new Promise(r => setTimeout(r, 3500))
           rt = await headlessRuntimeCheck(url, sandboxId)
+          logRepair({ layer: 'runtime-check', action: rt.status === 'ok' ? `repaired-attempt-${attempt}` : `attempt-${attempt}-still-broken`, detail: rt.detail.slice(0, 120), sandboxId })
         }
         // Terminal fallback — always leaves a clean, renderable page before the URL is shown
         if (rt.status === 'broken') {
