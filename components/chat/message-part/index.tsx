@@ -33,6 +33,10 @@ function isTechnicalNarration(text: string): boolean {
   if (/\b(is ?n'?t exported|not exported|the (issue|problem) (is|:)|let me (check|fix|re-?read|read|rewrite|generate|add|grab|also|lock|look|now)|update function|pointer handler|dev server|no longer (has|available)|already exist|the previous (patch|patches)|restart|re-?generate|the handler|overwritten|the file)\b/i.test(t)) return true
   // Process talk about planning/images/build plan
   if (/\b(build plan|lock in the|plan every file|grab the imag|the imagery|phase[- ]?1|phase[- ]?2)\b/i.test(t)) return true
+  // Premature "it's live" status claims — the SERVER owns the live signal (a separate
+  // message part), so the AI claiming it (before the preview is actually up) is always
+  // wrong. Hide it; the real "your project is live" still shows from the server.
+  if (/\b(is live|is ready|is up|now live|open the preview|check the preview)\b/i.test(t)) return true
   return false
 }
 

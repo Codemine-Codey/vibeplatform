@@ -49,7 +49,23 @@ function spawnFood(snake: {x:number,y:number}[], cols: number, rows: number) {
 }
 ```
 
-## 0.5 TUNED CONSTANTS — so it PLAYS right, not turtle-slow (READ)
+## 0.2 RESPONSIVE CANVAS — MUST fit the screen, never zoomed/cropped (READ — real bug)
+A game that renders zoomed-in, cropped, or overflowing the viewport is a FAILURE even if the
+logic works. The canvas MUST fit its container exactly:
+- The game root fills the preview: a wrapper `<div>` at `width:100%; height:100dvh` (or `100%`),
+  `overflow:hidden`, centered.
+- Size the canvas DRAWING BUFFER to the container's real pixels each mount + on resize:
+  `canvas.width = container.clientWidth * dpr; canvas.height = container.clientHeight * dpr` where
+  `dpr = Math.min(window.devicePixelRatio || 1, 2)`, and set CSS `canvas.style.width/height = 100%`.
+  Recompute on `window.resize` (and reset transform: `ctx.setTransform(dpr,0,0,dpr,0,0)`).
+- Read `W = canvas.width/dpr`, `H = canvas.height/dpr` for logic. ALL sizes/speeds are relative to
+  W/H (per §0.5) so the game scales to any screen. NEVER a fixed `canvas.width = 800` that the
+  browser then stretches (that's the "zoomed-in / blocky" look).
+- If a fixed logical aspect is desired (e.g. portrait), letterbox it: fit the largest W×H of that
+  aspect INSIDE the container and center — never overflow or upscale a tiny buffer.
+- Test mentally at 375px wide AND a wide desktop: the whole play area is visible, nothing clipped.
+
+## 0.5 TUNED CONSTANTS — so it PLAYS right, not turtle-slow OR brutally hard (READ)
 A game that compiles but plays wrong (ball crawling, jump too floaty) is a FAILURE. Speeds must be
 tuned to the canvas size and a 60fps step — never tiny absolute pixel values. Before coding, write a
 short spec block at the top of the file with these, sized RELATIVE to the canvas (W = canvas width,
@@ -57,9 +73,10 @@ H = canvas height, per 1/60s step):
 - **Horizontal scroll / projectile speed:** ~0.6–1.2% of W per frame (e.g. `W*0.008` to `W*0.012`) — a full-width crossing in ~1.5–2.5s. A "fast" arcade feel is ~1% of W/frame. NEVER 1–2px on a 900px canvas (that's the turtle-ball).
 - **Player move speed:** ~0.8–1.5% of W per frame; snappy, reaches full speed in a few frames.
 - **Gravity (jumpers):** ~0.15–0.35% of H per frame per frame; jump impulse ~1.2–1.8% of H so the arc peaks in ~0.4–0.6s. Flappy-style: gravity ≈ `H*0.0016`, flap ≈ `-H*0.010`.
+- **FLAPPY DIFFICULTY — start FORGIVING (it was shipping brutally hard):** the pipe GAP must be GENEROUS — `gap ≈ H*0.30` at the start (a full third of the height), never below `H*0.24` even at max difficulty. Start SCROLL SLOW — `W*0.004–0.005` per frame (a leisurely drift), and pipe SPACING wide — a new pipe every `~1.8–2.2s`. The first 20 seconds must be EASY and beatable by a first-timer. Ramp gently: shrink the gap and raise the speed by only ~3–5% per ~5 points, and CAP both (gap floor `H*0.24`, speed ceiling `W*0.009`). If a new player can't get past the first few pipes, it is TOO HARD — loosen it.
 - **Ball games (breakout/pong):** ball speed ~0.8–1.1% of the diagonal per frame; paddle a bit faster than the ball.
-- **Spawn cadence:** obstacles every ~1.1–1.8s at start, tightening with difficulty; spacing derived from speed so they never overlap.
-- **Difficulty ramp:** scale speed/spawn by ~5–12% per milestone, capped (never unplayable).
+- **Spawn cadence:** obstacles every ~1.1–1.8s at start (flappy: 1.8–2.2s), tightening with difficulty; spacing derived from speed so they never overlap.
+- **Difficulty ramp:** scale speed/spawn by ~3–8% per milestone, CAPPED (never unplayable). Err on the side of TOO EASY — a game the player can enjoy beats one they rage-quit in 5 seconds.
 Rule of thumb: if the main mover doesn't visibly cross a meaningful part of the screen within ~2 seconds, it's TOO SLOW — raise the constant. Tune by feel: fun in the first 10 seconds or adjust.
 
 ## 1. The contract — decide before coding
