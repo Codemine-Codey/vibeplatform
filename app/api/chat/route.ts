@@ -2561,6 +2561,20 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     }
   }
 
+  // ── PHASE 0: EARLY REVEAL — show the preview the MOMENT the dev server is up ────────
+  // Previously the reveal waited for the render-check + repair loop to finish; when a build
+  // ran long (or the stream dropped) it NEVER reached here, so the URL was never emitted and
+  // the user saw NO preview at all. Now we reveal as soon as the dev server serves, and the
+  // render-check + repair below run in the BACKGROUND, landing fixes live via HMR. A visible
+  // preview that fills in beats a perfect reveal that never comes. Client shows a subtle
+  // "finishing touches" badge (app/preview.tsx) while work continues.
+  let revealed = false
+  if (!devError) {
+    writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
+    revealed = true
+    console.log('[early-reveal] preview URL emitted as soon as dev server is up:', url)
+  }
+
   // ── Multi-page 404 GUARD (websites) ───────────────────────────────────────────────
   // The per-route render-check DETECTS a nav link that 404s, but the LLM repair can only
   // EDIT existing files — it can't CREATE a missing page. ensureNavShells is the
@@ -2580,13 +2594,15 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   let rtResult: { status: 'ok' | 'broken' | 'skipped'; detail: string; score?: number | null; screenshot?: Buffer } | null = null
   if (!devError) {
     try {
-      // Files are done; bringing the preview up + verifying it renders takes ~30s. Tell the
-      // user so the gap between "files done" and the live preview never feels like a stall.
-      writer.write({
-        id: 'srv-preview-starting',
-        type: 'data-narration',
-        data: { text: 'Starting preview — this may take up to 30 seconds, please wait.' },
-      })
+      // Preview is already visible (early reveal); this runs in the background and lands
+      // fixes via HMR. Only if we somehow did NOT reveal early do we tell the user it's coming.
+      if (!revealed) {
+        writer.write({
+          id: 'srv-preview-starting',
+          type: 'data-narration',
+          data: { text: 'Starting preview — this may take up to 30 seconds, please wait.' },
+        })
+      }
       writer.write({
         id: 'srv-runtime',
         type: 'data-run-command',
@@ -2697,13 +2713,13 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     }
   }
 
-  // ── VERIFY-BEFORE-REVEAL: reveal the preview ONLY NOW ─────────────────────────────
-  // The headless render-check above confirmed the app paints real content (or swapped in a
-  // clean branded fallback). Only at THIS point do we show the URL and tell the user their
-  // project is live — so they never see a blank/broken preview or a "live" message that's
-  // immediately followed by an error fix (the confidence-killer). Until now the client stays
-  // on the "Building…" indicator.
-  writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
+  // ── REVEAL (only if not already revealed early) ───────────────────────────────────
+  // With Phase 0 early-reveal, the preview URL was usually emitted the moment the dev server
+  // came up. This is the fallback reveal for the devError path (dev server was down → a
+  // branded fallback was applied above), so the user still gets a visible preview.
+  if (!revealed) {
+    writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
+  }
   if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: url }).catch(() => {})
 
   // ── Context-aware follow-up suggestion pills (#84) — background, non-blocking ──────

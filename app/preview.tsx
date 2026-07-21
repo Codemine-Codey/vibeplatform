@@ -76,10 +76,24 @@ export function Preview({ className }: Props) {
         lastFilesUploadedAt={lastFilesUploadedAt}
       />
 
-      {/* Full overlay: generation or error fix in progress */}
-      {isWorking && (
+      {/* Full overlay ONLY before a preview URL exists (nothing to show yet). Once the URL
+          is emitted, the preview is visible and fills in live via HMR — we never hide a
+          loaded preview behind an opaque cover (that looked like "no preview" when a build
+          ran long or the stream dropped without cleanly reaching 'ready'). */}
+      {isWorking && !url && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-background">
           <CubeLoader elapsed={elapsed} label={cubeLabel} />
+        </div>
+      )}
+
+      {/* Once the preview URL exists but work continues, show only a subtle corner badge so
+          the live preview stays visible while later files/fixes land via HMR. */}
+      {isWorking && url && (
+        <div className="absolute bottom-4 right-4 z-20 pointer-events-none">
+          <div className="flex items-center gap-2 bg-black/75 text-white text-xs px-3 py-2 rounded-full backdrop-blur-sm">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            {cubeLabel ?? 'Adding the finishing touches…'}
+          </div>
         </div>
       )}
 
