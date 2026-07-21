@@ -20,7 +20,9 @@ const PROMPTS = {
   webapp: 'build an expense tracker app where I can add, edit and delete expenses with a running total',
   game: 'make a snake game with keyboard controls, score, and a game over screen',
 }
-const PROMPT = PROMPTS[KIND] || PROMPTS.website
+// CM_TEST_PROMPT overrides the canned prompt so we can test a SPECIFIC idea
+// (e.g. an actual flappy bird) without editing this file.
+const PROMPT = process.env.CM_TEST_PROMPT || PROMPTS[KIND] || PROMPTS.website
 
 // Words that must NEVER appear in user-visible text. High-signal only — excludes
 // terms that legitimately appear elsewhere: "tsx" (Code tab shows Home.tsx filenames),
