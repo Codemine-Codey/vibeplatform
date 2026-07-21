@@ -258,7 +258,23 @@ const GEN_SYSTEM =
   '\n## ROUTING & LINKS — never strand the user on a blank screen.\n' +
   '- The app MUST include a catch-all route LAST: <Route path="*" element={<NotFound />} /> rendering a simple, on-brand "page not found" with a link home. A blank screen is never acceptable.\n' +
   '- Only use <Link to="/x"> for pages you ACTUALLY build a <Route> for. For a link you are NOT building a page for (e.g. a footer "Terms"/"Privacy" you did not create), DO NOT navigate — render it as a non-navigating element (a <button>/<span> styled as a link, or href="#" with onClick preventDefault). A visible link must either work or do nothing — never lead to a blank route.\n' +
-  '\nBefore finishing each file, self-check: every import resolves to an installed package, every CSS value is complete, colors use tokens, text has contrast, every <Link> target has a matching <Route> (or is non-navigating), and a catch-all 404 exists. No placeholder content. Real code only.'
+  '\n## CODE INVARIANTS — type-agnostic rules that prevent the FINITE set of runtime crashes (obey ALL, for ANY app):\n' +
+  '**Boundary (where code runs):**\n' +
+  '- NEVER touch browser globals (window, document, localStorage, navigator) at MODULE scope — only inside useEffect, event handlers, or functions called after mount. Module-scope window access = white screen.\n' +
+  '- NEVER fetch("http://localhost…") or a hardcoded dev URL. Use a relative path or the platform cloud API. No secrets/keys in client code; only import.meta.env.VITE_* for public values.\n' +
+  '**Lifecycle (things that must exist):**\n' +
+  '- EVERY useEffect that adds a listener/interval/timeout/subscription/requestAnimationFrame/AudioContext MUST return a cleanup that removes/cancels it. No exceptions — leaks + double-loops come from this.\n' +
+  '- EVERY async operation has BOTH a loading state and an error state; wrap it in try/catch so it can never throw uncaught. Every form has a submit handler that cannot throw + basic validation.\n' +
+  '**State shape (kills "cannot read properties of undefined"):**\n' +
+  '- EVERY useState holding a list is initialized to [] (NEVER undefined/null). EVERY object field that may be missing is read with optional chaining (?.) and a fallback (?? / ||). Map/filter only over arrays you initialized.\n' +
+  '- One source of truth per piece of state — never two variables that can disagree. Prefer derived values over duplicated state.\n' +
+  '**Dependency (imports must resolve):**\n' +
+  '- EVERY import resolves to an installed package (the verified stack) OR a file you create in THIS SAME build. Never import a file/name that will not exist. If you use a section/component, you export it correctly and import it exactly as exported (default vs named).\n' +
+  '**Contract (framework shape — our scaffold owns these):**\n' +
+  '- NEVER write src/App.tsx or src/main.tsx (scaffold-owned; the router lives there). NEVER import BrowserRouter/Routes/Route. Pages = src/pages/*.tsx (auto-routed by filename); shared nav/footer = src/components/Layout.tsx only. Page/section components use a DEFAULT export; data/util/hook modules use NAMED exports.\n' +
+  '**Verification (write so these pass — the platform checks them):**\n' +
+  '- Zero console errors + zero unhandled rejections; #root mounts and paints REAL content. EVERY interactive control actually DOES something (a button/handler that no-ops is a bug). Canvas/audio apps: the loop truly ticks / the context resumes on the first user gesture. Every nav link resolves to a real page or an on-page anchor (never a dead link/404).\n' +
+  '\nBefore finishing each file, self-check ALL invariants above + : every import resolves, every CSS value is complete, colours use tokens, text has contrast, every effect has cleanup, every list state is [], every control works. No placeholder content. Real code only.'
 
 function buildGenSystem(designContext?: string): string {
   if (!designContext) return GEN_SYSTEM
