@@ -22,7 +22,7 @@ import { lookupReference, tavilySearch } from '@/ai/tools/lookup-reference'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
 import { formatBrief, type PageSpec } from '@/ai/types/project-brief'
-import { lockPaletteInCss } from '@/lib/design-tokens'
+import { lockPaletteInCss, buildFullIndexCss } from '@/lib/design-tokens'
 import type { ColorTokens } from '@/ai/types/project-brief'
 import { getSkillPack } from '@/ai/packs'
 import { getSkillCatalog, loadSkillBody, designSkillFor } from '@/ai/skills'
@@ -1401,7 +1401,7 @@ export async function POST(req: Request) {
         // makes is summed into tokens_used on the project row.
         const tokenBox = { total: 0 }
         const pipelineResult = await tokenStore.run(tokenBox, () =>
-          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise, tokens: brief.colorTokens, brandName: brief.brandName, pageMap: brief.pageMap, runId, invocationStart })
+          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise, tokens: brief.colorTokens, brandName: brief.brandName, pageMap: brief.pageMap, fontPairing: brief.fontPairing, runId, invocationStart })
         )
         // Durable-runs STEP 3: a chained handoff means enrichment ran out of invocation
         // budget and passed the run to a fresh continuation (status already 'continuing').
@@ -1680,6 +1680,7 @@ async function runPipeline({
   tokens,
   brandName,
   pageMap: briefPageMap,
+  fontPairing,
   runId,
   invocationStart,
 }: {
@@ -1694,6 +1695,7 @@ async function runPipeline({
   tokens?: ColorTokens
   brandName?: string
   pageMap?: PageSpec[]
+  fontPairing?: string
   runId?: string | null
   invocationStart?: number
 }): Promise<{ chained: boolean }> {
@@ -1836,6 +1838,23 @@ async function runPipeline({
   // Unique seed per generation — ensures the model makes distinct creative choices
   // even when two users submit the same prompt. Injected into context so it
   // influences color palette, layout structure, and typographic decisions.
+  // ── A: DETERMINISTIC index.css (the design tokens file is NEVER missing) ──────────
+  // The #1 cause of the burger-site repair spiral: the AI omitted src/index.css, then
+  // invented brand-* classes and rgb(var()) tokens and spent minutes hand-repairing CSS.
+  // Fix: the SERVER writes a complete, valid, on-brand index.css from the brief (tokens +
+  // fonts + @tailwind directives) up front. The AI never generates or repairs it — it just
+  // uses the token classes. index.css is added to SCAFFOLD_OWNED below so the AI's version
+  // is dropped. Fire-and-forget: the write is fast and the file is read at dev-server boot.
+  if (tokens) {
+    try {
+      const brandCss = buildFullIndexCss(tokens, fontPairing)
+      await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(brandCss, 'utf8') }])
+      console.log('[index-css] wrote deterministic brand index.css (tokens + fonts)')
+    } catch (e) {
+      console.warn('[index-css] deterministic write failed (non-fatal):', e instanceof Error ? e.message : e)
+    }
+  }
+
   const creativeSeed = Math.random().toString(36).slice(2, 10).toUpperCase()
   // W2 — the Design Director's pageMap drives single- vs multi-page. Multi-page is the new
   // default for substantial sites; the per-route render-check (W1) verifies every page paints
@@ -1848,6 +1867,7 @@ async function runPipeline({
   const pipelineAddendum =
     `\n\n## SERVER PIPELINE — WORKSPACE READY\n` +
     `sandboxId: ${sandboxId}\n` +
+    `⛔ ZERO TECHNICAL NARRATION during the build. You speak ONLY twice: (1) the one-line opening, (2) the completion line after the preview is live. Between them: NOTHING — no "Now I need to fix…", no "the imports are broken", no "let me add the CSS", no file names, no reasoning, no step-by-step. If you find an issue, fix it SILENTLY with tools and say nothing. src/index.css is platform-owned (already written) — never mention it, never regenerate it. The user is non-technical; a wall of technical text is a failure.\n` +
     `Creative session ID: ${creativeSeed} — use this to make UNIQUE design choices. Two projects with similar briefs must look completely different in layout, palette, and typography.\n` +
     `Scaffold pre-written (including shadcn/ui components). Dependencies installing in background.\n` +
     `DO NOT call createSandbox — it is already done.\n` +
@@ -1938,6 +1958,9 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   // Scaffold-owned: written at sandbox creation, AI must never regenerate them.
   // Actively drop them if the AI includes them — saves write time, avoids clobbering.
   const SCAFFOLD_OWNED = new Set([
+    // src/index.css is now SERVER-OWNED (written deterministically from the brief above) —
+    // drop any AI-generated version so it can never omit it or inject invented classes.
+    'src/index.css',
     'package.json', 'src/main.tsx', 'src/App.tsx',
     'vite.config.ts', 'vite.config.js', 'tsconfig.json', 'tsconfig.app.json',
     'tsconfig.node.json', 'index.html', 'tailwind.config.ts', 'tailwind.config.js',
@@ -1963,18 +1986,26 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     ? pageMap.map((p: PageSpec) => `src/pages/${p.page.replace(/[^A-Za-z0-9]/g, '')}.tsx`)
     : []
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const websiteMultiPageGF: any = {
+  const websiteGF: any = {
     ...rawGF,
     execute: async (args: { sandboxId: string; paths: string[] }, ctx: unknown) => {
-      const have = new Set(args.paths)
-      const inject = pageMapPaths.filter((p) => !have.has(p))
-      if (inject.length > 0) console.warn(`[multipage] injecting ${inject.length} missing page(s): ${inject.join(', ')}`)
-      const paths = inject.length > 0 ? [...args.paths, ...inject] : args.paths
+      // Drop src/index.css — the server wrote it deterministically from the brief; the AI
+      // must never clobber it (that's how invented brand-* classes + repair spirals crept in).
+      let paths = args.paths.filter((p) => p !== 'src/index.css')
+      // Multi-page: inject every pageMap page the AI omitted so no planned page is missing.
+      if (isMultiPage) {
+        const have = new Set(paths)
+        const inject = pageMapPaths.filter((p) => !have.has(p))
+        if (inject.length > 0) {
+          console.warn(`[multipage] injecting ${inject.length} missing page(s): ${inject.join(', ')}`)
+          paths = [...paths, ...inject]
+        }
+      }
       return rawGF.execute({ ...args, paths }, ctx)
     },
   }
-  // Websites build the COMPLETE site in ONE pass (rawGF); multi-page websites go through the
-  // injection wrapper so no planned page is missing. Only webapp keeps the guarded 2-phase.
+  // Websites build the COMPLETE site in ONE pass through websiteGF (strips server-owned
+  // index.css + injects missing pages). Only webapp keeps the guarded 2-phase.
   const guardedGF: any = skill === 'webapp' ? {
     ...rawGF,
     execute: async (args: { sandboxId: string; paths: string[] }, ctx: unknown) => {
@@ -2081,7 +2112,7 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
       }
       return rawGF.execute(args, ctx)
     },
-  } : (isMultiPage ? websiteMultiPageGF : rawGF)
+  } : (skill === 'website' ? websiteGF : rawGF)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pipelineTools: Record<string, any> = skill === 'website'
@@ -2130,10 +2161,10 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   const genAbort = AbortSignal.timeout(genBudgetMs)
 
   const aiResult = streamText({
-    // Thinking ON for the ORCHESTRATION/PLANNING loop (it decides the file plan + tool
-    // calls; the actual file CONTENT is generated separately in getContents WITHOUT
-    // reasoning). So planning gets a deliberate think while per-file generation stays fast.
-    ...getModelOptions(DEFAULT_MODEL, { reasoning: true }),
+    // Reasoning OFF (E2E test 2026-07-21: the long silent think idled the SSE stream and it
+    // dropped mid-build → resume churn; little visible gain). Fast, continuous streaming keeps
+    // the connection alive and the build moving.
+    ...getModelOptions(DEFAULT_MODEL),
     system: fullSystem,
     messages: await convertToModelMessages(transformMessages(messages)),
     stopWhen: stepCountIs(maxSteps),
@@ -2689,8 +2720,13 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     } catch { /* non-fatal */ }
   })()
 
-  // ── Design-improvement pass via HMR ──────────────────────────────────────────────
+  // ── Design-improvement pass — DISABLED (Lovable's explicit lesson) ────────────────
+  // A post-hoc "polish" AI pass that re-reads components and tweaks is exactly where slow
+  // repair loops live. Design quality must come from GENERATION-time discipline (locked
+  // tokens, banned invented classes, front-loaded palette) — not a second pass. Kept
+  // behind a flag in case we ever want to A/B it; default OFF.
   if (
+    process.env.CM_DESIGN_POLISH === 'true' &&
     rtResult &&
     rtResult.status === 'ok' &&
     typeof rtResult.score === 'number' &&

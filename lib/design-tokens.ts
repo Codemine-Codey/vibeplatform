@@ -81,6 +81,47 @@ export function buildBrandRootCss(tokens: ColorTokens): string | null {
   return `:root {\n${body}\n  --radius: 0.625rem;\n}`
 }
 
+// Build a COMPLETE, ready-to-ship src/index.css from the brief — deterministically, so
+// the file is NEVER missing, always valid, always on-brand, and the AI never has to
+// generate or repair it. Includes the Google-font @import, the @tailwind directives, the
+// locked :root palette, the font-family vars, and base body/heading bindings. This removes
+// the whole "missing index.css → invented brand-* classes → slow manual CSS repair" cascade.
+export function buildFullIndexCss(tokens: ColorTokens, fontPairing?: string): string {
+  const root = buildBrandRootCss(tokens) ?? ':root {\n  --background: 0 0% 100%;\n  --foreground: 222 47% 11%;\n  --card: 0 0% 100%;\n  --card-foreground: 222 47% 11%;\n  --primary: 222 47% 11%;\n  --primary-foreground: 0 0% 98%;\n  --secondary: 210 40% 96%;\n  --secondary-foreground: 222 47% 11%;\n  --muted: 210 40% 96%;\n  --muted-foreground: 215 16% 47%;\n  --accent: 210 40% 96%;\n  --accent-foreground: 222 47% 11%;\n  --destructive: 0 72% 51%;\n  --destructive-foreground: 0 0% 98%;\n  --border: 214 32% 91%;\n  --input: 214 32% 91%;\n  --ring: 222 47% 11%;\n  --radius: 0.625rem;\n}'
+  let displayFont = 'Plus Jakarta Sans'
+  let bodyFont = 'Inter'
+  if (fontPairing && fontPairing.includes('+')) {
+    const parts = fontPairing.split('+').map((s) => s.trim()).filter(Boolean)
+    if (parts[0]) displayFont = parts[0]
+    if (parts[1]) bodyFont = parts[1]
+  }
+  const fam = (f: string) => f.replace(/\s+/g, '+')
+  const importUrl = `https://fonts.googleapis.com/css2?family=${fam(displayFont)}:wght@400;500;600;700;800;900&family=${fam(bodyFont)}:wght@300;400;500;600;700&display=swap`
+  return `@import url('${importUrl}');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+${root}
+
+:root {
+  --font-display: '${displayFont}', ui-serif, Georgia, serif;
+  --font-body: '${bodyFont}', ui-sans-serif, system-ui, sans-serif;
+}
+
+* { border-color: hsl(var(--border)); }
+html { scroll-behavior: smooth; }
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+h1, h2, h3, h4, h5, .font-display { font-family: var(--font-display); }
+`
+}
+
 // Lock the palette into an existing index.css: replace the :root block (or prepend
 // one if absent) with the brand block, and ensure the base body/border bindings
 // exist. Idempotent and safe — only touches :root + the two base rules.

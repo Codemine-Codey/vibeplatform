@@ -19,12 +19,11 @@ export async function expandPrompt(
 
   try {
     await generateText({
-      // The brief is a structured tool call whose fields (archetype, palette, fonts,
-      // signature moves, multi-page pageMap) pin the ENTIRE design direction — so it runs
-      // on the strong BRIEF_MODEL WITH THINKING ON (reasoning:true → effort high): a short
-      // deliberate think measurably sharpens the archetype/palette/page-plan decisions.
-      // Token budget is generous so the richer schema never truncates into a fallback.
-      ...getModelOptions(BRIEF_MODEL, { reasoning: true }),
+      // The brief runs on the strong BRIEF_MODEL. Reasoning was tried ON but the long silent
+      // think caused the SSE stream to idle out and drop mid-build (E2E test 2026-07-21), for
+      // little visible gain — so it's OFF. Token budget stays generous so the richer schema
+      // (visualNarrative + pageMap + signature moves) never truncates into a fallback.
+      ...getModelOptions(BRIEF_MODEL),
       maxOutputTokens: 16000,
       stopWhen: stepCountIs(2),
       system: `You are a creative director for a premium web builder. Expand the user's prompt into a detailed project brief.

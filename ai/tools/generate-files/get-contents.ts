@@ -176,6 +176,21 @@ function sanitizeContent(path: string, raw: string): string | null {
     content = content
       .replace(/^import\s+express\s+from\s+['"]express['"]\s*;?\s*\n?/gm, '')
       .replace(/^const\s+express\s*=\s*require\(['"]express['"]\)\s*;?\s*\n?/gm, '')
+
+    // ── Broken import formatting (a real syntax-error class from the burger test) ─────
+    // The model sometimes concatenates statements with NO newline, e.g.
+    //   `import { Link } from 'react-router-dom'import { useState } from 'react'`
+    // which is a hard parse error. Insert a newline after a closing import/export specifier
+    // when it's immediately followed by another top-level statement keyword.
+    content = content.replace(
+      /(from\s*['"][^'"]+['"])\s*(import\b|export\b|const\b|let\b|var\b|function\b|class\b|interface\b|type\b)/g,
+      '$1\n$2'
+    )
+    // Wrong colour-var format the model occasionally emits in inline styles:
+    // `rgb(var(--color-primary))` — our tokens are HSL and named without the color- prefix.
+    content = content
+      .replace(/rgb\(\s*var\(\s*--color-([a-z-]+)\s*\)\s*\)/gi, 'hsl(var(--$1))')
+      .replace(/hsl\(\s*var\(\s*--color-([a-z-]+)\s*\)/gi, 'hsl(var(--$1)')
   }
   return content
 }
@@ -232,8 +247,11 @@ const GEN_SYSTEM =
   '- Every property MUST have a complete value. NEVER write an empty/cut-off value like "background-image: repeating-linear-gradient();" or "background:;". If unsure, use a solid color or omit the rule.\n' +
   '- Close every (), {}, and string. No truncated gradients, no dangling declarations.\n' +
   '\n## DESIGN IS NON-NEGOTIABLE — follow the DESIGN CONTRACT below exactly:\n' +
-  '- Use ONLY the contract\'s color tokens (CSS variables / token classes). NEVER hardcode ad-hoc hex for text or section backgrounds. Headlines and body text MUST use a high-contrast token against their background — NEVER let text color approach the background color (no invisible/low-contrast text).\n' +
-  '- Use the contract\'s exact font pairing via Google Fonts @import in src/index.css. The fonts MUST be available on Google Fonts (the brief picks Google-available families). NEVER use Geist/Satoshi/Cabinet Grotesk (not on Google Fonts) — they will fail to load.\n' +
+  '- ⛔ src/index.css IS ALREADY WRITTEN by the platform (brand palette + fonts + tokens). DO NOT generate, edit, or output src/index.css — your version is discarded. Just USE the tokens it defines.\n' +
+  '- ⛔ COLOR CLASSES — use ONLY these token classes (the ONLY ones that exist): bg-background, bg-card, bg-primary, bg-secondary, bg-accent, bg-muted, text-foreground, text-muted-foreground, text-primary, text-primary-foreground, text-accent-foreground, border-border, ring-ring (plus /opacity variants like bg-primary/10). NEVER invent a color class like bg-brand-brick, text-brand-charcoal, bg-ember, text-cream — those DO NOT EXIST and render INVISIBLE/UNSTYLED (the #1 cause of broken-looking builds). NEVER text-white / text-black / bg-black / bg-[#hex] / inline style={{color:...}} for brand colors. For a one-off shade use a token with opacity (bg-primary/5), never a new class.\n' +
+  '- Standard Tailwind LAYOUT/SPACING/SIZING/TYPOGRAPHY-SIZE utilities (flex, grid, gap-*, p-*, m-*, w-*, rounded-*, text-2xl, font-bold, tracking-*, etc.) are all fine — the ban is ONLY on colour/gradient classes that are not the tokens above.\n' +
+  '- Headlines and body text MUST use a high-contrast token against their background — NEVER let text colour approach the background colour (no invisible/low-contrast text).\n' +
+  '- The font pairing + Google Fonts @import are ALREADY in index.css. Use `font-display` for headings; do NOT add another @import or a different display font.\n' +
   '- Honor the layout archetype and signature moves. No generic three-equal-cards, no centered-mesh hero, no default Inter/Roboto as the display face.\n' +
   '- Establish a clear type scale (one large display size, one heading size, one body size) and consistent spacing.\n' +
   '- BACKGROUND = LEGIBILITY FIRST. Any background treatment (grain, gradient, particles, blobs, 3D) sits QUIETLY behind content at LOW opacity — it must NEVER make text hard to read or fight the content. Grain/noise ≤ ~6% opacity. If in doubt, use a clean solid token background. A busy/noisy background that hurts readability is a FAILURE — subtle and readable beats loud every time.\n' +
