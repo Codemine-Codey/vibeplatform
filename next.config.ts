@@ -3,6 +3,22 @@ import type { NextConfig } from 'next'
 const nextConfig: NextConfig = {
   // Chromium + puppeteer must stay external — never bundle the browser binary.
   serverExternalPackages: ['@sparticuz/chromium', 'puppeteer-core'],
+  // CRITICAL: serverExternalPackages keeps the package UNBUNDLED, but Next's file
+  // tracer (@vercel/nft) still doesn't follow the dynamic path to @sparticuz/chromium's
+  // bin/*.br DATA files (the compressed browser binary), so they were MISSING from the
+  // deployed function → executablePath() throws "input directory bin does not exist" →
+  // EVERY headless launch failed → the render-check + functionalVerify silently degraded
+  // to an HTTP-200 probe → BLANK previews passed verification. Force the bin files in.
+  outputFileTracingIncludes: {
+    '/api/chat': [
+      './node_modules/@sparticuz/chromium/bin/**',
+      './node_modules/.pnpm/@sparticuz+chromium@*/node_modules/@sparticuz/chromium/bin/**',
+    ],
+    '/api/diag/chromium': [
+      './node_modules/@sparticuz/chromium/bin/**',
+      './node_modules/.pnpm/@sparticuz+chromium@*/node_modules/@sparticuz/chromium/bin/**',
+    ],
+  },
   webpack(config) {
     config.module.rules.push({
       test: /\.md/,
