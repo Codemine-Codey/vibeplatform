@@ -318,11 +318,19 @@ function sanitizeTsx(path: string, content: string): string {
 // HMR (e.g. a newly installed package referenced by tailwind.config.js — jiti
 // caches the failed require). Kill anything holding port 3000, then start fresh.
 async function restartDevServer(sandbox: Sandbox): Promise<void> {
+  // Kill EVERYTHING on 3000 then WAIT until the port is genuinely free before
+  // restarting. With strictPort the new `vite` EXITS (doesn't drift to 3001) if the
+  // socket is still in TIME_WAIT, so a fixed `sleep 1` is not enough — poll fuser
+  // until 3000 reports no owner (up to ~8s), THEN start exactly one server.
   try {
     const kill = await sandbox.runCommand({
       detached: true,
       cmd: 'bash',
-      args: ['-c', 'fuser -k 3000/tcp 2>/dev/null; pkill -f vite 2>/dev/null; sleep 1; exit 0'],
+      args: ['-c',
+        'pkill -f vite 2>/dev/null; fuser -k 3000/tcp 2>/dev/null; ' +
+        'for i in $(seq 1 16); do fuser 3000/tcp >/dev/null 2>&1 || break; ' +
+        'fuser -k 3000/tcp 2>/dev/null; sleep 0.5; done; exit 0',
+      ],
     })
     await kill.wait()
   } catch { /* best-effort */ }
@@ -2678,6 +2686,28 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     }
   }
 
+  // ── AUTHORITATIVE 502 GATE (covers EVERY path, incl. early-emit) ──────────────────
+  // The single choke-point before reveal: NEVER emit a URL that is currently 502-ing.
+  // The early-emit path forces devError=null and the old waitForDevServer reported a
+  // persistent 502 as success — both revealed a permanently-dead preview. Here we do one
+  // authoritative live probe of :3000. If it's 502 (server never bound the port, drifted,
+  // or crashed), restart once, wait, and re-probe. Still 502 → set devError so we fall
+  // through to the fallback instead of showing the user a broken 502 page.
+  if (!devError) {
+    try {
+      const probe = await fetch(url, { signal: AbortSignal.timeout(5000) }).then(r => r.status).catch(() => 0)
+      if (probe === 502) {
+        logRepair({ layer: 'dev-502', action: 'reveal-gate-restart', detail: 'url 502 at reveal gate', sandboxId })
+        await restartDevServer(sandbox)
+        const recheck = await waitForDevServer(url, 30_000, sandbox)
+        if (recheck) {
+          devError = recheck
+          try { await applyFallbackTerminalState(sandbox, recheck, { skill, brand: brandName || 'This project' }); await new Promise(r => setTimeout(r, 2500)) } catch { /* non-fatal */ }
+        }
+      }
+    } catch { /* probe failure is non-fatal — fall through to normal reveal */ }
+  }
+
   // ── PHASE 0: EARLY REVEAL — show the preview the MOMENT the dev server is up ────────
   // Previously the reveal waited for the render-check + repair loop to finish; when a build
   // ran long (or the stream dropped) it NEVER reached here, so the URL was never emitted and
@@ -3026,16 +3056,26 @@ async function ensureNavShells(sandbox: Sandbox, brandName?: string): Promise<vo
   }
 }
 
-async function waitForDevServer(url: string, maxWaitMs = 45_000): Promise<string | null> {
+async function waitForDevServer(url: string, maxWaitMs = 45_000, sandbox?: Sandbox): Promise<string | null> {
   const deadline = Date.now() + maxWaitMs
   let consecutiveFiveHundreds = 0
+  let sawListening = false      // did we EVER get a non-502 (server actually bound :3000)?
+  let restartedForPersistent502 = false
 
   while (Date.now() < deadline) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(4000) })
       if (res.status === 502) {
-        // Not listening yet — keep polling
+        // Nothing is listening on :3000. Normal during the ~5-15s Vite boot, but a
+        // PERSISTENT 502 means the server never bound the port (crash on start, OR it
+        // drifted off :3000). If we've been 502-ing for a while and never once saw the
+        // server up, kick a single restart — the port may be held by a dead/stray proc.
         consecutiveFiveHundreds = 0
+        if (!sawListening && !restartedForPersistent502 && sandbox && Date.now() - (deadline - maxWaitMs) > 18_000) {
+          restartedForPersistent502 = true
+          logRepair({ layer: 'dev-502', action: 'persistent-502-restart', detail: 'server never bound :3000 in 18s', sandboxId: sandbox.sandboxId })
+          await restartDevServer(sandbox)
+        }
       } else if (res.status === 500) {
         // Vite is up but crashing (PostCSS error, import error, etc.)
         consecutiveFiveHundreds++
@@ -3051,6 +3091,7 @@ async function waitForDevServer(url: string, maxWaitMs = 45_000): Promise<string
         }
       } else {
         // Non-502, non-500 — server is up and page is loading
+        sawListening = true
         return null
       }
     } catch {
@@ -3059,5 +3100,11 @@ async function waitForDevServer(url: string, maxWaitMs = 45_000): Promise<string
     }
     await new Promise(r => setTimeout(r, 2500))
   }
-  return null // timed out — emit URL anyway
+  // Deadline hit. If the server NEVER once answered on :3000, do NOT report success —
+  // that's the bug that revealed a permanently-dead 502 preview. Signal an error so the
+  // caller applies a fallback / keeps the building indicator instead of showing a 502.
+  if (!sawListening) {
+    return 'Preview server did not come up on port 3000 (persistent 502). The dev server failed to bind the port.'
+  }
+  return null // server was reachable at least once — emit URL
 }

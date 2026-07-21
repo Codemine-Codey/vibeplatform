@@ -13,6 +13,7 @@ export type RepairLayer =
   | 'type-check'        // Step 4.8 filtered tsc contract-error gate
   | 'auto-install'      // missing-module install (any checkpoint)
   | 'dev-500'           // dev server returning 500 after start
+  | 'dev-502'           // dev server never bound :3000 (persistent 502) → restart
   | 'runtime-check'     // headless browser DOM/console check
   | 'fallback-terminal' // P0-B terminal state: swapped a page to the baked __fallback
   | 'visual-verdict'    // vision model judged screenshot broken

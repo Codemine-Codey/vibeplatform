@@ -11,7 +11,11 @@ function makePackageJson(): string {
       version: '0.0.0',
       type: 'module',
       scripts: {
-        dev: 'vite --port 3000',
+        // --strictPort: NEVER silently drift to 3001 if 3000 is busy. The platform
+        // proxies a HARD-CODED :3000; a drifted server leaves :3000 dead → permanent
+        // 502. With strictPort a second `vite` start exits instead of stealing the
+        // port, so the first (healthy) server keeps owning 3000.
+        dev: 'vite --port 3000 --strictPort --host 0.0.0.0',
         build: 'vite build',
         preview: 'vite preview',
       },
@@ -728,6 +732,9 @@ export default defineConfig({
     host: '0.0.0.0',
     allowedHosts: true,
     port: 3000,
+    // Bind 3000 or FAIL — never auto-increment to 3001 (the platform proxies a fixed
+    // :3000, so a drifted port = permanent 502 on a live-but-unreachable server).
+    strictPort: true,
     // DISABLE_HMR=true (set only while the agent is writing files) turns off HMR + file
     // watching so the preview never reloads a half-written file mid-generation. Unset =
     // normal HMR (current behavior). This enables "boot the dev server first, stream files
