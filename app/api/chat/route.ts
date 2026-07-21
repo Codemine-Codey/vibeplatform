@@ -1942,10 +1942,28 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const phase1GF = generateFiles({ writer, modelId: FILE_GENERATION_MODEL, designContext, skipQualityGates: true }) as any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  // Websites now build the COMPLETE landing page in ONE pass (rawGF) — the old 2-phase +
-  // enrichment split left footer-only homepages when the enrichment pass didn't fill the
-  // sections. Only webapp keeps the guarded 2-phase (its phase-1 is a self-contained app).
-  const guardedGF: any = (skill !== 'webapp') ? rawGF : {
+  // FORCED MULTI-PAGE: the AI's generateFiles paths often omit the sub-pages (it built only
+  // Home), so multi-page silently collapsed to one page. Deterministically inject every
+  // pageMap page file the AI left out — the Coder then generates each as a real, full page
+  // (it has the brief's routing block, so it knows each page's sections). Guarantees the
+  // routes exist → nav works → no 404. Idempotent: pages the AI DID plan are untouched.
+  const pageMapPaths: string[] = pageMap
+    ? pageMap.map((p: PageSpec) => `src/pages/${p.page.replace(/[^A-Za-z0-9]/g, '')}.tsx`)
+    : []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const websiteMultiPageGF: any = {
+    ...rawGF,
+    execute: async (args: { sandboxId: string; paths: string[] }, ctx: unknown) => {
+      const have = new Set(args.paths)
+      const inject = pageMapPaths.filter((p) => !have.has(p))
+      if (inject.length > 0) console.warn(`[multipage] injecting ${inject.length} missing page(s): ${inject.join(', ')}`)
+      const paths = inject.length > 0 ? [...args.paths, ...inject] : args.paths
+      return rawGF.execute({ ...args, paths }, ctx)
+    },
+  }
+  // Websites build the COMPLETE site in ONE pass (rawGF); multi-page websites go through the
+  // injection wrapper so no planned page is missing. Only webapp keeps the guarded 2-phase.
+  const guardedGF: any = skill === 'webapp' ? {
     ...rawGF,
     execute: async (args: { sandboxId: string; paths: string[] }, ctx: unknown) => {
       if (!p1GFCalled) {
@@ -2051,7 +2069,7 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
       }
       return rawGF.execute(args, ctx)
     },
-  }
+  } : (isMultiPage ? websiteMultiPageGF : rawGF)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pipelineTools: Record<string, any> = skill === 'website'
