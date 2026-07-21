@@ -9,7 +9,7 @@ import {
 } from 'ai'
 import type { UIMessage, UIMessageStreamWriter } from 'ai'
 import type { DataPart } from '@/ai/messages/data-parts'
-import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL, VISION_MODEL, getMaxOutputTokens } from '@/ai/constants'
+import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL, VISION_MODEL, ERROR_MODEL, getMaxOutputTokens } from '@/ai/constants'
 import { NextResponse } from 'next/server'
 import { getModelOptions } from '@/ai/gateway'
 import { tools } from '@/ai/tools'
@@ -1012,6 +1012,123 @@ async function headlessRuntimeCheck(
   } catch (e) {
     console.warn('[runtime-check] skipped (chromium unavailable):', e instanceof Error ? e.message : e)
     return { status: 'skipped', detail: '' } // graceful — never block the preview
+  } finally {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    try { if (browser) await (browser as any).close() } catch { /* ignore */ }
+  }
+}
+
+// ── GENERAL FUNCTIONAL VERIFICATION (type-agnostic — verification invariant #6) ──────
+// Per the invariant model: we do NOT encode per-app rules ("flappy needs gap X"). We verify
+// the RUNNING app against the user's ACTUAL request — works for a game, a CRM, a synth, a
+// 3D toy, identically. Two layers:
+//   1. Interactivity probe (deterministic): hit every control (click buttons, type inputs,
+//      press keys) and detect whether the DOM/canvas/state CHANGED. A dead control is dead
+//      whether it's a game jump or a CRM "Save".
+//   2. AI judge (fast model): given the request + probe report, decide if the app functionally
+//      fulfils the request and list SPECIFIC broken behaviour to repair.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function functionalVerify(url: string, userRequest: string, skill: Skill): Promise<{ ok: boolean; issues: string[]; detail: string }> {
+  let browser: unknown = null
+  try {
+    const chromiumMod = await import('@sparticuz/chromium')
+    const puppeteer = await import('puppeteer-core')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chromium = (chromiumMod as any).default ?? chromiumMod
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    browser = await (puppeteer as any).launch({ args: chromium.args, executablePath: await chromium.executablePath(), headless: true })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const page = await (browser as any).newPage()
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 15_000 }).catch(() => {})
+    await new Promise(r => setTimeout(r, 1500))
+
+    // A signature of "what's on screen" — text + node count + a canvas pixel sum.
+    const snap = (): Promise<string> => page.evaluate(() => {
+      const text = (document.body?.innerText || '').slice(0, 3000)
+      const nodes = document.querySelectorAll('*').length
+      let canvasSig = ''
+      const c = document.querySelector('canvas') as HTMLCanvasElement | null
+      if (c) { try { const d = c.getContext('2d')?.getImageData(0, 0, Math.min(c.width, 32), Math.min(c.height, 32)).data; canvasSig = d ? String(d.reduce((a, b) => a + b, 0)) : '' } catch { /* tainted/webgl */ } }
+      return `${text.length}|${nodes}|${canvasSig}|${text.slice(0, 160)}`
+    }).catch(() => '')
+
+    const inventory = await page.evaluate(() => {
+      const q = (s: string) => Array.from(document.querySelectorAll(s))
+      const label = (el: Element) => ((el.textContent || (el as HTMLElement).getAttribute?.('aria-label') || (el as HTMLInputElement).placeholder || el.tagName) || '').trim().slice(0, 40)
+      return {
+        buttons: q('button, [role=button]').slice(0, 12).map(label),
+        inputs: q('input, textarea, select').slice(0, 8).map(label),
+        headings: q('h1, h2').slice(0, 6).map(label),
+        hasCanvas: !!document.querySelector('canvas'),
+        buttonCount: q('button, [role=button]').length,
+        inputCount: q('input, textarea, select').length,
+      }
+    }).catch(() => ({ buttons: [] as string[], inputs: [] as string[], headings: [] as string[], hasCanvas: false, buttonCount: 0, inputCount: 0 }))
+
+    const responded: string[] = []
+    const dead: string[] = []
+    const before = await snap()
+
+    // Probe buttons — click each, see if the screen reacts.
+    const btns = await page.$$('button, [role=button]').catch(() => [] as unknown[])
+    for (let i = 0; i < Math.min(btns.length, 6); i++) {
+      const s0 = await snap()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (btns[i] as any).click({ delay: 20 }).catch(() => {})
+      await new Promise(r => setTimeout(r, 350))
+      const s1 = await snap()
+      const lbl = inventory.buttons[i] ?? `button ${i + 1}`
+      if (s1 !== s0) responded.push(lbl); else dead.push(lbl)
+    }
+    // Probe text inputs — type into a couple.
+    const inputs = await page.$$('input, textarea').catch(() => [] as unknown[])
+    for (let i = 0; i < Math.min(inputs.length, 3); i++) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (inputs[i] as any).click().catch(() => {})
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (inputs[i] as any).type('test', { delay: 8 }).catch(() => {})
+    }
+    // Probe canvas/game keys — press the common control set, see if the canvas reacts.
+    if (inventory.hasCanvas) {
+      const s0 = await snap()
+      for (const key of ['Space', 'Enter', 'ArrowUp', 'ArrowRight', 'KeyW']) {
+        await page.keyboard.down(key).catch(() => {}); await new Promise(r => setTimeout(r, 90)); await page.keyboard.up(key).catch(() => {})
+      }
+      await new Promise(r => setTimeout(r, 700))
+      const s1 = await snap()
+      if (s1 !== s0) responded.push('canvas responds to keys'); else dead.push('the canvas/game does NOT respond to keyboard input')
+    }
+    const after = await snap()
+
+    const report = `User asked to build: "${userRequest.slice(0, 300)}"\n` +
+      `App type: ${skill}\n` +
+      `Headings: ${inventory.headings.join(' | ') || '(none)'}\n` +
+      `Buttons (${inventory.buttonCount}): ${inventory.buttons.join(', ') || '(none)'}\n` +
+      `Inputs (${inventory.inputCount}): ${inventory.inputs.join(', ') || '(none)'}\n` +
+      `Has canvas: ${inventory.hasCanvas}\n` +
+      `Controls that RESPONDED when used: ${responded.join(', ') || '(none)'}\n` +
+      `Controls that did NOT respond (dead): ${dead.join(', ') || '(none)'}\n` +
+      `Screen changed overall during use: ${before !== after}`
+
+    let ok = dead.length === 0
+    let issues: string[] = []
+    try {
+      const res = await generateText({
+        ...getModelOptions(ERROR_MODEL),
+        maxOutputTokens: 500,
+        abortSignal: AbortSignal.timeout(30_000),
+        system: 'You are a QA tester. Given what the user ASKED for and a report of the RUNNING app (its controls + whether they reacted when clicked/typed/pressed), judge if the app FUNCTIONALLY fulfils the request. Return STRICT JSON only: {"ok": boolean, "issues": string[]}. issues = SPECIFIC broken/missing behaviour tied to the request (e.g. "the Save button does nothing", "the game does not respond to keyboard"). Empty array if it works. Judge FUNCTION not visual polish; be strict about dead controls.',
+        messages: [{ role: 'user', content: report }],
+      })
+      const m = res.text.match(/\{[\s\S]*\}/)
+      if (m) { const j = JSON.parse(m[0]) as { ok?: boolean; issues?: string[] }; ok = !!j.ok && dead.length === 0; issues = Array.isArray(j.issues) ? j.issues.slice(0, 6) : [] }
+    } catch { /* judge best-effort */ }
+    if (dead.length && issues.length === 0) issues = dead.map(d => `Non-functional control: ${d}`)
+    console.log(`[functional-verify] ok=${ok} dead=${dead.length} issues=${issues.slice(0, 3).join(' | ')}`)
+    return { ok, issues, detail: report }
+  } catch (e) {
+    // Never block the build on a verify failure — treat as pass (the render check already gated).
+    return { ok: true, issues: [], detail: 'functional-verify skipped: ' + (e instanceof Error ? e.message : String(e)) }
   } finally {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     try { if (browser) await (browser as any).close() } catch { /* ignore */ }
@@ -2721,6 +2838,37 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
   }
   if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: url }).catch(() => {})
+
+  // ── GENERAL FUNCTIONAL VERIFICATION + silent repair (verification invariant #6) ──────
+  // The preview is already visible; now verify the app actually WORKS for what the user
+  // asked — type-agnostic (controls respond, requested behaviour functions). If dead
+  // controls / broken behaviour are found, do a bounded SILENT repair; fixes land live via
+  // HMR. AWAITED (a fire-and-forget task would be killed when the serverless function ends)
+  // but bounded. Focused on interactive skills (game/webapp) where controls are the point;
+  // websites already have render + per-route + nav checks above.
+  if (!devError && (skill === 'game' || skill === 'webapp')) {
+    try {
+      const request = getFirstUserText(messages) || getLastUserText(messages) || ''
+      const fv = await functionalVerify(url, request, skill)
+      if (!fv.ok && fv.issues.length > 0) {
+        logRepair({ layer: 'runtime-check', action: 'functional-issues', detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
+        const issueText =
+          `The app does not fully WORK for what the user asked ("${request.slice(0, 160)}"). Fix these SPECIFIC functional problems so every control/feature works — this is about FUNCTION, keep the design:\n- ${fv.issues.join('\n- ')}`
+        // Game/webapp logic lives in Home.tsx (+ any component files). Repair the main file.
+        for (const path of ['src/pages/Home.tsx']) {
+          const content = await readSandboxFile(sandbox, path)
+          if (!content) continue
+          const fixed = await repairFile(path, content, issueText)
+          if (fixed && fixed !== content) {
+            await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
+            console.log('[functional-verify] repaired', path)
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[functional-verify] pass failed (non-fatal):', e instanceof Error ? e.message : e)
+    }
+  }
 
   // ── Context-aware follow-up suggestion pills (#84) — background, non-blocking ──────
   // After a verified build, a lightweight model proposes 3 short next steps based on the
