@@ -117,7 +117,7 @@ function getFirstUserText(messages: ChatUIMessage[]): string {
 function buildProjectConstraints(messages: ChatUIMessage[]): string {
   const original = getFirstUserText(messages)
   if (!original) return ''
-  return (
+  const base =
     `\n\n## THIS PROJECT — re-read before every change (anti-drift)\n` +
     `The user's original request: "${original.slice(0, 400)}"\n` +
     `Stay true to this. Do NOT turn it into a different kind of app or add unrelated sections. ` +
@@ -125,7 +125,19 @@ function buildProjectConstraints(messages: ChatUIMessage[]): string {
     `Do NOT add authentication, a database/persistence, user accounts, extra pages/routing, or a new ` +
     `framework UNLESS the user explicitly asks for that in a message. If adding it would change what ` +
     `kind of app this is, wait for the user to ask by name — then build it fully.`
-  )
+
+  // If the user is REPORTING A PROBLEM ("can't see", "blank", "broken", "not working"…),
+  // fix it SILENTLY — this is the exact case that dumped a wall of technical jargon at a
+  // non-technical user. Investigate with tools, output ZERO narration, then one warm line.
+  const latest = (getLastUserText(messages) ?? '').toLowerCase()
+  const isProblemReport = /can'?t see|cannot see|can not see|not showing|no preview|nothing (shows|appears|happens|is)|is blank|it'?s blank|empty|broken|does ?n'?t work|not working|white screen|isn'?t loading|won'?t load|error|glitch|messed up|not right|wrong/.test(latest)
+  if (!isProblemReport) return base
+  return base +
+    `\n\n## ⛔ THE USER IS REPORTING A PROBLEM — FIX IT QUIETLY (highest priority this turn)\n` +
+    `You may say ONE brief, plain acknowledgment first — exactly like "Let me take a look…" or "On it — one moment." That is the ONLY thing you say before the fix.\n` +
+    `Then investigate with tools (readFiles / grepCode) and fix it (patchFile / generateFiles) while outputting ZERO further text.\n` +
+    `ABSOLUTE BANS: do NOT explain the cause, do NOT say "I see the issue", "the problem is…", "X isn't imported", "Home.tsx is missing…", do NOT name ANY file, component, hook, import, or prop, do NOT list what you're doing or the steps. Never dump technical detail at the user.\n` +
+    `After the fix: ONE short warm sentence — e.g. "Fixed — your preview should come right up now." That's it: a brief "let me check" up front, silent work, one friendly line at the end.`
 }
 
 // Read the LIVE codebase tree + installed packages from the sandbox and format them for
@@ -2634,6 +2646,23 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
         type: 'data-run-command',
         data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'done', exitCode: 0 },
       })
+    }
+  }
+
+  // ── FINAL HARD GATE (never announce "live" on a blank) ────────────────────────────
+  // Defense in depth behind the Interface Registry: if AFTER all repair + fallback the page
+  // STILL isn't painting, force the guaranteed app-level fallback (a branded page that always
+  // renders) and re-verify. A truthful minimal page beats a blank preview every time — the
+  // "your project is live" message below must never sit on top of nothing.
+  if (!devError && rtResult && rtResult.status === 'broken') {
+    try {
+      await applyFallbackTerminalState(sandbox, 'force-app-level', { skill, brand: brandName || 'This project' })
+      await new Promise(r => setTimeout(r, 3500))
+      const finalCheck = await headlessRuntimeCheck(url, sandboxId).catch(() => null)
+      logRepair({ layer: 'fallback-terminal', action: finalCheck?.status === 'ok' ? 'final-gate-forced-fallback-renders' : 'final-gate-forced-fallback-applied', detail: rtResult.detail.slice(0, 120), sandboxId })
+      if (finalCheck) rtResult = finalCheck
+    } catch (e) {
+      console.warn('[final-gate] forced fallback failed (non-fatal):', e instanceof Error ? e.message : e)
     }
   }
 
