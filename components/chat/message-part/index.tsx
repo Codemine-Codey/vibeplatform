@@ -17,6 +17,25 @@ interface Props {
   partIndex: number
 }
 
+// DETERMINISTIC jargon filter. The model repeatedly ignores the "no technical narration"
+// prompt rules and dumps developer-speak ("keys.has('flap')…", "MobileMenuTeaser isn't
+// exported from HomeSections.tsx", "let me re-read the file"). We suppress any assistant
+// text that names a source file, contains code, or narrates a fix/process. Warm opening +
+// completion lines (plain prose, no code, no file paths, no "let me fix/check/grab") pass.
+function isTechnicalNarration(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  // A source file path (Home.tsx, src/components/X, index.css…)
+  if (/\b[\w/-]+\.(tsx|jsx|ts|js|css)\b/.test(t)) return true
+  // Code operators / React identifiers / obvious code
+  if (/=>|===|!==|\.\w+\(|\bkeys?\b|useEffect|useRef|useState|onMouseDown|onKeyDown|birdVy|keysRef|\bconst\b|\bfunction\b|\bimport(s|ed)?\b|\bexport(ed)?\b|querySelector|addEventListener/.test(t)) return true
+  // Fix/process narration phrases
+  if (/\b(is ?n'?t exported|not exported|the (issue|problem) (is|:)|let me (check|fix|re-?read|read|rewrite|generate|add|grab|also|lock|look|now)|update function|pointer handler|dev server|no longer (has|available)|already exist|the previous (patch|patches)|restart|re-?generate|the handler|overwritten|the file)\b/i.test(t)) return true
+  // Process talk about planning/images/build plan
+  if (/\b(build plan|lock in the|plan every file|grab the imag|the imagery|phase[- ]?1|phase[- ]?2)\b/i.test(t)) return true
+  return false
+}
+
 export const MessagePart = memo(function MessagePart({
   part,
   partIndex,
@@ -34,6 +53,8 @@ export const MessagePart = memo(function MessagePart({
     return <Narration message={part.data} />
   } else if (part.type === 'text') {
     if (!part.text.trim()) return null
+    // The model ignores the prompt gag rules, so filter technical/process text here.
+    if (isTechnicalNarration(part.text)) return null
     return <Text part={part} />
   }
   // Hidden from chat (internal only): data-create-sandbox, data-run-command, reasoning,

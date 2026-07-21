@@ -129,8 +129,8 @@ function buildProjectConstraints(messages: ChatUIMessage[]): string {
   // If the user is REPORTING A PROBLEM ("can't see", "blank", "broken", "not working"…),
   // fix it SILENTLY — this is the exact case that dumped a wall of technical jargon at a
   // non-technical user. Investigate with tools, output ZERO narration, then one warm line.
-  const latest = (getLastUserText(messages) ?? '').toLowerCase()
-  const isProblemReport = /can'?t see|cannot see|can not see|not showing|no preview|nothing (shows|appears|happens|is)|is blank|it'?s blank|empty|broken|does ?n'?t work|not working|white screen|isn'?t loading|won'?t load|error|glitch|messed up|not right|wrong/.test(latest)
+  const latest = (getLastUserText(messages) ?? '').toLowerCase().trim()
+  const isProblemReport = /can'?t see|cannot see|can not see|not showing|no preview|nothing (shows|appears|happens|is)|is blank|it'?s blank|empty|broken|does ?n'?t work|not working|white screen|isn'?t loading|won'?t load|error|glitch|messed up|not right|wrong|not (jump|work|mov|load|show|respond|click|play|scroll|open)|no ?t? jumping|still not|doesn'?t|does not|nothing happen|not happening|didn'?t (work|change)|did not|^no$|^nope$|^still/.test(latest)
   if (!isProblemReport) return base
   return base +
     `\n\n## ⛔ THE USER IS REPORTING A PROBLEM — FIX IT QUIETLY (highest priority this turn)\n` +
@@ -1271,16 +1271,6 @@ export async function POST(req: Request) {
             return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
           }
 
-          // INSTANT reassurance — emitted BEFORE classify + brief + the AI's opening line.
-          // Those now THINK (reasoning on for brief/planning), so the AI's own first line
-          // takes longer to arrive; the user must never stare at silence. This subtle line
-          // shows immediately, the moment the build starts.
-          writer.write({
-            id: 'srv-hello',
-            type: 'data-narration',
-            data: { text: "Starting your workspace, I'll be with you in a minute." },
-          })
-
         let skill: Skill | null = null
         let clarify = false
 
@@ -1306,6 +1296,16 @@ export async function POST(req: Request) {
         if (!brief) {
           return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
         }
+
+        // INSTANT reassurance — ONLY now that we're committed to an ACTUAL BUILD (skill
+        // detected + brief succeeded), never for conversational messages ("hey", "what can
+        // I build"). Shown immediately so the user isn't staring at silence while the brief
+        // + planning run. (Was firing on every message — moved here so it's build-only.)
+        writer.write({
+          id: 'srv-hello',
+          type: 'data-narration',
+          data: { text: "Starting your workspace, I'll be with you in a minute." },
+        })
 
         // Now we're committed to building — provision the workspace VM in parallel with
         // the remaining setup (project row, planner prompt) and the planner's first
