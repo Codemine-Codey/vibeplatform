@@ -271,12 +271,53 @@ function orderForResilience(paths: string[]): string[] {
   return [...paths].sort((a, b) => rankPath(a) - rankPath(b))
 }
 
+// ── INTERFACE REGISTRY (the "import/export agent") ────────────────────────────
+// The named-vs-default blank happened because each per-file call GUESSED how to import
+// its dependencies. This extracts a file's REAL export contract the moment it's written,
+// so every later file is TOLD exactly how to import it — no guessing, no mismatch.
+// Returns a one-line human directive, e.g.
+//   "default export `HeroSection` → import it as: import HeroSection from '@/components/sections/HeroSection'"
+//   "named exports { featured, burgers } → import as: import { featured, burgers } from '@/lib/menuData'"
+function atSpecFor(path: string): string {
+  // src/components/X.tsx → @/components/X   |   src/pages/Home.tsx → @/pages/Home
+  return '@/' + path.replace(/^src\//, '').replace(/\.(tsx|ts|jsx|js)$/, '')
+}
+function summarizeInterface(path: string, content: string): string {
+  if (path.endsWith('.css')) return 'stylesheet (import for side effects only)'
+  const spec = atSpecFor(path)
+  // Default export name (function/class/const/identifier).
+  let defaultName: string | null = null
+  const dm =
+    content.match(/export\s+default\s+(?:async\s+)?(?:function|class)\s+([A-Za-z0-9_$]+)/) ||
+    content.match(/export\s+default\s+([A-Za-z0-9_$]+)\s*;?\s*$/m)
+  if (dm) defaultName = dm[1]
+  else if (/export\s+default\b/.test(content)) defaultName = path.split('/').pop()!.replace(/\.(tsx|ts|jsx|js)$/, '')
+  // Named exports.
+  const named = new Set<string>()
+  for (const m of content.matchAll(/export\s+(?:async\s+)?(?:function|const|let|var|class|type|interface|enum)\s+([A-Za-z0-9_$]+)/g)) {
+    if (!/export\s+default/.test(m[0])) named.add(m[1])
+  }
+  for (const m of content.matchAll(/export\s*\{([^}]*)\}/g)) {
+    for (const part of m[1].split(',')) {
+      const seg = part.trim(); if (!seg) continue
+      const asM = seg.match(/\bas\s+([A-Za-z0-9_$]+)\s*$/)
+      named.add(asM ? asM[1] : seg.split(/\s+/)[0])
+    }
+  }
+  const parts: string[] = []
+  if (defaultName) parts.push(`default export \`${defaultName}\` → import as: import ${defaultName} from '${spec}'`)
+  if (named.size) parts.push(`named exports { ${[...named].join(', ')} } → import as: import { ${[...named].join(', ')} } from '${spec}'`)
+  return parts.length ? parts.join('  ·  ') : `(no exports detected — check before importing)`
+}
+
 export async function* getContents(
   params: Params
 ): AsyncGenerator<FileContentChunk> {
   const { messages, modelId, designContext, abortSignal } = params
   const allPaths = orderForResilience(params.paths)
   const written = new Set<string>()
+  // Interface registry: path → its real export contract, filled as each file completes.
+  const interfaceOf = new Map<string, string>()
 
   // ── PER-FILE SCOPED GENERATION (anti-drift — the single biggest quality lever) ─────────────
   // Instead of ONE model call writing every file (which DRIFTS — the model forgets the palette/
@@ -293,7 +334,14 @@ export async function* getContents(
   for (const path of allPaths) {
     if (abortSignal?.aborted) break
     if (written.has(path)) continue
-    const others = allPaths.filter(p => p !== path)
+
+    // INTERFACE REGISTRY: split the other files into (a) ALREADY-GENERATED — show their
+    // EXACT export contract so this file imports them correctly (no default/named guess),
+    // and (b) NOT-YET-GENERATED — show the path + a light hint so it imports by the path
+    // it WILL export. Files are generated dependency-first (orderForResilience: lib/data →
+    // components → pages → App), so a page almost always sees its sections' real contracts.
+    const known = allPaths.filter(p => p !== path && interfaceOf.has(p))
+    const pending = allPaths.filter(p => p !== path && !interfaceOf.has(p))
 
     for (let attempt = 0; attempt < 2 && !written.has(path); attempt++) {
       const nonce = randomUUID().replace(/-/g, '').slice(0, 16)
@@ -308,9 +356,13 @@ export async function* getContents(
         `- Write the code LITERALLY — do not escape quotes or newlines, do not wrap in backticks.\n` +
         `- Stay 100% consistent with the DESIGN CONTRACT (identical colour tokens, fonts, archetype, spacing) — this file is one part of a cohesive site, so it MUST match the others.\n` +
         `- Make it RICH and COMPLETE: real copy, real imagery, full styling. Never a thin stub, placeholder, or "coming soon".\n` +
-        (others.length
-          ? `\nOther files in this project (they EXIST — import from them as needed, do NOT redefine them):\n${others.map(p => `- ${p}`).join('\n')}`
-          : '')
+        (known.length
+          ? `\n## EXISTING FILES — import them EXACTLY as declared (do NOT guess default vs named, do NOT redefine them):\n${known.map(p => `- ${interfaceOf.get(p)}`).join('\n')}`
+          : '') +
+        (pending.length
+          ? `\n\nFiles that will also exist (import from these paths if you need them; use a DEFAULT export + default import for section/page components, a NAMED export for data/util/hook modules):\n${pending.map(p => `- ${p}`).join('\n')}`
+          : '') +
+        `\n\nWhen THIS file is a section/page component, give it a DEFAULT export named after the file (e.g. ${path.split('/').pop()!.replace(/\.(tsx|ts|jsx|js)$/, '')}). When it is a data/util/hook module, use NAMED exports. Be consistent so other files import it correctly.`
 
       // Per-file cap so a single stubborn file can't burn the whole budget; the outer
       // deadline (abortSignal) still wins if the invocation nears the function cap.
@@ -353,6 +405,8 @@ export async function* getContents(
               const gated = fixUnknownLocalImports(file.path, fixed, allPaths)
               const badImports = auditLocalImports(file.path, gated, allPaths)
               if (badImports.length > 0) console.warn(`[import-audit] ${file.path} unknown @/ imports after gate: ${badImports.join(', ')}`)
+              // Record this file's REAL export contract so every later file imports it right.
+              if (/\.(tsx|ts|jsx|js)$/.test(file.path)) interfaceOf.set(file.path, summarizeInterface(file.path, gated))
               yield { files: [{ path: file.path, content: gated }], paths: [file.path], written: [] }
             }
             got = true
