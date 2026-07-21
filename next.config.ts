@@ -9,15 +9,12 @@ const nextConfig: NextConfig = {
   // deployed function → executablePath() throws "input directory bin does not exist" →
   // EVERY headless launch failed → the render-check + functionalVerify silently degraded
   // to an HTTP-200 probe → BLANK previews passed verification. Force the bin files in.
+  // Use ONLY the real pnpm store path (NOT the node_modules/@sparticuz symlink — including
+  // via the symlink makes Vercel reject the function: "invalid deployment package … files
+  // in symlinked directories"). The .pnpm/.../@sparticuz/chromium/bin dir holds the real files.
   outputFileTracingIncludes: {
-    '/api/chat': [
-      './node_modules/@sparticuz/chromium/bin/**',
-      './node_modules/.pnpm/@sparticuz+chromium@*/node_modules/@sparticuz/chromium/bin/**',
-    ],
-    '/api/diag/chromium': [
-      './node_modules/@sparticuz/chromium/bin/**',
-      './node_modules/.pnpm/@sparticuz+chromium@*/node_modules/@sparticuz/chromium/bin/**',
-    ],
+    '/api/chat': ['./node_modules/.pnpm/@sparticuz+chromium@*/node_modules/@sparticuz/chromium/bin/**'],
+    '/api/diag/chromium': ['./node_modules/.pnpm/@sparticuz+chromium@*/node_modules/@sparticuz/chromium/bin/**'],
   },
   webpack(config) {
     config.module.rules.push({
