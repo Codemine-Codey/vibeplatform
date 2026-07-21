@@ -363,14 +363,15 @@ async function verifyAndRepair({
     type: 'data-run-command',
     data: { sandboxId, command: 'Getting your project ready', args: [], status: 'executing' },
   })
-  // P0-B: hard overall budget covering BOTH vite build rounds AND the typeCheckGate.
-  // Reduced to 90s so gen(~4min) + verify(<90s) stays well under the 10-min user target.
-  // Paired with repairFile's own 45s per-call ceiling.
-  const repairDeadline = Date.now() + 90_000
+  // Budget covering BOTH vite build rounds AND the typeCheckGate. Quality-over-speed
+  // (user directive 2026-07-21): a correct build matters more than shaving minutes, so the
+  // budget is generous (240s) and allows more rounds — better to spend 2 extra minutes and
+  // SOLVE it than bail early to a fallback. Paired with repairFile's own 45s per-call ceiling.
+  const repairDeadline = Date.now() + 240_000
   try {
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= 4; attempt++) {
       if (Date.now() > repairDeadline) {
-        console.warn('[verify] repair budget (90s) exhausted — proceeding with current build')
+        console.warn('[verify] repair budget (240s) exhausted — proceeding with current build')
         break
       }
       // vite build only (no tsc — type errors don't blank the preview; CSS/import/
@@ -2769,7 +2770,10 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
       // instead of dropping to the generic fallback page. Bounded + budget-aware (#89
       // guarantees this all finishes before the function cap).
       if (rt.status === 'broken') {
-        for (let attempt = 1; attempt <= 2 && rt.status === 'broken'; attempt++) {
+        // Quality-over-speed (user directive 2026-07-21): give the loop room to actually
+        // SOLVE the bug (e.g. reorder a TDZ crash) instead of bailing to a fallback. Up to
+        // 4 rounds — fixing one error commonly surfaces the next.
+        for (let attempt = 1; attempt <= 4 && rt.status === 'broken'; attempt++) {
           const files = extractErrorFiles(rt.detail)
           if (files.length === 0) break // nothing nameable to repair — fall through
           let repaired = false
