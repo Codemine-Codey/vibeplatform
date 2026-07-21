@@ -2708,19 +2708,16 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     } catch { /* probe failure is non-fatal — fall through to normal reveal */ }
   }
 
-  // ── PHASE 0: EARLY REVEAL — show the preview the MOMENT the dev server is up ────────
-  // Previously the reveal waited for the render-check + repair loop to finish; when a build
-  // ran long (or the stream dropped) it NEVER reached here, so the URL was never emitted and
-  // the user saw NO preview at all. Now we reveal as soon as the dev server serves, and the
-  // render-check + repair below run in the BACKGROUND, landing fixes live via HMR. A visible
-  // preview that fills in beats a perfect reveal that never comes. Client shows a subtle
-  // "finishing touches" badge (app/preview.tsx) while work continues.
+  // ── VERIFY-BEFORE-REVEAL (user directive 2026-07-21: only show the preview + say "live"
+  // AFTER the AI is done, all files verified, and the preview actually RENDERS + WORKS) ──────
+  // We do NOT reveal here. The URL is emitted only at the single reveal point below, AFTER
+  // the headless render-check (Step 6.5) confirms the page paints AND functionalVerify
+  // confirms it works (or a branded fallback guarantees it's non-blank). The client stays on
+  // the "Building…" indicator until then — a blank/broken preview is never shown, not even
+  // briefly. (This reverses the earlier early-reveal, which showed blanks while the — then
+  // BLIND — verifier ran in the background. Now that chromium launches in prod, the gate is
+  // real.) Quality over speed: the extra wait buys a preview that is right the first time.
   let revealed = false
-  if (!devError) {
-    writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
-    revealed = true
-    console.log('[early-reveal] preview URL emitted as soon as dev server is up:', url)
-  }
 
   // ── Multi-page 404 GUARD (websites) ───────────────────────────────────────────────
   // The per-route render-check DETECTS a nav link that 404s, but the LLM repair can only
@@ -2860,22 +2857,12 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     }
   }
 
-  // ── REVEAL (only if not already revealed early) ───────────────────────────────────
-  // With Phase 0 early-reveal, the preview URL was usually emitted the moment the dev server
-  // came up. This is the fallback reveal for the devError path (dev server was down → a
-  // branded fallback was applied above), so the user still gets a visible preview.
-  if (!revealed) {
-    writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
-  }
-  if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: url }).catch(() => {})
-
   // ── GENERAL FUNCTIONAL VERIFICATION + silent repair (verification invariant #6) ──────
-  // The preview is already visible; now verify the app actually WORKS for what the user
-  // asked — type-agnostic (controls respond, requested behaviour functions). If dead
-  // controls / broken behaviour are found, do a bounded SILENT repair; fixes land live via
-  // HMR. AWAITED (a fire-and-forget task would be killed when the serverless function ends)
-  // but bounded. Focused on interactive skills (game/webapp) where controls are the point;
-  // websites already have render + per-route + nav checks above.
+  // Runs BEFORE the reveal (verify-before-reveal): the app must actually WORK for what the
+  // user asked — type-agnostic (controls respond, requested behaviour functions) — before we
+  // ever show it. If dead controls / broken behaviour are found, do a bounded SILENT repair
+  // (fixes land via HMR before reveal). AWAITED + bounded. Interactive skills (game/webapp)
+  // where controls are the point; websites already have render + per-route + nav checks above.
   if (!devError && (skill === 'game' || skill === 'webapp')) {
     try {
       const request = getFirstUserText(messages) || getLastUserText(messages) || ''
@@ -2892,6 +2879,8 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
           if (fixed && fixed !== content) {
             await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
             console.log('[functional-verify] repaired', path)
+            // Re-verify after a functional repair so the reveal reflects the fixed app.
+            await new Promise(r => setTimeout(r, 2500))
           }
         }
       }
@@ -2899,6 +2888,18 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
       console.warn('[functional-verify] pass failed (non-fatal):', e instanceof Error ? e.message : e)
     }
   }
+
+  // ── THE SINGLE REVEAL POINT (verify-before-reveal) ────────────────────────────────
+  // Everything above has run: dev server up, render-check + repair + final hard-gate (never
+  // blank), and functional verify + repair (it WORKS). ONLY NOW do we emit the URL — this is
+  // the first time the client leaves the "Building…" state and shows the preview. On the
+  // devError path a branded fallback was already applied, so even then the reveal is non-blank.
+  if (!revealed) {
+    writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
+    revealed = true
+    console.log('[verify-before-reveal] preview revealed AFTER render + functional verification:', url)
+  }
+  if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: url }).catch(() => {})
 
   // ── Context-aware follow-up suggestion pills (#84) — background, non-blocking ──────
   // After a verified build, a lightweight model proposes 3 short next steps based on the

@@ -268,6 +268,9 @@ const GEN_SYSTEM =
   '**State shape (kills "cannot read properties of undefined"):**\n' +
   '- EVERY useState holding a list is initialized to [] (NEVER undefined/null). EVERY object field that may be missing is read with optional chaining (?.) and a fallback (?? / ||). Map/filter only over arrays you initialized.\n' +
   '- One source of truth per piece of state — never two variables that can disagree. Prefer derived values over duplicated state.\n' +
+  '**Initialization order (kills "Cannot access X before initialization" — a blank white screen):**\n' +
+  '- Declare bindings BEFORE anything reads them. NEVER call a function inside a hook initializer (useState(x)/useRef(x)/useMemo) that reads a const/ref/variable declared LATER in the file — at that moment the later const is in its temporal dead zone and the app THROWS on mount. If a ref/state needs a computed initial value, either (a) inline the literal, or (b) use LAZY init `useState(() => makeInitial())` where makeInitial reads ONLY things declared above it, or (c) set it in a useEffect after mount.\n' +
+  '- FILE ORDER, top to bottom, always: 1) imports  2) types/interfaces  3) constants + pure helper functions  4) child/sub-components  5) the main component (default export) LAST. A function may only reference module-scope consts defined ABOVE it. This ordering makes temporal-dead-zone bugs structurally impossible.\n' +
   '**Dependency (imports must resolve):**\n' +
   '- EVERY import resolves to an installed package (the verified stack) OR a file you create in THIS SAME build. Never import a file/name that will not exist. If you use a section/component, you export it correctly and import it exactly as exported (default vs named).\n' +
   '**Contract (framework shape — our scaffold owns these):**\n' +

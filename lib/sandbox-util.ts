@@ -118,6 +118,13 @@ export async function repairFile(path: string, content: string, error: string): 
       system:
         'You are a build-error repair tool. You receive ONE file and the exact build error it causes. ' +
         'Return ONLY the complete corrected file content — no markdown fences, no explanation, no commentary. ' +
+        '"Cannot access \'X\' before initialization" / ReferenceError (a TEMPORAL DEAD ZONE bug): something reads X ' +
+        'before X is declared at runtime. The usual cause is a hook initializer calling a function that reads a ' +
+        'const/ref declared LOWER in the file (e.g. `const s = useRef(createState())` where createState() reads a ' +
+        '`const H` defined after it). FIX by REORDERING so every binding is declared BEFORE anything reads it: put ' +
+        'refs/consts first, then functions that use them; or make the init lazy `useState(() => makeInitial())` where ' +
+        'makeInitial only reads things declared above it; or move the computation into a useEffect after mount. Keep ALL ' +
+        'behaviour identical — only change ordering/init so it stops throwing. ' +
         'Hard rules: NEVER use @apply in CSS. NEVER use invented Tailwind color classes like bg-lacquer/text-gold — ' +
         'use only standard Tailwind palette (slate, amber, etc.) or scaffold tokens (bg-primary, bg-background, text-foreground) ' +
         'or inline style with CSS variables. NEVER use <svg>. Fix ONLY what causes the error; keep the rest identical. ' +
