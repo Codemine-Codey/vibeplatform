@@ -7,6 +7,34 @@ description: Web-game design + logic law — the loop, a rigorous state machine,
 
 > Canvas-first for simple games; three + @react-three/fiber + drei (pre-installed) for 3D; howler for audio; zustand for game state. NO <svg> (Lucide for HUD icons). Keyboard AND touch. localStorage high score.
 
+## 0.0 ARCHITECTURE — the engineering that makes ANY game good (patterns, NOT templates)
+Great games for arbitrary ideas come from these architectural principles — apply them to whatever the user asked for (flappy, snake, a shmup, a tower-defense, anything):
+
+**1. Strict State Machine (no loose logic).** Model the game as an explicit finite state machine: `START → PLAYING → PAUSED → GAMEOVER`. Route EVERY input through the current state: Space in START boots the loop; in PLAYING it applies the physics impulse; in PAUSED it resumes; in GAMEOVER it restarts. Pause menu, game-over modal, and HUD are React overlays STACKED above the canvas (absolutely-positioned), so the UI is always responsive no matter what the loop is doing.
+
+**2. Ref-based render loop + deterministic physics.** React state is ONLY for UI/HUD re-renders (score, high score, which screen). The fast loop — position, velocity, collisions, particles — runs in `requestAnimationFrame` using `useRef` mutable state, NEVER React state (that causes frame drops, input lag, and race conditions). Compute collisions (AABB or radial distance) BEFORE drawing, with a small safety padding so hitboxes feel fair. Bound gravity/velocity by a terminal speed so nothing clips through walls/pipes. Fixed timestep for physics; store the rAF id in a ref and cancel it in cleanup (never two loops).
+
+**3. Modular files + a single source of truth (this is the required structure):**
+```
+src/
+├── types.ts               # THE BLUEPRINT — shared interfaces (GameState, Pipe, Particle, Theme…) defined FIRST
+├── utils/
+│   ├── constants.ts       # pure config: physics params, difficulty scaling, theme tokens
+│   ├── renderer.ts        # pure Canvas-2D drawing (procedural graphics, no external art)
+│   ├── audio.ts           # Web Audio API oscillator SFX (zero missing-asset 404s)
+│   └── storage.ts         # localStorage wrapper (scores, settings)
+├── components/
+│   ├── <Game>Canvas.tsx   # the physics + rAF loop, owns the canvas
+│   ├── ScoreBoard.tsx     # live HUD overlay
+│   ├── GameOverModal.tsx  # + StartScreen / PauseModal / SettingsModal as needed
+└── pages/Home.tsx         # coordinator: owns the state machine, stacks canvas + overlays
+```
+Write `types.ts` FIRST (contract-first) so every file speaks the same language — no name/import/export mismatch. Adapt the file count to the game (a tiny game may fold renderer into the canvas), but ALWAYS separate the loop from the HUD and put shared types in one file.
+
+**4. Procedural assets — NEVER external files.** Synthesize ALL sprites, particles, backgrounds and sound in code (Canvas-2D shapes/gradients + Web Audio oscillators). No `.png`/`.mp3` fetches (they 404 in the sandbox). This alone removes a whole class of "broken game" failures.
+
+**5. Adaptive design system + juice (principles, not hardcoded art).** Every visual reads from THEME TOKENS (`skyTop`, `pipeGradient`, `groundColor`, `cloudColor`…) so the same code themes as Day / Night / Synthwave / Cyberpunk. Then add the polish that separates arcade-quality from a tech demo: **screen shake** on impact (brief canvas translate), **particle emitters** (feathers on flap, sparks on hit, stars on pickup), **rotational dynamics** (tilt the character by its velocity), **glassmorphism HUD** (`backdrop-blur-md`, high-contrast display/mono type for scores), easing, and hit-stop. A simple shape with juice beats a detailed sprite without it.
+
 ## 0. CORRECTNESS — the silent bugs that make a game look broken (READ FIRST)
 A polished, correct game beats a juicy broken one. These are the exact failures that read as "amateur" — each is non-negotiable:
 - **STRUCTURE THE GAME INTO CLEAN MODULES (adapt the count to complexity).** The whole project is written in ONE coherent pass, so you are NOT limited to one file — split by responsibility like a real codebase: `src/pages/Home.tsx` (the coordinator — owns the state machine Menu→Playing→GameOver and mounts the canvas), `src/game/` (the loop/engine + systems: physics, collision, input, spawning), `src/game/entities/` (player/bird, pipes/obstacles, particles), `src/components/` (GameCanvas wrapper with ResizeObserver, HUD, StartMenu, GameOverModal), `src/types/game.ts` (shared enums/interfaces — the ONE source of truth for state/entity shapes so names never mismatch across files), `src/utils/storage.ts` (high score). A simple game (flappy, pong) may need only 3–5 of these; a rich game more — create a file only when it earns its place, never bloat. A game still has ONE page (no react-router). **NEVER write `src/App.tsx` or `src/main.tsx`** (scaffolded + read-only). Import every shared type/const from `src/types`/one module so exports and imports stay consistent.
