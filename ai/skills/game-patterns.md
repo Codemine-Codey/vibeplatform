@@ -49,21 +49,28 @@ function spawnFood(snake: {x:number,y:number}[], cols: number, rows: number) {
 }
 ```
 
-## 0.2 RESPONSIVE CANVAS — MUST fit the screen, never zoomed/cropped (READ — real bug)
-A game that renders zoomed-in, cropped, or overflowing the viewport is a FAILURE even if the
-logic works. The canvas MUST fit its container exactly:
-- The game root fills the preview: a wrapper `<div>` at `width:100%; height:100dvh` (or `100%`),
-  `overflow:hidden`, centered.
-- Size the canvas DRAWING BUFFER to the container's real pixels each mount + on resize:
-  `canvas.width = container.clientWidth * dpr; canvas.height = container.clientHeight * dpr` where
-  `dpr = Math.min(window.devicePixelRatio || 1, 2)`, and set CSS `canvas.style.width/height = 100%`.
-  Recompute on `window.resize` (and reset transform: `ctx.setTransform(dpr,0,0,dpr,0,0)`).
-- Read `W = canvas.width/dpr`, `H = canvas.height/dpr` for logic. ALL sizes/speeds are relative to
-  W/H (per §0.5) so the game scales to any screen. NEVER a fixed `canvas.width = 800` that the
-  browser then stretches (that's the "zoomed-in / blocky" look).
-- If a fixed logical aspect is desired (e.g. portrait), letterbox it: fit the largest W×H of that
-  aspect INSIDE the container and center — never overflow or upscale a tiny buffer.
-- Test mentally at 375px wide AND a wide desktop: the whole play area is visible, nothing clipped.
+## 0.2 FIXED LOGICAL RESOLUTION — the ONLY correct way to size a canvas game (READ — critical bug)
+**THE #1 GAME BUG: a "dinosaur bird".** If you size the drawing buffer to the full window
+(`canvas.width = clientWidth*dpr` → ~1920) and then size entities as a fraction of that (bird =
+`0.035*W` → 134px), everything is ENORMOUS on a desktop and the physics (tuned to an ~800px-tall
+canvas) feel uncontrollable. This reads as "huge sprites + broken controls". NEVER do this.
+
+**ALWAYS use a fixed logical resolution + scale-to-fit (what every real web game does):**
+- Pick a FIXED logical play area for the game world and NEVER change it with screen size:
+  portrait games (flappy, doodle-jump) → **`const VW = 480, VH = 720`**; landscape (runner, shooter,
+  platformer) → **`960 × 540`**; square (snake, tetris, breakout) → **`600 × 600`** (or the grid size).
+- ALL game logic + entity sizes + speeds use VW/VH — so a flappy bird is `~0.055*VW ≈ 26px`, always
+  sensible, on every screen. Entities are a fixed size in the world; the SCREEN just scales.
+- Render at the logical size × dpr: `canvas.width = VW*dpr; canvas.height = VH*dpr`,
+  `ctx.setTransform(dpr,0,0,dpr,0,0)`, and draw in VW×VH coordinates.
+- SCALE THE DISPLAY to fit the container with CSS, keeping aspect (letterbox): wrapper `<div>` at
+  `width:100%; height:100dvh; display:flex; align-items:center; justify-content:center; overflow:hidden`,
+  and the canvas `style={{ width:'auto', height:'auto', maxWidth:'100%', maxHeight:'100%', aspectRatio:'VW/VH' }}`
+  (or compute a scale = min(containerW/VW, containerH/VH) and set canvas.style.width = VW*scale). The
+  INTERNAL resolution never changes; only the on-screen size does. Crisp on mobile AND desktop.
+- Test mentally at 375px wide AND a 1920px desktop: the bird is the SAME sensible size relative to the
+  play field in both; the whole field is visible, centered, letterboxed, never stretched or clipped.
+- (Grid games: VW/VH = cols*cell × rows*cell; the cell size is fixed, e.g. 24px, not a fraction of the window.)
 
 ## 0.5 TUNED CONSTANTS — so it PLAYS right, not turtle-slow OR brutally hard (READ)
 A game that compiles but plays wrong (ball crawling, jump too floaty) is a FAILURE. Speeds must be

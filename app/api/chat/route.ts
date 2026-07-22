@@ -1137,8 +1137,47 @@ async function functionalVerify(url: string, userRequest: string, skill: Skill):
       if (m) { const j = JSON.parse(m[0]) as { ok?: boolean; issues?: string[] }; ok = !!j.ok && dead.length === 0; issues = Array.isArray(j.issues) ? j.issues.slice(0, 6) : [] }
     } catch { /* judge best-effort */ }
     if (dead.length && issues.length === 0) issues = dead.map(d => `Non-functional control: ${d}`)
+
+    // ── VISUAL QUALITY JUDGE (cheap vision model) — catches what the functional probe CANNOT:
+    // wrong-sized sprites (the "dinosaur bird"), ugly/empty start & game-over screens, unreadable
+    // text, "doesn't look like what was asked". The functional probe sees the BACKGROUND scroll and
+    // calls it "responds"; only a model that LOOKS at the screen catches amateur quality. This is
+    // the gate that stops shipping rubbish. Runs during play (canvas is mid-game from the probes).
+    try {
+      const shot: Buffer = await page.screenshot({ type: 'png', fullPage: false }).catch(() => null)
+      if (shot) {
+        const vr = await generateText({
+          ...getModelOptions(VISION_MODEL),
+          maxOutputTokens: 320,
+          abortSignal: AbortSignal.timeout(30_000),
+          messages: [{ role: 'user', content: [
+            { type: 'text', text:
+              `You are a STRICT QA reviewer. The user asked for: "${userRequest.slice(0, 240)}" (a ${skill}). ` +
+              `Look at this screenshot of the RUNNING app and judge HARSHLY for amateur quality. Flag any of: ` +
+              `(1) sprites/objects WRONGLY SIZED — a game character/ball/paddle absurdly large or tiny relative to the play area (e.g. a bird taking up a third of the screen); ` +
+              `(2) ugly, empty, unstyled, or broken-looking screens (start screen, HUD, game-over); ` +
+              `(3) text overlapping, cut off, or unreadable; ` +
+              `(4) it simply does not look like a real, polished "${userRequest.slice(0, 60)}". ` +
+              `Reply STRICT JSON only: {"good":boolean,"issues":string[]}. Each issue SPECIFIC + actionable ` +
+              `(e.g. "the bird is far too large, ~35% of the screen height — it must be small, roughly 5% of the play width"). ` +
+              `good=true ONLY if it looks polished AND correctly proportioned.` },
+            { type: 'image', image: shot },
+          ] }],
+        })
+        const vm = vr.text.match(/\{[\s\S]*\}/)
+        if (vm) {
+          const vj = JSON.parse(vm[0]) as { good?: boolean; issues?: string[] }
+          if (vj.good === false) {
+            ok = false
+            if (Array.isArray(vj.issues)) issues.push(...vj.issues.slice(0, 4).map(s => `Visual: ${s}`))
+          }
+          console.log(`[functional-verify] visual good=${vj.good} issues=${(vj.issues ?? []).slice(0, 2).join(' | ')}`)
+        }
+      }
+    } catch { /* visual judge best-effort — never hard-block on a vision failure */ }
+
     console.log(`[functional-verify] ok=${ok} dead=${dead.length} issues=${issues.slice(0, 3).join(' | ')}`)
-    return { ok, issues, detail: report }
+    return { ok, issues: issues.slice(0, 8), detail: report }
   } catch (e) {
     // Never block the build on a verify failure — treat as pass (the render check already gated).
     return { ok: true, issues: [], detail: 'functional-verify skipped: ' + (e instanceof Error ? e.message : String(e)) }
@@ -2850,23 +2889,33 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   if (!devError && (skill === 'game' || skill === 'webapp')) {
     try {
       const request = getFirstUserText(messages) || getLastUserText(messages) || ''
-      const fv = await functionalVerify(url, request, skill)
-      if (!fv.ok && fv.issues.length > 0) {
-        logRepair({ layer: 'runtime-check', action: 'functional-issues', detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
+      // Candidate files that hold gameplay/logic + sizing (repair targets). Home.tsx always;
+      // plus any modular game/logic/type files from the manifest (where sprite sizes live).
+      const logicFiles = ['src/pages/Home.tsx', ...(planBox.manifest?.files ?? [])
+        .map(f => f.path)
+        .filter(p => /^src\/(game|components\/game|types|utils|components)\//.test(p) && /\.(tsx|ts)$/.test(p))]
+        .filter((p, i, a) => a.indexOf(p) === i).slice(0, 8)
+      // Loop verify→repair up to 3 rounds (quality over speed): the visual judge catches wrong
+      // sizing / ugly screens the functional probe can't, and repair fixes it BEFORE reveal.
+      for (let round = 1; round <= 3; round++) {
+        const fv = await functionalVerify(url, request, skill)
+        if (fv.ok || fv.issues.length === 0) { console.log(`[functional-verify] passed (round ${round})`); break }
+        logRepair({ layer: 'runtime-check', action: `functional-issues-r${round}`, detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
         const issueText =
-          `The app does not fully WORK for what the user asked ("${request.slice(0, 160)}"). Fix these SPECIFIC functional problems so every control/feature works — this is about FUNCTION, keep the design:\n- ${fv.issues.join('\n- ')}`
-        // Game/webapp logic lives in Home.tsx (+ any component files). Repair the main file.
-        for (const path of ['src/pages/Home.tsx']) {
+          `This ${skill} does not yet meet the bar for what the user asked ("${request.slice(0, 160)}"). Fix these SPECIFIC problems — controls must truly work AND the visuals must be correct (right-sized sprites/objects, polished start/HUD/game-over screens, readable text). Keep the concept; fix the execution:\n- ${fv.issues.join('\n- ')}`
+        let changedAny = false
+        for (const path of logicFiles) {
           const content = await readSandboxFile(sandbox, path)
           if (!content) continue
           const fixed = await repairFile(path, content, issueText)
           if (fixed && fixed !== content) {
             await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
-            console.log('[functional-verify] repaired', path)
-            // Re-verify after a functional repair so the reveal reflects the fixed app.
-            await new Promise(r => setTimeout(r, 2500))
+            console.log(`[functional-verify] repaired ${path} (round ${round})`)
+            changedAny = true
           }
         }
+        if (!changedAny) { console.log('[functional-verify] repair produced no change — stopping'); break }
+        await new Promise(r => setTimeout(r, 2500)) // let HMR apply before re-verify
       }
     } catch (e) {
       console.warn('[functional-verify] pass failed (non-fatal):', e instanceof Error ? e.message : e)
