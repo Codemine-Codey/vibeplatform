@@ -1525,15 +1525,24 @@ export async function POST(req: Request) {
           }
         }
 
-        // Forced light research (WEBSITES only) — one fast Tavily lookup so the copy and
-        // sections are grounded in REAL specifics for that business/industry instead of
-        // generic filler (agency-level content). Fail-safe: no key / error / 6s timeout →
-        // empty → the build proceeds unchanged. ~1 credit, cached in-process.
+        // Forced light research (ALL skills) — one fast Tavily lookup so the build is grounded
+        // in REAL, PROVEN specifics instead of the model GUESSING (which is exactly how a flappy
+        // bird ends up dinosaur-sized). Type-agnostic: research whatever the user actually asked
+        // for. Fail-safe: no key / error / timeout → empty → build proceeds unchanged. ~1 credit.
         let researchContext = ''
-        if (skill === 'website') {
-          const q = `${brief.brandName || userText}: what sections, services/offerings, and specific content does this kind of business's website typically include? Give concrete real-world specifics.`
+        {
+          const q = skill === 'game'
+            // Games: fetch the PROVEN parameters so sizes/speeds/physics are right, not guessed.
+            ? `"${userText}" web game: the correct gameplay PARAMETERS to make it feel right — the player/sprite size RELATIVE to the play area (as a %), gravity and jump/impulse strength, obstacle/gap sizes and spacing, scroll/movement speed, spawn cadence, and difficulty. Give concrete typical values a good implementation uses.`
+            : skill === 'webapp'
+            // Webapps: the real feature set + data model so it's complete, not a toy.
+            ? `"${userText}": what core features, data fields/model, views, and user actions does a good version of this app include? Give concrete real-world specifics.`
+            // Websites: sections + industry content.
+            : `${brief.brandName || userText}: what sections, services/offerings, and specific content does this kind of business's website typically include? Give concrete real-world specifics.`
           const r = await tavilySearch(q).catch(() => '')
-          if (r) researchContext = `\n\n## REAL-WORLD RESEARCH (ground the sections + copy in these facts — no generic filler)\n${r}`
+          if (r) researchContext = skill === 'game'
+            ? `\n\n## REAL-WORLD GAME PARAMETERS (use these PROVEN values — do NOT guess sizes/speeds; a sprite is a small % of the play field, never a fraction of the full window)\n${r}`
+            : `\n\n## REAL-WORLD RESEARCH (ground the ${skill === 'webapp' ? 'features + data model' : 'sections + copy'} in these facts — no generic filler)\n${r}`
         }
 
         // The design contract the FILE-WRITER must follow (brief tokens + fonts +
