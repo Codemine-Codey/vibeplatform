@@ -24,6 +24,16 @@ interface Params {
   // whose CMEND fence already landed is safely kept (salvaged), the rest re-run in
   // the next chained invocation. Undefined on the normal (non-chained) path.
   abortSignal?: AbortSignal
+  // Generation strategy:
+  //  - 'one-pass' (default for the INITIAL build): ONE model call writes EVERY file in a
+  //    single coherent stream. Faster (1 call vs ~15 sequential) AND more correct for
+  //    tightly-coupled projects — the model sees the whole project at once, so shared
+  //    types/state/exports stay consistent (kills the interface-mismatch + TDZ-ordering
+  //    bugs that per-file isolation caused). Per user's empirical finding: one-pass
+  //    produced working projects; per-file made builds slow (13-min cap → fallback) + buggy.
+  //  - 'per-file': one call per file (anti-drift for very large sites; used as the RECOVERY
+  //    path to fill/repair specific missing or broken files after a one-pass run).
+  mode?: 'one-pass' | 'per-file'
 }
 
 interface FileContentChunk {
@@ -351,10 +361,78 @@ export async function* getContents(
   params: Params
 ): AsyncGenerator<FileContentChunk> {
   const { messages, modelId, designContext, abortSignal } = params
+  const mode = params.mode ?? 'one-pass'
   const allPaths = orderForResilience(params.paths)
   const written = new Set<string>()
   // Interface registry: path → its real export contract, filled as each file completes.
   const interfaceOf = new Map<string, string>()
+
+  // ── ONE-PASS GENERATION (default) — ONE coherent call writes EVERY file ─────────────────
+  // The model sees the whole project and writes all files in a single stream, so shared
+  // types/state/exports/ordering stay consistent (this is what kills the interface-mismatch
+  // and temporal-dead-zone bugs that per-file ISOLATION introduced). Also ~15x fewer calls =
+  // far faster (no more 13-min-cap → fallback). We stream the nonce-fenced blocks and yield
+  // each file as its CMEND arrives; anything the caller finds still-missing afterwards is
+  // refilled by the per-file recovery path (getContents with mode:'per-file').
+  if (mode === 'one-pass') {
+    const fileList = allPaths.map(p => `- ${p}`).join('\n')
+    const nonce = randomUUID().replace(/-/g, '').slice(0, 16)
+    const instruction =
+      `Build the COMPLETE project now — generate ALL of these files in ONE response, each as RAW TEXT ` +
+      `in the delimited format below (NO JSON, NO markdown fences, NO commentary between files):\n\n` +
+      `<<<CMFILE:${nonce}:relative/path.tsx>>>\n<the complete file content, literally>\n<<<CMEND:${nonce}>>>\n` +
+      `(repeat one fenced block per file, back to back)\n\n` +
+      `Files to generate (generate EVERY one, complete, in this order):\n${fileList}\n\n` +
+      `Rules:\n` +
+      `- Output EVERY file listed, each COMPLETE start to finish between its own fences. Do not stop early, do not summarise, do not say "rest omitted".\n` +
+      `- Write code LITERALLY — do not escape quotes/newlines, do not wrap in backticks.\n` +
+      `- This is ONE coherent project: shared types, state shapes, and exports MUST agree across files. A value/type/component defined in one file must be imported EXACTLY as it is exported (default vs named). Declare things before they are used (no use-before-init).\n` +
+      `- Honor the DESIGN CONTRACT exactly in every file (same colour tokens, fonts, archetype, spacing).\n` +
+      `- Make every file RICH and COMPLETE: real copy, real imagery, full styling, fully working logic. Never a stub or "coming soon".\n` +
+      `- Section/page components use a DEFAULT export named after the file; data/util/hook modules use NAMED exports.`
+
+    const onePassSignal = abortSignal ?? AbortSignal.timeout(300_000)
+    let buffer = ''
+    try {
+      const result = streamText({
+        ...getModelOptions(modelId),
+        maxOutputTokens: getMaxOutputTokens(modelId),
+        system: buildGenSystem(designContext),
+        messages: [...messages, { role: 'user' as const, content: instruction }],
+        abortSignal: onePassSignal,
+        onError: err => console.error('[getContents:one-pass] stream error:', err),
+      })
+      const blockRe = /<<<CMFILE:[^:>\n]+:(.+?)>>>\r?\n([\s\S]*?)\r?\n?<<<CMEND[^>\n]*>>>/g
+      for await (const delta of result.textStream) {
+        buffer += delta
+        blockRe.lastIndex = 0
+        let m: RegExpExecArray | null
+        while ((m = blockRe.exec(buffer)) !== null) {
+          const echoed = m[1].trim()
+          const filePath = allPaths.includes(echoed) ? echoed : null
+          if (!filePath || written.has(filePath)) continue
+          const clean = sanitizeContent(filePath, m[2])
+          if (clean === null) continue
+          written.add(filePath)
+          for (const file of splitConcatenated(filePath, clean, allPaths)) {
+            written.add(file.path)
+            const fixed = fixIcons(file.path, fixRouter(file.path, fixFonts(file.path, fixImports(file.path, fixCss(file.path, file.content)))))
+            const gated = fixUnknownLocalImports(file.path, fixed, allPaths)
+            if (/\.(tsx|ts|jsx|js)$/.test(file.path)) interfaceOf.set(file.path, summarizeInterface(file.path, gated))
+            yield { files: [{ path: file.path, content: gated }], paths: [file.path], written: [] }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[getContents:one-pass] failed:', e instanceof Error ? e.message : e)
+    }
+    const missingAfterOnePass = allPaths.filter(p => !written.has(p))
+    if (missingAfterOnePass.length === 0) return
+    // Truncated/incomplete → fall through to the per-file loop below, which SKIPS files
+    // already `written` and refills only the missing ones. We keep the full allPaths so the
+    // recovery files still get the correct import contracts (interfaceOf) for what's done.
+    console.warn(`[getContents:one-pass] ${missingAfterOnePass.length} file(s) missing after one-pass — refilling per-file: ${missingAfterOnePass.join(', ')}`)
+  }
 
   // ── PER-FILE SCOPED GENERATION (anti-drift — the single biggest quality lever) ─────────────
   // Instead of ONE model call writing every file (which DRIFTS — the model forgets the palette/

@@ -48,7 +48,11 @@ export const VISION_MODEL = 'google/gemma-3-12b-it'
 //    single file or edit while keeping the credit reservation small.
 export function getMaxOutputTokens(modelId: string): number {
   if (modelId.startsWith('claude-opus') || modelId.startsWith('claude-fable')) return 128000
-  // claude sonnet/haiku, deepseek flash, and other OpenRouter models
+  // DeepSeek V4 — MAX output (64K = 65536). One-pass whole-project generation needs the
+  // full ceiling so a complete website/webapp/game fits in a single coherent response
+  // without truncating (the per-file recovery only kicks in if it still doesn't fit).
+  if (modelId.startsWith('deepseek')) return 65536
+  // claude sonnet/haiku and other OpenRouter models
   return 64000
 }
 

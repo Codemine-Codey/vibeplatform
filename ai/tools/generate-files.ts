@@ -444,7 +444,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       const missing = paths.filter(p => !writtenPaths.has(p))
       if (missing.length > 0) {
         console.warn(`[generateFiles] Retrying ${missing.length} missing file(s): ${missing.join(', ')}`)
-        const retryIterator = getContents({ messages, modelId, paths: missing, designContext, abortSignal: boundedSignal(150_000) })
+        const retryIterator = getContents({ messages, modelId, paths: missing, designContext, mode: 'per-file', abortSignal: boundedSignal(150_000) })
         try {
           for await (const chunk of retryIterator) {
             if (chunk.files.length > 0) {
@@ -486,7 +486,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
             },
           ]
           try {
-            const it = getContents({ messages: fixMessages, modelId, paths: broken.map((x) => x.f.path), designContext, abortSignal: boundedSignal(150_000) })
+            const it = getContents({ messages: fixMessages, modelId, paths: broken.map((x) => x.f.path), designContext, mode: 'per-file', abortSignal: boundedSignal(150_000) })
             for await (const chunk of it) {
               if (chunk.files.length > 0) {
                 const err = await writeFiles({ ...chunk, written: uploaded.map((f) => f.path) })
@@ -570,7 +570,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
           ]
 
           let gotAny = false
-          const closureIter = getContents({ messages: closureMessages, modelId, paths: missingPaths, designContext, abortSignal: boundedSignal(150_000) })
+          const closureIter = getContents({ messages: closureMessages, modelId, paths: missingPaths, designContext, mode: 'per-file', abortSignal: boundedSignal(150_000) })
           try {
             for await (const chunk of closureIter) {
               if (chunk.files.length > 0) {
@@ -601,7 +601,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
             ...messages,
             { role: 'user' as const, content: 'These files COMPILE but contain runtime footguns that will break or hang the app. Rewrite each listed file COMPLETELY — fix the issue, keep every feature, change nothing unrelated.\n\n' + issueText },
           ]
-          const it = getContents({ messages: fixMessages, modelId, paths, designContext, abortSignal: boundedSignal(150_000) })
+          const it = getContents({ messages: fixMessages, modelId, paths, designContext, mode: 'per-file', abortSignal: boundedSignal(150_000) })
           for await (const chunk of it) {
             if (chunk.files.length > 0) {
               const err = await writeFiles({ ...chunk, written: uploaded.map(f => f.path) })
@@ -642,7 +642,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
                 'These files render nothing meaningful — a blank/empty component is a broken preview. Rewrite each listed file COMPLETELY so it renders real, on-brief, production-quality content: never null, never an empty fragment, never a childless placeholder, never lorem/coming-soon. Keep the SAME exports and the file\'s purpose; fill it with the actual UI it should display.\n\n' + issueText,
             },
           ]
-          const it = getContents({ messages: fixMessages, modelId, paths: emptyPaths, designContext, abortSignal: boundedSignal(150_000) })
+          const it = getContents({ messages: fixMessages, modelId, paths: emptyPaths, designContext, mode: 'per-file', abortSignal: boundedSignal(150_000) })
           for await (const chunk of it) {
             if (chunk.files.length > 0) {
               const err = await writeFiles({ ...chunk, written: uploaded.map(f => f.path) })
