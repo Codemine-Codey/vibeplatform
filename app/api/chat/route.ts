@@ -2895,9 +2895,11 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   // ever show it. If dead controls / broken behaviour are found, do a bounded SILENT repair
   // (fixes land via HMR before reveal). AWAITED + bounded. Interactive skills (game/webapp)
   // where controls are the point; websites already have render + per-route + nav checks above.
-  if (!devError && (skill === 'game' || skill === 'webapp')) {
-    // Honest status so the user is never left staring at "done" with no preview: this
-    // playtest+polish pass runs for a minute or two BEFORE the preview is revealed.
+  if (!devError) {
+    // EVERY project is interaction-tested + visually judged before reveal (games are played,
+    // webapps/websites are clicked + typed into), and the cheap vision model looks at the
+    // running result for quality — repaired up to 3× BEFORE the user ever sees it.
+    // Honest status so the user is never left staring at "done" with no preview.
     writer.write({
       id: 'srv-playtest',
       type: 'data-run-command',
@@ -2909,7 +2911,7 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
       // plus any modular game/logic/type files from the manifest (where sprite sizes live).
       const logicFiles = ['src/pages/Home.tsx', ...(planBox.manifest?.files ?? [])
         .map(f => f.path)
-        .filter(p => /^src\/(game|components\/game|types|utils|components)\//.test(p) && /\.(tsx|ts)$/.test(p))]
+        .filter(p => /^src\/(game|components|pages|types|utils|hooks|services|data)\//.test(p) && /\.(tsx|ts)$/.test(p))]
         .filter((p, i, a) => a.indexOf(p) === i).slice(0, 8)
       // Loop verify→repair up to 3 rounds (quality over speed): the visual judge catches wrong
       // sizing / ugly screens the functional probe can't, and repair fixes it BEFORE reveal.
