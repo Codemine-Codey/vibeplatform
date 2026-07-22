@@ -186,10 +186,12 @@ export const planProject = (
       projectType: z
         .enum(['game', 'webapp', 'website'])
         .describe(
-          'The type of project being built. MUST match what the user asked for — this drives file caps and generation rules. ' +
-          '"game" = canvas/keyboard interactive game (≤2 files, all logic in Home.tsx). ' +
-          '"website" = multi-page business/portfolio/landing site (≤8 files, real page routes). ' +
-          '"webapp" = interactive tool/dashboard/utility (≤7 files, React state, localStorage).'
+          'The type of project being built. MUST match what the user asked for — this drives generation rules. ' +
+          'Build a PROPER MODULAR structure (split by responsibility), and adapt the number of files to the ' +
+          'project complexity — simple → fewer, rich → more:\n' +
+          '"game" = canvas/keyboard interactive game — Home.tsx coordinator (Menu/Playing/GameOver) + src/game/ (loop, physics/collision/input systems, entities) + components (GameCanvas, HUD, StartMenu, GameOverModal) + types + utils/storage.\n' +
+          '"website" = multi-page/landing site — components (Header, Hero, sections, Footer) + src/data/content.ts (copy) + types + pages per route.\n' +
+          '"webapp" = interactive tool/dashboard — components/{common,layout,dashboard,modals} + hooks + services + types + utils + pages.'
         ),
       files: z
         .array(
@@ -301,35 +303,25 @@ export const planProject = (
       const isGame = projectType === 'game' || hasGameComponents
       const isWebsite = !isGame && (projectType === 'website' || pageCount >= 4)
 
-      // Games: block component subfolders — ALL logic must live in src/pages/Home.tsx
-      if (isGame && hasGameComponents) {
-        return (
-          `MANIFEST REJECTED — game files must not use src/components/game/ subfolders.\n\n` +
-          `Put ALL game logic (canvas setup, game loop, state machine, collision, HUD, particles) ` +
-          `directly in src/pages/Home.tsx. This is a hard rule: one file = zero import errors = ` +
-          `faster preview for the user. src/index.css is the only other allowed file.\n\n` +
-          `Allowed files: src/index.css, src/pages/Home.tsx. Call planProject again with these 2 files only.`
-        )
-      }
+      // Games MAY now use modular subfolders (src/game/, src/components/game/, src/game/entities/)
+      // — one-pass generation keeps them coherent, so the old "all logic in Home.tsx" rule is gone.
 
-      // Lovable-aligned file caps per phase: game 2, webapp 7, site 8.
-      // Tighter caps = smaller AI output = no truncation + faster first preview.
-      // Multi-phase builds naturally stay within the cap because enrichment phases
-      // deliver 3-6 files each — the cap here applies to phase 1 (the MVP skeleton).
-      const maxFiles = isGame ? 2 : isWebsite ? 8 : 7
+      // Modular-structure caps (2026-07-21): one-pass generation writes every file in ONE
+      // coherent call at max output, so the old tight "2-file" caps (which existed only to
+      // dodge per-file truncation) are gone. Projects now get a PROPER modular structure and
+      // the AI ADAPTS the count to complexity (a simple flappy may use 3 files; a rich app 15+).
+      const maxFiles = isGame ? 12 : isWebsite ? 20 : 18
       if (files.length > maxFiles) {
         const typeName = isGame ? 'game' : isWebsite ? 'website' : 'webapp'
         const guidance = isGame
-          ? 'src/index.css + src/pages/Home.tsx (ALL game logic in one file)'
+          ? 'a clean modular game: src/pages/Home.tsx (coordinator: Menu/Playing/GameOver) + src/game/ (engine loop, systems: physics/collision/input, entities) + src/components/ (GameCanvas, HUD, StartMenu, GameOverModal) + src/types + src/utils/storage — split by responsibility, only as many files as the game needs'
           : isWebsite
-          ? 'src/index.css + src/components/Layout.tsx + src/pages/Home.tsx + up to 5 additional pages/components'
-          : 'src/index.css + src/pages/Home.tsx + up to 4 components/stores (MVP core only — iterate after first preview)'
+          ? 'a clean modular site: src/components/ (Header, Hero, feature/showcase sections, Footer), src/data/content.ts (copy/nav/lists), src/types, src/pages/* per route, src/index.css'
+          : 'a clean modular app: src/components/{common,layout,dashboard,modals}, src/hooks, src/services, src/types, src/utils, src/pages/* — separate state, data flow, and UI'
         return (
-          `MANIFEST REJECTED — too many files (${files.length} > ${maxFiles} max for a ${typeName}).\n\n` +
-          `Allowed: ${guidance}.\n\n` +
-          `This is a FIRST PREVIEW limit. Consolidate: merge components, inline small utilities, ` +
-          `keep only the core user flow. The user sees a working MVP and iterates — ` +
-          `do NOT try to build the entire product in one shot. Call planProject again with ≤ ${maxFiles} files.`
+          `MANIFEST REJECTED — ${files.length} files exceeds the ${maxFiles} sanity cap for a ${typeName}.\n\n` +
+          `Aim for: ${guidance}.\n\n` +
+          `Keep it modular but not bloated — merge trivially-small files, and only create a file when it earns its place. Call planProject again with ≤ ${maxFiles} files.`
         )
       }
       // ── End structural recipe gate ────────────────────────────────────────────
