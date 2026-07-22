@@ -18,6 +18,9 @@ export function Preview({ className }: Props) {
   const lastFilesUploadedAt = useSandboxStore((s) => s.lastFilesUploadedAt)
   const chatStatus = useSandboxStore((s) => s.chatStatus)
   const addBrowserError = useSandboxStore((s) => s.addBrowserError)
+  const setUrl = useSandboxStore((s) => s.setUrl)
+  const projectId = useSandboxStore((s) => s.projectId)
+  const [reconnecting, setReconnecting] = useState(false)
   const isWorking = chatStatus === 'streaming' || chatStatus === 'submitted'
 
   const errorMonitor = useErrorMonitor()
@@ -63,6 +66,41 @@ export function Preview({ className }: Props) {
     return () => window.removeEventListener('message', onMessage)
   }, [addBrowserError])
 
+  // ── DURABLE PREVIEW: auto-reopen a dead sandbox ──────────────────────────────────
+  // Sandboxes are ephemeral (they time out). When a returning user's preview goes dead
+  // (502/unreachable), poll the same-origin health probe; if it's down, reopen the project
+  // from its saved snapshot into a fresh sandbox and swap the URL — the user never sits on a
+  // dead 502 preview. Only runs when a preview is shown and the build isn't actively working.
+  useEffect(() => {
+    if (!url || isWorking || !projectId) return
+    let cancelled = false
+    let inFlight = false
+    const check = async () => {
+      if (inFlight || cancelled) return
+      inFlight = true
+      try {
+        const h = await fetch(`/api/preview-health?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(10_000) })
+          .then((r) => r.json())
+          .catch(() => null)
+        if (!cancelled && h && h.alive === false) {
+          setReconnecting(true)
+          const res = await fetch(`/api/projects/${projectId}/open`, { method: 'POST' })
+            .then((r) => r.json())
+            .catch(() => null)
+          if (!cancelled && res?.url) setUrl(res.url, crypto.randomUUID())
+          if (!cancelled) setReconnecting(false)
+        }
+      } finally {
+        inFlight = false
+      }
+    }
+    const id = setInterval(check, 25_000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [url, isWorking, projectId, setUrl])
+
   const showErrorDetected = errorMonitor.status === 'pending' && !isWorking
   const cubeLabel = triggeredByErrorRef.current ? 'Fixing an issue...' : undefined
 
@@ -93,6 +131,16 @@ export function Preview({ className }: Props) {
           <div className="flex items-center gap-2 bg-black/75 text-white text-xs px-3 py-2 rounded-full backdrop-blur-sm">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             {cubeLabel ?? 'Adding the finishing touches…'}
+          </div>
+        </div>
+      )}
+
+      {/* Durable preview: the sandbox went to sleep and we're reopening it from the saved snapshot */}
+      {reconnecting && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/90">
+          <div className="flex items-center gap-2.5 bg-black/80 text-white text-xs px-4 py-2.5 rounded-full backdrop-blur-sm">
+            <div className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+            Reconnecting your preview…
           </div>
         </div>
       )}
