@@ -1068,15 +1068,24 @@ async function functionalVerify(url: string, userRequest: string, skill: Skill):
     const inventory = await page.evaluate(() => {
       const q = (s: string) => Array.from(document.querySelectorAll(s))
       const label = (el: Element) => ((el.textContent || (el as HTMLElement).getAttribute?.('aria-label') || (el as HTMLInputElement).placeholder || el.tagName) || '').trim().slice(0, 40)
+      // Broken-image check (deterministic, free): an <img> that finished loading with
+      // naturalWidth 0 is broken (bad/404 src). A section with no real content is empty.
+      const imgs = q('img') as HTMLImageElement[]
+      const brokenImgs = imgs.filter(i => i.complete && i.naturalWidth === 0).map(i => (i.getAttribute('src') || i.getAttribute('alt') || 'image').slice(0, 60))
+      const sections = q('section, [data-section], main > div')
+      const emptySections = sections.filter(s => ((s as HTMLElement).innerText || '').trim().length < 8 && !s.querySelector('img, canvas, svg, video')).length
       return {
-        buttons: q('button, [role=button]').slice(0, 12).map(label),
+        buttons: q('button, [role=button], a[href]').slice(0, 12).map(label),
         inputs: q('input, textarea, select').slice(0, 8).map(label),
         headings: q('h1, h2').slice(0, 6).map(label),
         hasCanvas: !!document.querySelector('canvas'),
         buttonCount: q('button, [role=button]').length,
         inputCount: q('input, textarea, select').length,
+        imgCount: imgs.length,
+        brokenImgs: brokenImgs.slice(0, 6),
+        emptySections,
       }
-    }).catch(() => ({ buttons: [] as string[], inputs: [] as string[], headings: [] as string[], hasCanvas: false, buttonCount: 0, inputCount: 0 }))
+    }).catch(() => ({ buttons: [] as string[], inputs: [] as string[], headings: [] as string[], hasCanvas: false, buttonCount: 0, inputCount: 0, imgCount: 0, brokenImgs: [] as string[], emptySections: 0 }))
 
     const responded: string[] = []
     const dead: string[] = []
@@ -1121,10 +1130,22 @@ async function functionalVerify(url: string, userRequest: string, skill: Skill):
       `Has canvas: ${inventory.hasCanvas}\n` +
       `Controls that RESPONDED when used: ${responded.join(', ') || '(none)'}\n` +
       `Controls that did NOT respond (dead): ${dead.join(', ') || '(none)'}\n` +
+      `Images: ${inventory.imgCount} total, ${inventory.brokenImgs.length} BROKEN: ${inventory.brokenImgs.join(', ') || '(none)'}\n` +
+      `Empty sections (no text/media): ${inventory.emptySections}\n` +
       `Screen changed overall during use: ${before !== after}`
 
     let ok = dead.length === 0
     let issues: string[] = []
+    // Deterministic content issues (free — no model): broken images + empty sections. These
+    // are the exact "images don't work / a section is blank" failures on websites. Kept in a
+    // separate list so the LLM/vision judges below MERGE with (never erase) them.
+    const contentIssues: string[] = []
+    if (inventory.brokenImgs.length > 0) {
+      contentIssues.push(`Broken images (they don't load — bad or 404 src): ${inventory.brokenImgs.join(', ')}. Use a working image URL (Unsplash) or a CSS/gradient background instead.`)
+    }
+    if (inventory.emptySections >= 2) {
+      contentIssues.push(`${inventory.emptySections} sections are EMPTY (no real content/media). Fill every section with real copy and imagery — no blank or placeholder sections.`)
+    }
     try {
       const res = await generateText({
         ...getModelOptions(ERROR_MODEL),
@@ -1137,6 +1158,9 @@ async function functionalVerify(url: string, userRequest: string, skill: Skill):
       if (m) { const j = JSON.parse(m[0]) as { ok?: boolean; issues?: string[] }; ok = !!j.ok && dead.length === 0; issues = Array.isArray(j.issues) ? j.issues.slice(0, 6) : [] }
     } catch { /* judge best-effort */ }
     if (dead.length && issues.length === 0) issues = dead.map(d => `Non-functional control: ${d}`)
+    // Merge in the deterministic content issues (broken images / empty sections) — they never
+    // get erased by the model judges, and any of them means the build is NOT ok.
+    if (contentIssues.length > 0) { ok = false; issues.push(...contentIssues) }
 
     // ── VISUAL QUALITY JUDGE (cheap vision model) — catches what the functional probe CANNOT:
     // wrong-sized sprites (the "dinosaur bird"), ugly/empty start & game-over screens, unreadable
