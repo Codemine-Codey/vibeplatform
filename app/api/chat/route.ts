@@ -974,18 +974,22 @@ async function headlessRuntimeCheck(
         if (snap0 && snap1 && snap2 && snap3 && snap0 !== 'tainted') {
           const noResponseAtAll = snap0 === snap1 && snap1 === snap2 && snap2 === snap3
           const frozeAfterStart = snap0 !== snap1 && snap1 === snap2 && snap2 === snap3
-          // Engine present but loop stalled = broken. Custom loop (frameInfo undefined) →
-          // trust the pixels only, so a working custom-RAF game is never wrongly flagged.
           const engineLoopStalled = frameInfo.defined && frameCount < 10
 
-          if (noResponseAtAll || engineLoopStalled) {
+          // FLAKINESS GUARD (2026-07-21): the pixel-diff samples 3 tiny 16×16 regions; on
+          // many games (e.g. flappy) those land on near-constant sky between the start screen
+          // and early play, so "no pixel change" is UNRELIABLE and was FALSE-FLAGGING fully
+          // playable games (which then got buried under the fallback). So a bare pixel "no
+          // response" is NOT enough to condemn a game. We only call it broken when the BAKED
+          // ENGINE reports a stalled loop (frameCount reliable) — a real, trustworthy signal.
+          if (engineLoopStalled) {
             return {
               status: 'broken',
               detail:
-                `The game canvas is not animating or responding to any input (frameCount=${frameCount}). Pressing Space/Enter/arrows and clicking did not animate the canvas. The game loop is not running. Most likely: the \`running\` prop to useGameLoop is always false, or the gameState never transitions to "playing", or the keydown/click handlers are not attached. Fix the running condition and ensure click/Space/Enter update gameState.`,
+                `The game loop is not running (engine frameCount=${frameCount} after input). The \`running\` prop to useGameLoop is likely always false, or gameState never transitions to "playing", or the key/click handlers are not attached. Fix the running condition and ensure click/Space/Enter start the game.`,
             }
           }
-          if (frozeAfterStart) {
+          if (frozeAfterStart && frameInfo.defined) {
             return {
               status: 'broken',
               detail:
@@ -1163,38 +1167,14 @@ async function applyFallbackTerminalState(
   rtDetail: string,
   meta: { skill: Skill; brand: string }
 ): Promise<boolean> {
-  const brand = (meta.brand || 'This project').replace(/[`\\<>{}]/g, '').trim().slice(0, 60) || 'This project'
-  const fallbackEl = `<Fallback brand={${JSON.stringify(brand)}} skill={${JSON.stringify(meta.skill)}} />`
-
-  // Locate the routing file (where <Routes> live) — usually src/App.tsx.
-  let appPath: string | null = null
-  let appContent: string | null = null
-  for (const p of ['src/App.tsx', 'src/App.jsx']) {
-    const c = await readSandboxFile(sandbox, p)
-    if (c) { appPath = p; appContent = c; break }
-  }
-
-  // TIER 1 — page-level: a specific route was flagged broken and we can find its
-  // <Route path="/x" element={<X .../>} /> → swap ONLY that element for the fallback.
-  const routeMatch = rtDetail.match(/The page "([^"]+)" is broken/)
-  if (routeMatch && appPath && appContent) {
-    const esc = routeMatch[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const re = new RegExp(`(<Route\\b[^>]*\\bpath\\s*=\\s*["']${esc}["'][^>]*\\belement\\s*=\\s*\\{)([\\s\\S]*?)(\\}\\s*/?>)`)
-    if (re.test(appContent)) {
-      const next = ensureFallbackImport(appContent.replace(re, `$1${fallbackEl}$3`))
-      await sandbox.writeFiles([{ path: appPath, content: Buffer.from(next, 'utf8') }])
-      console.warn(`[fallback] page-level swap: route ${routeMatch[1]} → __fallback in ${appPath}`)
-      return true
-    }
-  }
-
-  // TIER 2 — app-level: rewrite App.tsx to render ONLY the fallback (App/home broke, or
-  // the route couldn't be localized). Nothing else is imported → cannot fail to render.
-  const appLevel = `import Fallback from './components/__fallback'\n\nexport default function App() {\n  return ${fallbackEl}\n}\n`
-  const target = appPath ?? 'src/App.tsx'
-  await sandbox.writeFiles([{ path: target, content: Buffer.from(appLevel, 'utf8') }])
-  console.warn(`[fallback] app-level swap: ${target} → __fallback only`)
-  return true
+  // ── DISABLED (user directive 2026-07-21): NEVER swap in the "finishing touches /
+  // preparing the arena" fallback. It FALSELY promised the user that polishing was still
+  // happening (it's terminal) AND — worse — it BURIED working projects: a flaky render/
+  // smoke-test verdict would replace a perfectly good, playable build with this lie.
+  // We now always show the REAL generated project; if something is genuinely broken the
+  // repair loop fixes it in place, and the scaffold's ErrorBoundary covers hard crashes.
+  void rtDetail; void sandbox; void meta; void ensureFallbackImport
+  return false
 }
 
 // Run `vite build` once and report whether it compiled — used to guard the design
