@@ -2896,6 +2896,13 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   // (fixes land via HMR before reveal). AWAITED + bounded. Interactive skills (game/webapp)
   // where controls are the point; websites already have render + per-route + nav checks above.
   if (!devError && (skill === 'game' || skill === 'webapp')) {
+    // Honest status so the user is never left staring at "done" with no preview: this
+    // playtest+polish pass runs for a minute or two BEFORE the preview is revealed.
+    writer.write({
+      id: 'srv-playtest',
+      type: 'data-run-command',
+      data: { sandboxId, command: skill === 'game' ? 'Playtesting your game and polishing it' : 'Testing every feature and polishing it', args: [], status: 'executing' },
+    })
     try {
       const request = getFirstUserText(messages) || getLastUserText(messages) || ''
       // Candidate files that hold gameplay/logic + sizing (repair targets). Home.tsx always;
@@ -2929,6 +2936,7 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     } catch (e) {
       console.warn('[functional-verify] pass failed (non-fatal):', e instanceof Error ? e.message : e)
     }
+    writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: 'Playtest complete', args: [], status: 'done', exitCode: 0 } })
   }
 
   // ── THE SINGLE REVEAL POINT (verify-before-reveal) ────────────────────────────────

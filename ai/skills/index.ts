@@ -68,7 +68,8 @@ export function loadSkillBody(name: string): string | null {
 export function designSkillFor(skill: Skill): string {
   if (skill === 'game') return 'game-patterns'
   if (skill === 'webapp') return 'webapp-patterns'
-  // Compressed, sharp website law (always-injected). The full taste-skill stays
-  // available via loadSkill('taste-design') for when deep guidance is wanted.
-  return 'website-design'
+  // Websites get the DEEP anti-slop law (taste-design, the authoritative 58-gate contract)
+  // always-injected — not the compressed subset. Quality-over-speed: the best design law must
+  // reach every website build, not sit behind an opt-in loadSkill the planner rarely calls.
+  return 'taste-design'
 }
