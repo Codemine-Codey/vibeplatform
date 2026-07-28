@@ -16,7 +16,6 @@ import { tools } from '@/ai/tools'
 import { generateSuggestions } from '@/ai/suggestions'
 import { generateFiles } from '@/ai/tools/generate-files'
 import { getUnsplashBatch } from '@/ai/tools/get-unsplash-batch'
-import { generateImageBatch } from '@/ai/tools/generate-image-batch'
 import { planProject, type NormalizedManifest } from '@/ai/tools/plan-project'
 import { lookupReference, tavilySearch } from '@/ai/tools/lookup-reference'
 import { classifyPrompt } from '@/ai/classifier'
@@ -36,8 +35,7 @@ import { restoreBakedDeps } from '@/lib/baked-deps'
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { createRun, appendRunEvent, updateRun } from '@/lib/runs'
-import { runResumableEnrichment } from '@/lib/enrichment'
-import { stampShellsForManifest, stampShell, navTargetPageFiles } from '@/lib/shell-template'
+import { stampShell, navTargetPageFiles } from '@/lib/shell-template'
 import { reviewGeneratedCode } from '@/lib/code-review-gate'
 import {
   readSandboxFile,
@@ -2053,9 +2051,9 @@ async function runPipeline({
     `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
     `WORKFLOW: ${skill === 'website'
       ? (isMultiPage
-        ? `MULTI-PAGE website, ${pageMap!.length} pages (quality over speed — build every page fully). (1) getUnsplashBatch/generateImageBatch for ALL images across all pages + planProject with the COMPLETE file list: index.css, Layout.tsx, ONE page file per route (${pageFileList}), and one component per section under src/components/sections/. (2) generateFiles ALL of them, complete and detailed. ` +
+        ? `MULTI-PAGE website, ${pageMap!.length} pages (quality over speed — build every page fully). (1) getUnsplashBatch for ALL images across all pages + planProject with the COMPLETE file list: index.css, Layout.tsx, ONE page file per route (${pageFileList}), and one component per section under src/components/sections/. (2) generateFiles ALL of them, complete and detailed. ` +
           `STRUCTURE RULE (critical): Layout.tsx = nav + {children} + footer ONLY — nav links to OTHER pages use <Link to="/route">, links to a section on the CURRENT page use href="#id". Each src/pages/*.tsx renders ONLY its own section components (NO nav/header/footer inside pages — App.tsx wraps every page in Layout; duplicating chrome causes double navs + hidden content). Each section wrapped in <section id="...">. Build EVERY page richly — no empty or stub pages; each nav target must be a real page you created.`
-        : `SINGLE-PASS, COMPLETE landing page (quality over speed). (1) getUnsplashBatch/generateImageBatch for ALL section images + planProject with the COMPLETE file list (index.css, Layout.tsx, Home.tsx, and one component per section under src/components/sections/) — ONE scrolling page. (2) generateFiles ALL those files in ONE call, complete and detailed. ` +
+        : `SINGLE-PASS, COMPLETE landing page (quality over speed). (1) getUnsplashBatch for ALL section images + planProject with the COMPLETE file list (index.css, Layout.tsx, Home.tsx, and one component per section under src/components/sections/) — ONE scrolling page. (2) generateFiles ALL those files in ONE call, complete and detailed. ` +
           `STRUCTURE RULE (critical): Layout.tsx = nav + {children} + footer ONLY. Home.tsx = the section components ONLY (NO nav/header/footer inside Home — App.tsx already wraps it in Layout; duplicating chrome causes double navs + hidden content). Each section wrapped in <section id="...">; nav uses href="#id" anchor-scroll (never routes to pages you didn't build).`)
       : skill === 'webapp'
       ? `(1) call planProject with the COMPLETE file list (every path you will generate — Phase 1 + all remaining), (2) FIRST generateFiles call: ONLY src/index.css + src/pages/Home.tsx, (3) SECOND generateFiles call: all remaining component files`
@@ -2298,7 +2296,6 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
         loadSkill: loadSkill(),
         generateFiles: guardedGF,
         getUnsplashBatch: getUnsplashBatch(),
-        generateImageBatch: generateImageBatch(),
         planProject: capturePlan,
         lookupReference: lookupReference(),
       }
@@ -2316,14 +2313,8 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
         lookupReference: lookupReference(),
       }
 
-  // Generous step headroom so an optional lookupReference + generateImageBatch + error-fix
-  // rounds can NEVER crowd out the required pipeline. generateFiles is the goal.
-  // website (2-phase): generateFiles(P1) → getUnsplashBatch+planProject(P2) → generateFiles(P2)
-  //   → patchFile(Phase2Sections) + optional lookupReference/generateImageBatch + fix round
-  // webapp (2-phase): planProject → generateFiles(P1) → generateFiles(P2 components)
-  //   = ~8 nominal + 6 headroom → 14
-  // app/game: text + (loadSkill?) + planProject + generateFiles + slack
-  const maxSteps = skill === 'website' ? 14 : skill === 'webapp' ? 12 : 9 // website+webapp use 2-phase build
+  // Single-pass: getUnsplashBatch + planProject + generateFiles + optional fix round + slack.
+  const maxSteps = skill === 'website' ? 12 : skill === 'webapp' ? 10 : 9
 
   // ── #89: GENERATION DEADLINE (never die mid-generation → never blank) ─────────────
   // Bound the AI generation so the pipeline ALWAYS has time to reach verify-before-reveal +
@@ -2451,51 +2442,6 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   }
 
   // ── Durable-runs STEP 2: capture manifest + conversation context for enrichment ─
-  // The full model-message context (user turn + the AI's tool results, incl. image
-  // URLs + the locked manifest) is what a self-contained enrichment phase re-uses so
-  // each full page matches phase 1. Persist the manifest on the run row now (sets up
-  // STEP 3's resume). All best-effort — never blocks the preview.
-  // Websites are SINGLE-PASS now (complete landing page in one generateFiles call) — never
-  // run enrichment/shells for them. The old 2-phase enrichment is what left footer-only
-  // homepages when it didn't fill the sections. Only webapp (self-contained phase-1) enriches.
-  const enrichManifest = skill === 'website' ? null : planBox.manifest
-  let genContext: import('ai').ModelMessage[] = []
-  if (enrichManifest && enrichManifest.multiPhase) {
-    try {
-      const base = await convertToModelMessages(transformMessages(messages))
-      const responseMsgs = (await aiResult.response).messages
-      genContext = [...base, ...responseMsgs]
-    } catch (e) {
-      console.warn('[enrichment] could not build gen context (non-fatal):', e instanceof Error ? e.message : e)
-    }
-    if (runId) {
-      // Persist manifest + the design context so a CONTINUATION invocation can resume
-      // enrichment with ZERO model context (brief re-used for on-brand full pages).
-      await updateRun(runId, {
-        manifest: enrichManifest.files,
-        phase_cursor: 0,
-        ...(designContext ? { brief: designContext } : {}),
-      }).catch(() => {})
-    }
-  }
-
-  // ── Step 3.5: Stamp server-side shells for deferred pages ────────────────
-  // For multi-phase builds, every phase-2+ page gets a branded placeholder the
-  // server writes in microseconds (no model call). This ensures ALL route files
-  // exist immediately so vite build passes and the router resolves every link —
-  // even before enrichment fills in real content via HMR. Shells never appear
-  // in the chat; they silently replace themselves as each enrichment phase runs.
-  if (enrichManifest && enrichManifest.multiPhase) {
-    try {
-      const shells = stampShellsForManifest(enrichManifest.files, brandName ?? undefined)
-      if (shells.length > 0) {
-        await sandbox.writeFiles(shells.map((s) => ({ path: s.path, content: Buffer.from(s.content, 'utf8') })))
-        console.log(`[shells] stamped ${shells.length} phase-2+ shells before install`)
-      }
-    } catch (e) {
-      console.warn('[shells] stamp failed (non-fatal):', e instanceof Error ? e.message : e)
-    }
-  }
 
   // ── Step 3.6: Website Phase2Sections.tsx guarantee ──────────────────────
   // If the AI violated the 4-file Phase 1 rule (dumped all pages in one call
@@ -3023,34 +2969,7 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   // { chained: true }. Only when the planner produced a genuine multi-phase manifest AND
   // phase 1 is healthy (never enrich onto a broken build). Single-phase (small/simple)
   // projects skip this entirely — identical to before.
-  if (enrichManifest && enrichManifest.multiPhase && !devError) {
-    // deadline = invocationStart + (maxDuration − 90s margin). Falls back to now-based
-    // if invocationStart wasn't threaded (defensive; the POST handler always passes it).
-    const deadline = (invocationStart ?? Date.now()) + (maxDuration * 1000 - 120_000)
-    try {
-      const res = await runResumableEnrichment({
-        writer,
-        sandbox,
-        sandboxId,
-        manifest: enrichManifest,
-        genContext,
-        designContext,
-        runId,
-        projectId,
-        userId,
-        deadline,
-        fromPhase: 0,
-      })
-      if (res.chained) {
-        // Handed off to a continuation invocation — it owns the final snapshot + marking
-        // the run done. Stop the incremental snapshot loop and end THIS invocation now.
-        if (snapTimer) { clearInterval(snapTimer); snapTimer = null }
-        return { chained: true }
-      }
-    } catch (e) {
-      console.warn('[enrichment] loop failed (non-fatal):', e instanceof Error ? e.message : e)
-    }
-  }
+  // Enrichment removed — all files are generated in a single pass for reliability.
 
   // Stop the incremental snapshot loop — the final awaited snapshot below supersedes it.
   if (snapTimer) { clearInterval(snapTimer); snapTimer = null }

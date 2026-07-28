@@ -109,7 +109,9 @@ function fixRouter(path: string, content: string): string {
   if (/(^|\/)main\.(tsx|jsx)$/.test(path)) return content
   let out = content
   // Drop BrowserRouter/HashRouter from react-router-dom imports (keep Routes/Route/Link/etc.)
-  out = out.replace(/import\s*\{([^}]*)\}\s*from\s*['"]react-router-dom['"]\s*;?/g, (m, names: string) => {
+  // IMPORTANT: use [ \t]* (NOT \s*) so we never consume the trailing newline — eating it
+  // collapses the next top-level statement onto the same line, causing a Vite parse error.
+  out = out.replace(/import\s*\{([^}]*)\}\s*from\s*['"]react-router-dom['"]([ \t]*);?/g, (m, names: string) => {
     const kept = names.split(',').map(s => s.trim())
       .filter(n => n && !/^(BrowserRouter|HashRouter)(\s+as\s+\w+)?$/.test(n))
     return kept.length ? `import { ${kept.join(', ')} } from 'react-router-dom'` : ''
@@ -192,9 +194,11 @@ function sanitizeContent(path: string, raw: string): string | null {
     //   `import { Link } from 'react-router-dom'import { useState } from 'react'`
     // which is a hard parse error. Insert a newline after a closing import/export specifier
     // when it's immediately followed by another top-level statement keyword.
+    // Use lookahead so we don't consume the keyword — that lets fixRouter (which runs after)
+    // keep the newline instead of treating the keyword as part of the import match.
     content = content.replace(
-      /(from\s*['"][^'"]+['"])\s*(import\b|export\b|const\b|let\b|var\b|function\b|class\b|interface\b|type\b)/g,
-      '$1\n$2'
+      /(from\s*['"][^'"]+['"])([ \t]*;?[ \t]*)(?=import\b|export\b|const\b|let\b|var\b|function\b|class\b|interface\b|type\b|\/\/|\/\*)/g,
+      '$1\n'
     )
     // Wrong colour-var format the model occasionally emits in inline styles:
     // `rgb(var(--color-primary))` — our tokens are HSL and named without the color- prefix.
