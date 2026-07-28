@@ -345,6 +345,40 @@ async function restartDevServer(sandbox: Sandbox): Promise<void> {
 // the offending files with Flash — up to 3 rounds — BEFORE the dev server starts.
 // Catches every blank-preview cause: @apply/CSS crashes, missing imports, syntax
 // errors, truncated files. Worst case (3 rounds exhausted) = previous behaviour.
+// Phase D: manifest file-existence check. After the AI finishes writing files, check
+// every path the manifest declared against the sandbox filesystem. Any file the AI named
+// in its plan but never wrote is stamped with a minimal build-safe placeholder so the
+// install + vite build don't cascade-fail on missing imports. Idempotent — files the AI
+// DID write are untouched (readSandboxFile will find them and we skip).
+async function checkAndStampMissingFiles(sandbox: Sandbox, paths: string[]): Promise<void> {
+  const relevant = paths.filter(p => /\.(tsx?|jsx?|css|json)$/.test(p) && !SCAFFOLD_PATH_SET.has(p))
+  if (relevant.length === 0) return
+
+  const results = await Promise.all(
+    relevant.map(async (path) => {
+      const content = await readSandboxFile(sandbox, path)
+      return { path, exists: !!content && content.trim().length > 5 }
+    })
+  )
+  const missing = results.filter(r => !r.exists).map(r => r.path)
+  if (missing.length === 0) return
+
+  console.warn(`[manifest-check] ${missing.length} declared file(s) missing — stamping placeholders: ${missing.join(', ')}`)
+  await sandbox.writeFiles(
+    missing.map((path) => ({
+      path,
+      content: Buffer.from(
+        path.endsWith('.css') ? '/* placeholder */\n' :
+        path.endsWith('.json') ? '{}\n' :
+        /\/pages\/|\/components\/|\/screens\//.test(path)
+          ? `import React from 'react'\nexport default function ${path.replace(/.*\//, '').replace(/\.(tsx?|jsx?)$/, '')}() {\n  return <div className="bg-background min-h-screen" />\n}\n`
+          : 'export {}\n',
+        'utf8'
+      ),
+    }))
+  )
+}
+
 async function verifyAndRepair({
   sandbox,
   sandboxId,
@@ -367,7 +401,7 @@ async function verifyAndRepair({
   // SOLVE it than bail early to a fallback. Paired with repairFile's own 45s per-call ceiling.
   const repairDeadline = Date.now() + 240_000
   try {
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    for (let attempt = 1; attempt <= 5; attempt++) {
       if (Date.now() > repairDeadline) {
         console.warn('[verify] repair budget (240s) exhausted — proceeding with current build')
         break
@@ -2467,6 +2501,17 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     }
   }
 
+  // ── Phase D: manifest file-existence check ───────────────────────────────────────
+  // Stamp placeholder files for any path the AI declared in the manifest but never wrote.
+  // Runs after ALL generation is done (earlyEmitDone paths already wrote files) and BEFORE
+  // install so missing imports don't cascade into build failures that exhaust repair rounds.
+  if (planBox.manifest) {
+    const manifestPaths = planBox.manifest.files.map(f => f.path)
+    await checkAndStampMissingFiles(sandbox, manifestPaths).catch(e => {
+      console.warn('[manifest-check] non-fatal:', e instanceof Error ? e.message : e)
+    })
+  }
+
   // ── Step 4: Server finalizes install ─────────────────────────────────────
   // Skipped when early-emit already awaited bgInstallPromise before starting dev server.
   if (!earlyEmitDone) {
@@ -2732,10 +2777,24 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     }
   }
 
+  // ── Phase C: verify-phase deadline gate ──────────────────────────────────────────────
+  // If the function has already spent >660s (leaving <140s before the 800s cap), skip
+  // headless verify + functional verify entirely and reveal immediately. The dev server
+  // is up and a fallback was already applied if needed — skipping guarantees we can save
+  // the snapshot and emit the URL before the invocation is killed. Quality over blank.
+  if (!devError && !revealed) {
+    const elapsed = Date.now() - (invocationStart ?? Date.now())
+    if (elapsed > 660_000) {
+      console.warn(`[deadline-gate] ${Math.round(elapsed / 1000)}s elapsed — skipping headless verify to guarantee reveal before cap`)
+      writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
+      revealed = true
+    }
+  }
+
   // ── Step 6.5: Headless quality check (repairs arrive live via Vite HMR) ───────────
   // Client already has the URL — any file writes done here are picked up automatically.
   let rtResult: { status: 'ok' | 'broken' | 'skipped'; detail: string; score?: number | null; screenshot?: Buffer } | null = null
-  if (!devError) {
+  if (!devError && !revealed) {
     try {
       // Preview is already visible (early reveal); this runs in the background and lands
       // fixes via HMR. Only if we somehow did NOT reveal early do we tell the user it's coming.
@@ -2865,7 +2924,8 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   // ever show it. If dead controls / broken behaviour are found, do a bounded SILENT repair
   // (fixes land via HMR before reveal). AWAITED + bounded. Interactive skills (game/webapp)
   // where controls are the point; websites already have render + per-route + nav checks above.
-  if (!devError) {
+  // Skipped if deadline gate already revealed (Phase C) — no time to run verify + reveal again.
+  if (!devError && !revealed) {
     // EVERY project is interaction-tested + visually judged before reveal (games are played,
     // webapps/websites are clicked + typed into), and the cheap vision model looks at the
     // running result for quality — repaired up to 3× BEFORE the user ever sees it.

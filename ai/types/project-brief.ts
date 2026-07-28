@@ -71,6 +71,42 @@ export interface PageSpec {
   sections: string[]  // ordered sections that render on this page
 }
 
+// Phase B — typed game design contract. Replaces the old free-form string so the
+// generator receives exact physics constants and mechanics rather than interpreting
+// prose, which caused wildly inconsistent implementations (gap=80 vs gap=250).
+export interface GameDesignContract {
+  coreLoop: string               // "Tap to jump over pipes and score points"
+  controls: string               // "Space / Tap to jump"
+  winCondition: string           // "Survive 100 pipes" or "N/A — endless"
+  loseCondition: string          // "Hit a pipe or the ground → Game Over screen"
+  difficultyProgression: string  // "Speed +5% every 10 points; gap narrows by 4px per level"
+  entities: string[]             // ["player bird", "pipe pair (top + bottom)", "score display"]
+  physics: {
+    gravity?: number             // px/s² (e.g. 800)
+    jumpForce?: number           // px/s, negative = upward (e.g. -350)
+    playerSpeed?: number         // horizontal speed px/s (0 for Flappy Bird-style)
+    enemySpeed?: number          // obstacle speed px/s (e.g. 200)
+    gap?: number                 // gap/clearance in px (e.g. pipe opening: 160)
+  }
+  juice: string[]                // ["screen flash on hit", "coin sound on score", "shake on death"]
+}
+
+// Phase B — typed webapp architecture contract. Replaces free-form features/sections
+// so the generator codes against an exact view+route+data contract, not guessed structure.
+export interface WebappDesignContract {
+  views: Array<{
+    name: string         // "Board", "Task Detail", "Settings"
+    route: string        // "/", "/task/:id", "/settings"
+    components: string[] // ["KanbanColumn", "TaskCard", "AddTaskButton"]
+  }>
+  dataModels?: Array<{
+    name: string         // "Task"
+    fields: string[]     // ["id: string", "title: string", "status: 'todo'|'doing'|'done'"]
+  }>
+  statePattern: 'useState' | 'useReducer' | 'zustand' | 'context'
+  persistence: 'localStorage' | 'sessionStorage' | 'none'
+}
+
 export interface ProjectBrief {
   brandName: string
   tagline: string
@@ -87,7 +123,8 @@ export interface ProjectBrief {
   visualNarrative: string    // sensory/emotional creative direction
   layoutStyle: string        // layout archetype, e.g. "editorial dark", "bento"
   motionIntensity: 'subtle' | 'moderate' | 'dramatic'
-  gameDesign?: string        // Stage 1 (games) — core loop, controls, win/lose, juice
+  gameDesign?: GameDesignContract  // Phase B — typed game contract (games only)
+  webappDesign?: WebappDesignContract // Phase B — typed webapp contract (webapps only)
   // W2 Design Director additions (optional for back-compat with the fallback brief)
   archetype?: Archetype
   navStyle?: NavStyle
@@ -184,9 +221,44 @@ export function formatBrief(brief: ProjectBrief): string {
     ? brief.signatureMoves.map((m, i) => `${i + 1}. ${m}`).join('\n')
     : '1. A distinctive hero treatment\n2. A scroll-linked reveal\n3. A cohesive accent system'
 
-  const gameBlock = brief.skill === 'game' && brief.gameDesign
-    ? `\n### Game Design Contract (non-negotiable)\n${brief.gameDesign}\n`
-    : ''
+  const gameBlock = (() => {
+    if (brief.skill !== 'game' || !brief.gameDesign) return ''
+    const gd = brief.gameDesign
+    const physicsLines = (Object.entries(gd.physics) as [string, number | undefined][])
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => `  - ${k}: ${v}`)
+    return (
+      `\n### Game Design Contract (non-negotiable — use EXACT values)\n` +
+      `**Core Loop:** ${gd.coreLoop}\n` +
+      `**Controls:** ${gd.controls}\n` +
+      `**Win:** ${gd.winCondition}\n` +
+      `**Lose:** ${gd.loseCondition}\n` +
+      `**Difficulty:** ${gd.difficultyProgression}\n` +
+      `**Entities:** ${gd.entities.join(', ')}\n` +
+      (physicsLines.length
+        ? `**Physics Constants (copy these EXACT numbers into your code — do not invent your own):**\n${physicsLines.join('\n')}\n`
+        : '') +
+      `**Juice (implement ALL of these — they make it feel designed):** ${gd.juice.join(', ')}\n`
+    )
+  })()
+
+  const webappBlock = (() => {
+    if (brief.skill !== 'webapp' || !brief.webappDesign) return ''
+    const wd = brief.webappDesign
+    const viewsText = wd.views
+      .map(v => `  - **${v.name}** (\`${v.route}\`): ${v.components.join(', ')}`)
+      .join('\n')
+    const modelsText = wd.dataModels?.length
+      ? `\n**Data Models (implement EXACTLY these shapes — never guess field names):**\n` +
+        wd.dataModels.map(m => `  - **${m.name}**: { ${m.fields.join(', ')} }`).join('\n')
+      : ''
+    return (
+      `\n### Webapp Architecture Contract (non-negotiable)\n` +
+      `**Views + Routes (one \`src/pages/*.tsx\` per view):**\n${viewsText}${modelsText}\n` +
+      `**State pattern:** \`${wd.statePattern}\` — use this consistently across all views\n` +
+      `**Persistence:** \`${wd.persistence}\` — ALL user data must survive a page reload\n`
+    )
+  })()
 
   return `## PROJECT BRIEF — ${brief.brandName.toUpperCase()}
 **"${brief.tagline}"**
@@ -224,7 +296,7 @@ ${moves}
 - **Layout archetype:** ${brief.layoutStyle} — commit to it; do not fall back to a generic stacked-section template.
 - **Brand personality:** ${brief.brandPersonality} · Tone: ${brief.tone}
 - **Motion:** ${motionContract(brief.motionIntensity)}
-${designLanguageBlock(brief)}${routingBlock(brief)}${gameBlock}
+${designLanguageBlock(brief)}${routingBlock(brief)}${gameBlock}${webappBlock}
 ### Build Spec
 - **Structure:** ${sectionList}
 - **Features:** ${featureList}

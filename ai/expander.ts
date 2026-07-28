@@ -69,7 +69,8 @@ Rules:
 - pageMap (websites — MULTI-PAGE IS THE DEFAULT): an array of pages, each { page, route, sections[] }. A plain request like "create a website for my <business>" MUST become a real multi-page site — 3-5 pages typical (e.g. Home "/", About "/about", Services/Menu/Work "/services", maybe Gallery or Pricing, Contact "/contact"), sections distributed across them, with Home still a rich 5-7 section landing. Choose pages that fit the business (a restaurant → Home, Menu, About, Reservations/Contact; an agency → Home, Work, Services, About, Contact; a SaaS → Home, Features, Pricing, About/Blog, Contact). Use a SINGLE page (one entry, route "/") ONLY when the user explicitly asks for a "one-page", "single page", or "landing page", or the request is genuinely trivial. Each page's sections must be specific and distinct.
 - sections: be specific — this is exactly what will be built
 - features: list concrete, specific features (not vague like "user-friendly UI")
-- ${'gameDesign (ONLY for games)'}: a tight contract — core gameplay loop, exact controls (keys + touch), win/lose conditions, difficulty curve, and the "juice" (screen shake, particles, sound cues, score popups) that makes it feel designed. Skip for non-games.
+- ${'gameDesign (ONLY for games)'}: a TYPED contract with exact sub-fields — fill every field precisely so the code uses these EXACT values. Skip for non-games.
+- ${'webappDesign (ONLY for webapps)'}: a TYPED architecture contract — enumerate every view/screen with route + key components, the core data models with typed fields, state pattern, and persistence. Skip for games/websites.
 - techStack: React + Vite is default; add localStorage/router only if needed
 - CRITICAL: if the user gives explicit visual direction ("off-white", "minimalist", "dark", "colorful", "earthy"), that overrides everything else — honor it exactly
 
@@ -107,7 +108,35 @@ Use the create_brief tool.`,
             })).optional().describe('WEBSITES: the multi-page routing plan. 3-5 pages for a substantial site (Home is a rich 5-7 section landing); ONE entry (route "/") only for a true one-pager. Omit for webapps/games.'),
             sections: z.array(z.string()).describe('Ordered list of sections/screens/views to build (for websites: the union across all pages; pageMap defines per-page placement)'),
             features: z.array(z.string()).describe('Specific features or mechanics to implement'),
-            gameDesign: z.string().optional().describe('GAMES ONLY: core loop, exact controls (keys+touch), win/lose, difficulty curve, and juice (shake/particles/sound/score popups). Omit for non-games.'),
+            gameDesign: z.object({
+              coreLoop: z.string().describe('The exact moment-to-moment gameplay loop in one sentence'),
+              controls: z.string().describe('Exact keys + touch controls, e.g. "Space/Tap to jump, Arrow keys to move"'),
+              winCondition: z.string().describe('How the player wins or reaches a milestone, or "N/A — endless"'),
+              loseCondition: z.string().describe('What triggers game-over and shows the end screen'),
+              difficultyProgression: z.string().describe('Concrete description of how difficulty ramps over time'),
+              entities: z.array(z.string()).min(2).describe('Every entity in the game: player, obstacles, collectibles, enemies, projectiles'),
+              physics: z.object({
+                gravity: z.number().optional().describe('Gravity constant in px/s² (e.g. 800 for a fast-falling game)'),
+                jumpForce: z.number().optional().describe('Jump velocity in px/s — negative = upward (e.g. -350)'),
+                playerSpeed: z.number().optional().describe('Player horizontal movement speed in px/s'),
+                enemySpeed: z.number().optional().describe('Obstacle or enemy movement speed in px/s'),
+                gap: z.number().optional().describe('Gap or clearance size in px (e.g. vertical pipe opening: 160)'),
+              }).describe('Physics constants — these numbers go verbatim into the code; choose them carefully for good feel'),
+              juice: z.array(z.string()).min(2).describe('All feedback effects that make it feel designed: screen shake, flash, particles, sounds, score popups'),
+            }).optional().describe('GAMES ONLY: the complete typed game design contract. Omit for non-games.'),
+            webappDesign: z.object({
+              views: z.array(z.object({
+                name: z.string().describe('Screen/view name, e.g. "Board", "Task Detail", "Settings"'),
+                route: z.string().describe('Route path, e.g. "/", "/task/:id", "/settings"'),
+                components: z.array(z.string()).describe('Key UI components rendered on this view'),
+              })).min(1).describe('Every view/screen in the app with route and key components'),
+              dataModels: z.array(z.object({
+                name: z.string().describe('Entity name, e.g. "Task", "Note", "User"'),
+                fields: z.array(z.string()).describe('Typed fields, e.g. ["id: string", "title: string", "done: boolean"]'),
+              })).optional().describe('Core data models the app creates/reads/updates/deletes'),
+              statePattern: z.enum(['useState', 'useReducer', 'zustand', 'context']).describe('State management approach — useState for simple, useReducer for complex logic'),
+              persistence: z.enum(['localStorage', 'sessionStorage', 'none']).describe('How user data is persisted across page loads'),
+            }).optional().describe('WEBAPPS ONLY: typed architecture contract. Omit for games/websites.'),
             techStack: z.string().describe('Tech choices, e.g. "React + Vite, localStorage, React Router v6"'),
           }),
           execute: async (args) => {
