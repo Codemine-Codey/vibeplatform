@@ -2363,12 +2363,13 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   // Bound the AI generation so the pipeline ALWAYS has time to reach verify-before-reveal +
   // the fallback within the 800s function budget. A complex build that overruns must NOT let
   // the invocation die during `await aiResult.text` (which leaves the user on an infinite
-  // "Building…" with no preview). We abort generation ~210s before the cap; whatever files
+  // "Building…" with no preview). We abort generation ~270s before the cap; whatever files
   // exist are then salvaged (shells from the manifest) and the render-check reveals a working
   // preview or a clean branded fallback — never a blank/infinite spinner.
+  // 270s margin (was 210s): headless (90s) + functional-verify (90s) + install (30s) + 60s buffer.
   const genBudgetMs = Math.max(
     60_000,
-    (invocationStart ?? Date.now()) + (maxDuration * 1000 - 210_000) - Date.now()
+    (invocationStart ?? Date.now()) + (maxDuration * 1000 - 270_000) - Date.now()
   )
   const genAbort = AbortSignal.timeout(genBudgetMs)
 
@@ -2387,7 +2388,50 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     onError: error => console.error('Pipeline AI error:', error),
   })
 
-  writer.merge(aiResult.toUIMessageStream({ sendReasoning: false, sendStart: false }))
+  // Silence filter: strip technical repair commentary from the AI stream before it reaches
+  // the user's chat. RULE 1 in the system prompt says ZERO text during a build, but LLMs
+  // are imperfect. This enforces it server-side:
+  //   • Text before the first tool call → passes through (the opening line)
+  //   • Text in steps that also call a tool → dropped (repair narration the user must never see)
+  //   • Text in steps with NO tool calls → passes through (the completion line)
+  let _gFirstToolSeen = false
+  let _gStepHasTool = false
+  const _gTextBuf: unknown[] = []
+  const _silenceFilter = new TransformStream({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    transform(part: any, controller: TransformStreamDefaultController) {
+      const t: string = part.type ?? ''
+      if (t === 'step-start') {
+        _gStepHasTool = false
+        _gTextBuf.length = 0
+        controller.enqueue(part)
+      } else if (t === 'step-finish') {
+        if (!_gStepHasTool) {
+          for (const b of _gTextBuf) controller.enqueue(b)
+        }
+        _gTextBuf.length = 0
+        controller.enqueue(part)
+      } else if (t === 'text-delta') {
+        if (!_gFirstToolSeen) {
+          controller.enqueue(part) // opening line — before any tool call
+        } else {
+          _gTextBuf.push(part) // buffer; step-finish decides whether to flush or drop
+        }
+      } else if (t === 'tool-input-delta' || t === 'tool-result') {
+        _gFirstToolSeen = true
+        _gStepHasTool = true
+        _gTextBuf.length = 0 // discard repair preamble for this step
+        controller.enqueue(part)
+      } else {
+        controller.enqueue(part)
+      }
+    },
+    flush(controller: TransformStreamDefaultController) {
+      for (const b of _gTextBuf) controller.enqueue(b) // completion line at end of stream
+    },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  writer.merge((aiResult.toUIMessageStream({ sendReasoning: false, sendStart: false }) as any).pipeThrough(_silenceFilter))
 
   // Wait for generation. If it hits the deadline, we STOP and salvage — the render-check +
   // fallback below still deliver a working preview or a clean fallback (never blank).
@@ -2787,13 +2831,15 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   }
 
   // ── Phase C: verify-phase deadline gate ──────────────────────────────────────────────
-  // If the function has already spent >660s (leaving <140s before the 800s cap), skip
+  // If the function has already spent >520s (leaving ~280s before the 800s cap), skip
   // headless verify + functional verify entirely and reveal immediately. The dev server
   // is up and a fallback was already applied if needed — skipping guarantees we can save
   // the snapshot and emit the URL before the invocation is killed. Quality over blank.
+  // 520s threshold (was 660s): gives 280s headroom — enough for install (30s) + headless (90s)
+  // + functional verify (90s) + 70s buffer. Prevents the invocation from being killed mid-verify.
   if (!devError && !revealed) {
     const elapsed = Date.now() - (invocationStart ?? Date.now())
-    if (elapsed > 660_000) {
+    if (elapsed > 520_000) {
       console.warn(`[deadline-gate] ${Math.round(elapsed / 1000)}s elapsed — skipping headless verify to guarantee reveal before cap`)
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
       revealed = true
