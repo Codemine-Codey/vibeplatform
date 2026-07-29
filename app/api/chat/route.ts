@@ -7,6 +7,8 @@ import {
   stepCountIs,
   streamText,
 } from 'ai'
+import { start } from 'workflow/api'
+import { buildProject, type BuildPipelineParams } from '@/app/workflows/build-pipeline'
 import type { UIMessage, UIMessageStreamWriter } from 'ai'
 import type { DataPart } from '@/ai/messages/data-parts'
 import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL, VISION_MODEL, ERROR_MODEL, getMaxOutputTokens } from '@/ai/constants'
@@ -1441,207 +1443,210 @@ export async function POST(req: Request) {
     return new Response(JSON.stringify({ error: 'Too many builds in a short time — please wait a moment.' }), { status: 429, headers: { 'Content-Type': 'application/json' } })
   }
 
-  return createUIMessageStreamResponse({
-    stream: createUIMessageStream({
-      originalMessages: messages,
-      execute: async ({ writer: rawWriter }) => {
-        // ── Durable-runs STEP 1 ─────────────────────────────────────────────
-        // Create a run row for this invocation and wrap the writer so every server
-        // stream part is ALSO appended to the canonical run_events log (dual-write).
-        // Purely additive: if run creation fails we fall back to the raw writer and
-        // the live stream is completely unaffected. The early `data-run` event tells
-        // the client which run this stream belongs to (for later reconnect/replay).
-        const runId = await createRun({ userId: authedUser.id })
-        if (runId) {
-          rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
-        }
-        const writer = runId ? wrapWriterWithLog(rawWriter, runId) : rawWriter
-        let terminalStatus = 'done'
-        let chainedHandoff = false
-        try {
-          // ── EDIT MODE: sandbox already active → standard agentic loop ──────
-          if (hasActiveSandbox(messages)) {
-            // Anti-drift: pin the original intent + gate structural additions behind an
-            // explicit request, so many edit turns never wander off-project (#69).
+  // ── EDIT MODE & FALLBACK: uses writer-based streaming (unchanged path) ───────
+  // Edit builds, conversational messages, and classify-fallback go through the
+  // standard createUIMessageStreamResponse path where they write to a UIMessageStreamWriter.
+  // Only a committed new-project build with a valid brief goes through the workflow.
+  const userText = getLastUserText(messages)
+
+  // Short-circuit: edit mode always goes through the agentic loop
+  if (hasActiveSandbox(messages)) {
+    return createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        originalMessages: messages,
+        execute: async ({ writer: rawWriter }) => {
+          const runId = await createRun({ userId: authedUser.id })
+          if (runId) rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
+          const writer = runId ? wrapWriterWithLog(rawWriter, runId) : rawWriter
+          let terminalStatus = 'done'
+          try {
             return await runAgenticLoop({ writer, messages, systemPrompt: prompt + buildProjectConstraints(messages) })
+          } catch (err) {
+            terminalStatus = 'error'; throw err
+          } finally {
+            if (runId) await updateRun(runId, { status: terminalStatus }).catch(() => {})
           }
+        },
+      }),
+    })
+  }
 
-          // ── NEW PROJECT: classify + expand ────────────────────────────────
-          const userText = getLastUserText(messages)
-          if (!userText) {
+  // No user text → conversational fallback
+  if (!userText) {
+    return createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        originalMessages: messages,
+        execute: async ({ writer: rawWriter }) => {
+          const runId = await createRun({ userId: authedUser.id })
+          if (runId) rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
+          const writer = runId ? wrapWriterWithLog(rawWriter, runId) : rawWriter
+          let terminalStatus = 'done'
+          try {
             return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
+          } catch (err) {
+            terminalStatus = 'error'; throw err
+          } finally {
+            if (runId) await updateRun(runId, { status: terminalStatus }).catch(() => {})
           }
+        },
+      }),
+    })
+  }
 
-        let skill: Skill | null = null
-        let clarify = false
+  // ── NEW PROJECT: classify + expand ────────────────────────────────────────
+  let skill: Skill | null = null
+  let clarify = false
+  try {
+    const r = await classifyPrompt(userText)
+    skill = r.skill
+    clarify = r.clarify
+  } catch { /* classification failed — fallback */ }
 
-        try {
-          const classResult = await classifyPrompt(userText)
-          skill = classResult.skill
-          clarify = classResult.clarify
-        } catch {
-          // Classification failed — fallback to agentic loop
-        }
-
-        if (clarify || !skill) {
-          return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
-        }
-
-        let brief = null
-        try {
-          brief = await expandPrompt(userText, skill)
-        } catch {
-          // Expansion failed — fallback
-        }
-
-        if (!brief) {
-          return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
-        }
-
-        // INSTANT reassurance — ONLY now that we're committed to an ACTUAL BUILD (skill
-        // detected + brief succeeded), never for conversational messages ("hey", "what can
-        // I build"). Shown immediately so the user isn't staring at silence while the brief
-        // + planning run. (Was firing on every message — moved here so it's build-only.)
-        writer.write({
-          id: 'srv-hello',
-          type: 'data-narration',
-          data: { text: "Starting your workspace, I'll be with you in a minute." },
-        })
-
-        // Now we're committed to building — provision the workspace VM in parallel with
-        // the remaining setup (project row, planner prompt) and the planner's first
-        // turn, so its ~35s cold-create overlaps work instead of blocking afterward.
-        // Started only here (post-brief) so a clarify/bail never orphans a VM. runPipeline
-        // awaits it; the no-op catch prevents an unhandled rejection while it provisions.
-        const sandboxPromise: Promise<Sandbox> = Sandbox.create({ timeout: 1_200_000, ports: [3000] })
-        sandboxPromise.catch(() => {})
-
-        // PLANNER system prompt — LEAN (progressive disclosure): the planner plans
-        // structure from the brief; it does NOT carry the full design skill (~22k).
-        // It gets only the skill CATALOG (tiny) and can pull optional skills on
-        // demand with loadSkill. The full design law is injected into the WRITER
-        // (get-contents) via designContext below — that's where the painting happens.
-        const designSkill = designSkillFor(skill)
-        const designBody = loadSkillBody(designSkill) ?? ''
-        const catalog = getSkillCatalog()
-          .map(s => `- ${s.name}: ${s.description}`)
-          .join('\n')
-        const systemPrompt =
-          `${prompt}\n\n## DESIGN LAW IS ACTIVE\n` +
-          `The "${designSkill}" design skill is loaded for the file generator and is binding. ` +
-          `Plan the project structure to honor the brief's design direction.\n` +
-          `\n## OPTIONAL SKILLS (only if truly needed — do NOT load by default)\n` +
-          `${catalog}\n` +
-          `The core design law is ALREADY active — do NOT loadSkill for design/components. ` +
-          `Call loadSkill AT MOST ONCE, and ONLY if the user explicitly asked for 3D/three.js or advanced custom animation. ` +
-          `For a normal website, skip loadSkill entirely and go straight to planProject then generateFiles.\n` +
-          `\n## PROJECT BRIEF (authoritative design spec — use this, do not ask clarifying questions)\n` +
-          `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately call generateFiles.\n\n` +
-          formatBrief(brief)
-
-        // Create a durable project row for the signed-in user (RLS-scoped). The
-        // snapshot at the end of the pipeline makes it reopenable from the dashboard.
-        const user = await getCurrentUser()
-        let projectId: string | null = null
-        if (user) {
-          const created = await createProjectRow({
-            name: brief.brandName || 'Untitled project',
-            prompt: userText,
-            skill,
-          })
-          if (created) {
-            projectId = created.id
-            // Inject the Codemine Codey AI proxy creds into the workspace as `.env`
-            // (separate from the DB tool's `.env.local`, so Vite loads BOTH — no clobber).
-            // The generated app reads import.meta.env.VITE_CODEMINE_AI_URL/_TOKEN to call
-            // AI with no provider key. Vite auto-restarts on `.env` change, so this is
-            // picked up even after the dev server is already running.
-            const aiBase = process.env.CM_PUBLIC_BASE_URL || 'https://codemineapp.com'
-            const createdId = created.id
-            sandboxPromise
-              .then(async (sb) => {
-                // Inject all platform env vars the generated app may need:
-                // - AI proxy creds (VITE_CODEMINE_AI_URL / _TOKEN)
-                // - DB write proxy (VITE_CODEMINE_API / VITE_PROJECT_ID)
-                // - Auth creds injected separately by the auth/setup route when enabled
-                const envContent = [
-                  `VITE_CODEMINE_AI_URL=${aiBase}/api/ai/proxy`,
-                  `VITE_CODEMINE_AI_TOKEN=${created.aiToken}`,
-                  `VITE_CODEMINE_API=${aiBase}`,
-                  `VITE_PROJECT_ID=${createdId}`,
-                ].join('\n') + '\n'
-                await sb.writeFiles([{ path: '.env', content: Buffer.from(envContent, 'utf8') }])
-                // Persist sandbox_id EARLY (right after creation, minutes before the
-                // end-of-pipeline snapshot) so the project is resumable even if a long or
-                // interrupted generation never reaches the snapshot step. This alone makes
-                // the same-sandbox resume path work.
-                await updateProjectRow(createdId, { sandbox_id: sb.sandboxId })
-              })
-              .catch(() => {})
+  if (clarify || !skill) {
+    return createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        originalMessages: messages,
+        execute: async ({ writer: rawWriter }) => {
+          const runId = await createRun({ userId: authedUser.id })
+          if (runId) rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
+          const writer = runId ? wrapWriterWithLog(rawWriter, runId) : rawWriter
+          let terminalStatus = 'done'
+          try {
+            return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
+          } catch (err) {
+            terminalStatus = 'error'; throw err
+          } finally {
+            if (runId) await updateRun(runId, { status: terminalStatus }).catch(() => {})
           }
-        }
+        },
+      }),
+    })
+  }
 
-        // Forced light research (ALL skills) — one fast Tavily lookup so the build is grounded
-        // in REAL, PROVEN specifics instead of the model GUESSING (which is exactly how a flappy
-        // bird ends up dinosaur-sized). Type-agnostic: research whatever the user actually asked
-        // for. Fail-safe: no key / error / timeout → empty → build proceeds unchanged. ~1 credit.
-        let researchContext = ''
-        {
-          const q = skill === 'game'
-            // Games: fetch the PROVEN parameters so sizes/speeds/physics are right, not guessed.
-            ? `"${userText}" web game: the correct gameplay PARAMETERS to make it feel right — the player/sprite size RELATIVE to the play area (as a %), gravity and jump/impulse strength, obstacle/gap sizes and spacing, scroll/movement speed, spawn cadence, and difficulty. Give concrete typical values a good implementation uses.`
-            : skill === 'webapp'
-            // Webapps: the real feature set + data model so it's complete, not a toy.
-            ? `"${userText}": what core features, data fields/model, views, and user actions does a good version of this app include? Give concrete real-world specifics.`
-            // Websites: sections + industry content.
-            : `${brief.brandName || userText}: what sections, services/offerings, and specific content does this kind of business's website typically include? Give concrete real-world specifics.`
-          const r = await tavilySearch(q).catch(() => '')
-          if (r) researchContext = skill === 'game'
-            ? `\n\n## REAL-WORLD GAME PARAMETERS (use these PROVEN values — do NOT guess sizes/speeds; a sprite is a small % of the play field, never a fraction of the full window)\n${r}`
-            : `\n\n## REAL-WORLD RESEARCH (ground the ${skill === 'webapp' ? 'features + data model' : 'sections + copy'} in these facts — no generic filler)\n${r}`
-        }
+  let brief = null
+  try { brief = await expandPrompt(userText, skill) } catch { /* expansion failed — fallback */ }
 
-        // The design contract the FILE-WRITER must follow (brief tokens + fonts +
-        // the active design skill). This is what makes generated code actually
-        // match the design — without it the file-writer is blind to colors/fonts.
-        const designContext = `${formatBrief(brief)}${researchContext}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
+  if (!brief) {
+    return createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        originalMessages: messages,
+        execute: async ({ writer: rawWriter }) => {
+          const runId = await createRun({ userId: authedUser.id })
+          if (runId) rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
+          const writer = runId ? wrapWriterWithLog(rawWriter, runId) : rawWriter
+          let terminalStatus = 'done'
+          try {
+            return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
+          } catch (err) {
+            terminalStatus = 'error'; throw err
+          } finally {
+            if (runId) await updateRun(runId, { status: terminalStatus }).catch(() => {})
+          }
+        },
+      }),
+    })
+  }
 
-        // ── SERVER-SIDE PIPELINE ────────────────────────────────────────────
-        // Wrap in a token-accounting context so every model call this generation
-        // makes is summed into tokens_used on the project row.
-        const tokenBox = { total: 0 }
-        const pipelineResult = await tokenStore.run(tokenBox, () =>
-          runPipeline({ writer, messages, systemPrompt, skill, projectId, userId: user?.id ?? null, designContext, sandboxPromise, tokens: brief.colorTokens, brandName: brief.brandName, pageMap: brief.pageMap, fontPairing: brief.fontPairing, runId, invocationStart })
-        )
-        // Durable-runs STEP 3: a chained handoff means enrichment ran out of invocation
-        // budget and passed the run to a fresh continuation (status already 'continuing').
-        // The finally below must NOT overwrite that back to 'done' — the LAST invocation
-        // in the chain marks it done.
-        if (pipelineResult?.chained) chainedHandoff = true
-        if (projectId && tokenBox.total > 0) {
-          updateProjectRow(projectId, { tokens_used: tokenBox.total }).catch(() => {})
-        }
-        // Durable-runs STEP 4: also record this invocation's tokens on the RUN row (the
-        // reliability-metrics source). A single-invocation run gets its full, exact total
-        // here; a chained run records the primary invocation's usage and each /continue
-        // adds its own delta on top.
-        if (runId && tokenBox.total > 0) {
-          await updateRun(runId, { tokens_used: tokenBox.total }).catch(() => {})
-        }
-        } catch (err) {
-          // The pipeline reports most failures as data-report-errors rather than
-          // throwing; a genuine throw here means the run ended in error.
-          terminalStatus = 'error'
-          throw err
-        } finally {
-          // Mark the run terminal so the reconnect stream stops live-tailing. Runs
-          // after all user-facing stream content is written, so it adds no latency to
-          // the perceived generation; guarded so it can never affect the response.
-          // Skip when the run was handed off to a continuation (still 'continuing').
-          if (runId && !chainedHandoff) await updateRun(runId, { status: terminalStatus }).catch(() => {})
-        }
-      },
-    }),
+  // ── COMMITTED TO WORKFLOW BUILD ────────────────────────────────────────────
+  // All pre-flight work (classify + brief) done. Start sandbox provisioning in
+  // parallel with the project row creation + Tavily research, then launch the
+  // durable workflow. The route function returns immediately with the workflow's
+  // readable stream as the HTTP response body — useChat parses it identically to
+  // the old createUIMessageStreamResponse format (same AI SDK data stream protocol).
+
+  const sandboxPromise: Promise<Sandbox> = Sandbox.create({ timeout: 1_200_000, ports: [3000] })
+  sandboxPromise.catch(() => {})
+
+  const designSkill = designSkillFor(skill)
+  const designBody = loadSkillBody(designSkill) ?? ''
+  const catalog = getSkillCatalog().map(s => `- ${s.name}: ${s.description}`).join('\n')
+  const systemPrompt =
+    `${prompt}\n\n## DESIGN LAW IS ACTIVE\n` +
+    `The "${designSkill}" design skill is loaded for the file generator and is binding. ` +
+    `Plan the project structure to honor the brief's design direction.\n` +
+    `\n## OPTIONAL SKILLS (only if truly needed — do NOT load by default)\n` +
+    `${catalog}\n` +
+    `The core design law is ALREADY active — do NOT loadSkill for design/components. ` +
+    `Call loadSkill AT MOST ONCE, and ONLY if the user explicitly asked for 3D/three.js or advanced custom animation. ` +
+    `For a normal website, skip loadSkill entirely and go straight to planProject then generateFiles.\n` +
+    `\n## PROJECT BRIEF (authoritative design spec — use this, do not ask clarifying questions)\n` +
+    `Your first message MUST be one sentence confirming what you're building, derived from this brief. Then immediately call generateFiles.\n\n` +
+    formatBrief(brief)
+
+  // Create project row + Tavily research in parallel with sandbox provisioning
+  const user = await getCurrentUser()
+  let projectId: string | null = null
+  let createdAiToken: string | null = null
+  if (user) {
+    const created = await createProjectRow({ name: brief.brandName || 'Untitled project', prompt: userText, skill }).catch(() => null)
+    if (created) { projectId = created.id; createdAiToken = created.aiToken }
+  }
+
+  const researchQ = skill === 'game'
+    ? `"${userText}" web game: the correct gameplay PARAMETERS to make it feel right — the player/sprite size RELATIVE to the play area (as a %), gravity and jump/impulse strength, obstacle/gap sizes and spacing, scroll/movement speed, spawn cadence, and difficulty. Give concrete typical values a good implementation uses.`
+    : skill === 'webapp'
+    ? `"${userText}": what core features, data fields/model, views, and user actions does a good version of this app include? Give concrete real-world specifics.`
+    : `${brief.brandName || userText}: what sections, services/offerings, and specific content does this kind of business's website typically include? Give concrete real-world specifics.`
+
+  // Run Tavily research + await sandbox in parallel (they overlap: sandbox ~35s, research ~5s)
+  const [researchRaw, sandbox] = await Promise.all([
+    tavilySearch(researchQ).catch(() => ''),
+    sandboxPromise.catch(() => null),
+  ])
+
+  const sandboxId = sandbox?.sandboxId ?? null
+
+  // Inject .env into the pre-created sandbox so the workflow can skip it
+  if (sandbox && projectId && user) {
+    const aiBase = process.env.CM_PUBLIC_BASE_URL || 'https://codemineapp.com'
+    const envContent = [
+      `VITE_CODEMINE_AI_URL=${aiBase}/api/ai/proxy`,
+      `VITE_CODEMINE_AI_TOKEN=${createdAiToken ?? ''}`,
+      `VITE_CODEMINE_API=${aiBase}`,
+      `VITE_PROJECT_ID=${projectId}`,
+    ].join('\n') + '\n'
+    await sandbox.writeFiles([{ path: '.env', content: Buffer.from(envContent, 'utf8') }]).catch(() => {})
+    await updateProjectRow(projectId, { sandbox_id: sandboxId! }).catch(() => {})
+  }
+
+  const researchContext = researchRaw
+    ? (skill === 'game'
+        ? `\n\n## REAL-WORLD GAME PARAMETERS (use these PROVEN values — do NOT guess sizes/speeds; a sprite is a small % of the play field, never a fraction of the full window)\n${researchRaw}`
+        : `\n\n## REAL-WORLD RESEARCH (ground the ${skill === 'webapp' ? 'features + data model' : 'sections + copy'} in these facts — no generic filler)\n${researchRaw}`)
+    : ''
+  const designContext = `${formatBrief(brief)}${researchContext}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
+
+  // Create run row (workflow writes data-run as its first event)
+  const runId = await createRun({ userId: authedUser.id }).catch(() => null)
+
+  const wfParams: BuildPipelineParams = {
+    runId,
+    userId: user?.id ?? null,
+    projectId,
+    sandboxId,
+    messages,
+    systemPrompt,
+    skill,
+    designContext,
+    tokens: brief.colorTokens ?? null,
+    brandName: brief.brandName ?? null,
+    pageMap: brief.pageMap ?? null,
+    fontPairing: brief.fontPairing ?? null,
+    firstUserText: userText,
+    lastUserText: userText,
+    userText,
+    invocationStart,
+  }
+
+  const wfRun = await start(buildProject, [wfParams])
+
+  return new Response(wfRun.getReadable<string>(), {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Vercel-AI-Data-Stream': 'v1',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no',
+    },
   })
 }
 

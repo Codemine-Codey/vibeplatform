@@ -1,0 +1,750 @@
+// Vercel Workflow SDK — durable build pipeline.
+// Each 'use step' function gets its own fresh 800s invocation budget, breaking
+// the single-function 13-min cap. The route triggers this workflow and returns
+// run.getReadable<string>() as the SSE response — the client's useChat hook
+// reads it identically to the old createUIMessageStreamResponse path.
+
+import { getWritable } from 'workflow'
+import { start } from 'workflow/api'
+import { Sandbox } from '@vercel/sandbox'
+import {
+  convertToModelMessages,
+  streamText,
+  stepCountIs,
+  generateText,
+} from 'ai'
+import { getModelOptions } from '@/ai/gateway'
+import {
+  DEFAULT_MODEL,
+  FILE_GENERATION_MODEL,
+  getMaxOutputTokens,
+} from '@/ai/constants'
+import { getScaffoldFiles, SCAFFOLD_PATH_SET } from '@/ai/tools/scaffold'
+import { restoreBakedDeps } from '@/lib/baked-deps'
+import { buildFullIndexCss, lockPaletteInCss } from '@/lib/design-tokens'
+import { ensureValidCss } from '@/lib/css-guard'
+import { generateFiles } from '@/ai/tools/generate-files'
+import { planProject, type NormalizedManifest } from '@/ai/tools/plan-project'
+import { getUnsplashBatch } from '@/ai/tools/get-unsplash-batch'
+import { lookupReference, tavilySearch } from '@/ai/tools/lookup-reference'
+import { loadSkill } from '@/ai/tools/load-skill'
+import { getSkillCatalog, loadSkillBody, designSkillFor } from '@/ai/skills'
+import { generateSuggestions } from '@/ai/suggestions'
+import { reviewGeneratedCode } from '@/lib/code-review-gate'
+import { readSandboxFile, repairFile, installMissingModules } from '@/lib/sandbox-util'
+import { logRepair } from '@/lib/telemetry'
+import {
+  checkAndStampMissingFiles,
+  verifyAndRepair,
+  headlessRuntimeCheck,
+  functionalVerify,
+  waitForDevServer,
+  restartDevServer,
+  ensureNavShells,
+  applyFallbackTerminalState,
+  sanitizeTsx,
+  type PipelineWriter,
+} from '@/lib/pipeline-helpers'
+import { appendRunEvent, updateRun } from '@/lib/runs'
+import {
+  updateProjectRow,
+  snapshotProject,
+} from '@/lib/projects-db'
+import { saveCheckpoint } from '@/ai/tools/checkpoint'
+import type { Skill, ColorTokens, PageSpec } from '@/ai/types/project-brief'
+import { formatBrief } from '@/ai/types/project-brief'
+import type { ChatUIMessage } from '@/components/chat/types'
+
+// ── Serializable params passed to the workflow ───────────────────────────────
+
+export interface BuildPipelineParams {
+  // Caller-provided IDs (created before start())
+  runId: string | null
+  userId: string | null
+  projectId: string | null
+  /** Pre-created sandbox ID (parallel provision in route). Null = create fresh. */
+  sandboxId: string | null
+  // Chat
+  messages: ChatUIMessage[]
+  systemPrompt: string
+  skill: Skill
+  designContext: string
+  tokens: ColorTokens | null
+  brandName: string | null
+  pageMap: PageSpec[] | null
+  fontPairing: string | null
+  firstUserText: string
+  lastUserText: string
+  invocationStart: number
+  /** User prompt text for suggestions + research reference */
+  userText: string
+}
+
+// Inter-step handoff: what stepGenerate returns for stepVerify to use.
+interface GenerateResult {
+  sandboxId: string
+  url: string
+  skill: Skill
+  brandName: string | null
+  projectId: string | null
+  userId: string | null
+  runId: string | null
+  invocationStart: number
+  manifestFilePaths: string[]
+  firstUserText: string
+  lastUserText: string
+  earlyEmitDone: boolean
+  earlyEmitUrl: string
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function encodeDataPart(part: { id?: string; type: string; data?: any }): string {
+  return `2:${JSON.stringify([{ type: part.type, ...(part.id ? { id: part.id } : {}), ...(part.data !== undefined ? { data: part.data } : {}) }])}\n`
+}
+
+/** Minimal WritableStreamDefaultWriter wrapper that also logs to the run table. */
+function makeWriter(
+  wfWriter: WritableStreamDefaultWriter<string>,
+  runId: string | null
+): PipelineWriter {
+  return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    write(part: { id?: string; type: string; data?: any }) {
+      const line = encodeDataPart(part)
+      wfWriter.write(line).catch(() => {})
+      if (runId) {
+        appendRunEvent(runId, part.type, part.data)
+      }
+    },
+  }
+}
+
+// ── The workflow entry point ─────────────────────────────────────────────────
+
+export async function buildProject(params: BuildPipelineParams): Promise<void> {
+  'use workflow'
+
+  const genResult = await stepGenerate(params)
+  await stepVerify({ params, genResult })
+}
+
+// ── Step 1: Scaffold + AI generation ────────────────────────────────────────
+
+async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult> {
+  'use step'
+  const wf = getWritable<string>()
+  const wfWriter = wf.getWriter()
+  const writer = makeWriter(wfWriter, params.runId)
+
+  // First event: send run ID so client can reconnect via run log
+  if (params.runId) {
+    await wfWriter.write(encodeDataPart({ id: 'srv-run', type: 'data-run', data: { runId: params.runId } }))
+  }
+
+  // Sandbox: reconnect if pre-created, otherwise create fresh
+  writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { status: 'loading' } })
+  let sandbox: Sandbox
+  try {
+    if (params.sandboxId) {
+      sandbox = await Sandbox.get({ sandboxId: params.sandboxId })
+    } else {
+      sandbox = await Sandbox.create({ timeout: 1_200_000, ports: [3000] })
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { error: { message }, status: 'error' } })
+    // Return a "failed" result that stepVerify can no-op on
+    return {
+      sandboxId: params.sandboxId ?? '',
+      url: '',
+      skill: params.skill,
+      brandName: params.brandName,
+      projectId: params.projectId,
+      userId: params.userId,
+      runId: params.runId,
+      invocationStart: params.invocationStart,
+      manifestFilePaths: [],
+      firstUserText: params.firstUserText,
+      lastUserText: params.lastUserText,
+      earlyEmitDone: false,
+      earlyEmitUrl: '',
+    }
+  }
+  const sandboxId = sandbox.sandboxId
+
+  // .env was already injected by route.ts (before start() was called) into the
+  // pre-created sandbox. For freshly-created sandboxes (sandboxId was null) the
+  // route has already set the project row's sandbox_id; the workflow just ensures
+  // it stays current in case of a reconnect.
+  if (params.projectId && params.sandboxId !== sandboxId) {
+    updateProjectRow(params.projectId, { sandbox_id: sandboxId }).catch(() => {})
+  }
+
+  // Write scaffold files + start background dep install
+  let bgInstallPromise: Promise<void> | null = null
+  try {
+    const scaffoldBuffers = getScaffoldFiles().map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
+    try {
+      await sandbox.writeFiles(scaffoldBuffers)
+    } catch {
+      await sandbox.writeFiles(scaffoldBuffers) // one retry
+    }
+    bgInstallPromise = (async () => {
+      const baked = await restoreBakedDeps(sandbox).catch(() => false)
+      const installCmd = baked
+        ? 'command -v bun >/dev/null 2>&1 && bun install --no-save || pnpm install --prefer-offline'
+        : 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'
+      await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', installCmd] })
+        .then(cmd => cmd.wait())
+        .catch(() => {})
+    })().catch(() => {})
+  } catch { /* non-fatal */ }
+
+  // Notify client sandbox is ready
+  writer.write({
+    id: 'srv-sandbox',
+    type: 'data-create-sandbox',
+    data: { sandboxId, projectId: params.projectId ?? undefined, status: 'done' },
+  })
+
+  // Deterministic index.css from brief tokens
+  if (params.tokens) {
+    try {
+      const brandCss = buildFullIndexCss(params.tokens, params.fontPairing ?? undefined)
+      await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(brandCss, 'utf8') }])
+    } catch { /* non-fatal */ }
+  }
+
+  // ── Prompt addendum ───────────────────────────────────────────────────────
+  const { skill, brandName, pageMap, fontPairing, tokens } = params
+  const designSkill = designSkillFor(skill)
+  const designBody = loadSkillBody(designSkill) ?? ''
+  const catalog = getSkillCatalog().map(s => `- ${s.name}: ${s.description}`).join('\n')
+
+  // Forced Tavily research (same as route.ts)
+  let researchContext = ''
+  try {
+    const q = skill === 'game'
+      ? `"${params.userText}" web game: the correct gameplay PARAMETERS — player/sprite size as %, gravity, jump strength, obstacle sizes, scroll speed, spawn cadence.`
+      : skill === 'webapp'
+      ? `"${params.userText}": core features, data fields, views, and user actions for a good version of this app.`
+      : `${brandName || params.userText}: sections, services, and specific content for this business website.`
+    const r = await tavilySearch(q).catch(() => '')
+    if (r) researchContext = skill === 'game'
+      ? `\n\n## REAL-WORLD GAME PARAMETERS (use these PROVEN values)\n${r}`
+      : `\n\n## REAL-WORLD RESEARCH\n${r}`
+  } catch { /* non-fatal */ }
+
+  const designContext = params.designContext + researchContext
+
+  const scaffoldFiles = getScaffoldFiles()
+  const scaffoldPaths = scaffoldFiles.map(f => f.path).join(', ')
+  const creativeSeed = Math.random().toString(36).slice(2, 10).toUpperCase()
+  const activePageMap = (skill === 'website' && pageMap && pageMap.length > 0) ? pageMap : null
+  const isMultiPage = !!activePageMap && activePageMap.length > 1
+  const pageFileList = activePageMap
+    ? activePageMap.map((p: PageSpec) => `src/pages/${p.page.replace(/[^A-Za-z0-9]/g, '')}.tsx (${p.route})`).join(', ')
+    : 'src/pages/Home.tsx'
+
+  const pipelineAddendum =
+    `\n\n## SERVER PIPELINE — WORKSPACE READY\nsandboxId: ${sandboxId}\n` +
+    `⛔ ZERO TECHNICAL NARRATION during the build. You speak ONLY twice: (1) the one-line opening, (2) the completion line after the preview is live. Between them: NOTHING.\n` +
+    `Creative session ID: ${creativeSeed} — make UNIQUE design choices.\n` +
+    `Scaffold pre-written (including shadcn/ui components). Dependencies installing in background.\n` +
+    `DO NOT call createSandbox — it is already done.\nDO NOT call runCommand or getSandboxURL.\n` +
+    `Scaffold files already written (exclude from generateFiles paths): ${scaffoldPaths}\n\n` +
+    `WORKFLOW: ${skill === 'website'
+      ? (isMultiPage
+        ? `MULTI-PAGE website, ${activePageMap!.length} pages. (1) getUnsplashBatch for ALL images + planProject with the COMPLETE file list: index.css, Layout.tsx, ONE page file per route (${pageFileList}), one component per section. (2) generateFiles ALL of them, complete and detailed.`
+        : `SINGLE-PASS, COMPLETE landing page. (1) getUnsplashBatch for ALL section images + planProject with the COMPLETE file list — ONE scrolling page. (2) generateFiles ALL those files in ONE call.`)
+      : skill === 'webapp'
+      ? `(1) call planProject with the COMPLETE file list, (2) FIRST generateFiles call: ONLY src/index.css + src/pages/Home.tsx, (3) SECOND generateFiles call: all remaining component files`
+      : `(1) call planProject with the complete file list, (2) call generateFiles with sandboxId="${sandboxId}" and exactly the paths from planProject`}\n` +
+    (skill !== 'website' ? `getUnsplashBatch is NOT available for this skill type.\n` : '') +
+    `If you need packages not in the scaffold, include package.json in your generateFiles paths.\n`
+
+  const fileCountGuidance = skill === 'website'
+    ? (isMultiPage
+      ? `WEBSITE — MULTI-PAGE (${activePageMap!.length} pages). Generate ALL files, every page fully realized: src/index.css, Layout.tsx, one src/pages/*.tsx per page, src/components/sections/*.tsx per section. MOBILE-ADAPTIVE (required): mobile-first Tailwind, working hamburger.`
+      : `WEBSITE — SINGLE-PASS COMPLETE LANDING PAGE. Generate ALL files in ONE call: src/index.css, Layout.tsx, src/components/sections/*.tsx (6-7 sections), src/pages/Home.tsx. MOBILE-ADAPTIVE (required).`)
+    : skill === 'webapp'
+    ? `WEBAPP BUILD SPLIT: Phase 1 = EXACTLY 2 files (src/index.css + src/pages/Home.tsx). Phase 2 = all remaining component files.`
+    : `TARGET FILE COUNT: 2 files ONLY — src/index.css + src/pages/Home.tsx. ALL game logic goes in Home.tsx.`
+
+  const referenceGuidance =
+    '\n\n## REFERENCE LOOKUP (optional, max 2-3 calls)\n' +
+    (skill === 'game'
+      ? 'Look up realistic physics/mechanics parameters if needed.'
+      : skill === 'webapp' ? 'Look up correct formulas/values if computing real things.'
+      : 'Look up factual CONTENT for specific real businesses.')
+
+  const fullSystem = params.systemPrompt + pipelineAddendum + referenceGuidance + `\n\n${fileCountGuidance}`
+
+  // ── Tool setup ────────────────────────────────────────────────────────────
+  const planBox: { manifest: NormalizedManifest | null } = { manifest: null }
+  const capturePlan = planProject({ onPlan: (m) => { planBox.manifest = m } })
+
+  const PHASE1_CORE = new Set(['src/index.css', 'src/components/Layout.tsx', 'src/pages/Home.tsx', 'src/components/Phase2Sections.tsx'])
+  const WEBAPP_PHASE1_CORE = new Set(['src/index.css', 'src/pages/Home.tsx'])
+  const activePhase1Core = skill === 'webapp' ? WEBAPP_PHASE1_CORE : PHASE1_CORE
+  const SCAFFOLD_OWNED = new Set([
+    'src/index.css', 'package.json', 'src/main.tsx', 'src/App.tsx',
+    'vite.config.ts', 'vite.config.js', 'tsconfig.json', 'tsconfig.app.json', 'tsconfig.node.json',
+    'index.html', 'tailwind.config.ts', 'tailwind.config.js', 'postcss.config.js', 'postcss.config.mjs',
+    'src/lib/utils.ts', 'src/styles/cm-ui.css', 'src/components/NotFound.tsx',
+    'src/components/__fallback.tsx', 'src/components/blocks/index.tsx', 'src/components/blocks/sections.tsx',
+    'public/_redirects', '.npmrc',
+  ])
+
+  let p1GFCalled = false
+  let earlyEmitDone = false
+  let earlyEmitUrl = ''
+
+  // Page paths for multi-page injection
+  const pageMapPaths: string[] = activePageMap
+    ? activePageMap.map((p: PageSpec) => `src/pages/${p.page.replace(/[^A-Za-z0-9]/g, '')}.tsx`)
+    : []
+
+  // Build the writer-compatible object for generateFiles
+  const rawWriterForGF = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    write: (part: any) => writer.write(part),
+    merge: (_: ReadableStream) => { /* not called in generate-files tool */ },
+    get onError() { return undefined },
+    set onError(_: unknown) {},
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawGF = generateFiles({ writer: rawWriterForGF as any, modelId: FILE_GENERATION_MODEL, designContext }) as any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const phase1GF = generateFiles({ writer: rawWriterForGF as any, modelId: FILE_GENERATION_MODEL, designContext, skipQualityGates: true }) as any
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const websiteGF: any = {
+    ...rawGF,
+    execute: async (args: { sandboxId: string; paths: string[] }, ctx: unknown) => {
+      let paths = args.paths.filter((p) => p !== 'src/index.css')
+      if (isMultiPage) {
+        const have = new Set(paths)
+        const inject = pageMapPaths.filter((p) => !have.has(p))
+        if (inject.length > 0) paths = [...paths, ...inject]
+      }
+      return rawGF.execute({ ...args, paths }, ctx)
+    },
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const guardedGF: any = skill === 'webapp' ? {
+    ...rawGF,
+    execute: async (args: { sandboxId: string; paths: string[] }, ctx: unknown) => {
+      if (!p1GFCalled) {
+        p1GFCalled = true
+        const nonScaffold = args.paths.filter((p: string) => !SCAFFOLD_OWNED.has(p))
+        const phase1Paths = nonScaffold.filter((p: string) => activePhase1Core.has(p))
+        const phase2Paths = nonScaffold.filter((p: string) => !activePhase1Core.has(p))
+        if (phase2Paths.length > 0 && !planBox.manifest) {
+          planBox.manifest = {
+            files: [
+              ...phase1Paths.map((p: string) => ({ path: p, phase: 1, exports: ['default'] })),
+              ...phase2Paths.map((p: string) => ({ path: p, phase: 2, exports: ['default'] })),
+            ],
+            phaseCount: 2, multiPhase: true, extraPackages: [],
+          }
+        }
+        const filteredPaths = phase1Paths.length > 0 ? phase1Paths : nonScaffold.length > 0 ? nonScaffold : args.paths
+
+        // Early emit for webapp: start dev server after Phase 1
+        void (async () => {
+          try {
+            writer.write({ id: 'srv-phase-install', type: 'data-build-phase', data: { phase: 'installing', label: 'Installing packages...' } })
+            if (bgInstallPromise) await bgInstallPromise
+            await reviewGeneratedCode(sandbox, skill)
+            writer.write({ id: 'srv-phase-build', type: 'data-build-phase', data: { phase: 'building', label: 'Building and starting preview...' } })
+            writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' } })
+            const devCmd = await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'] })
+            writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, commandId: devCmd.cmdId, command: 'bun', args: ['run', 'dev'], status: 'running' } })
+            void verifyAndRepair({ sandbox, sandboxId, writer }).catch(() => {})
+            writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
+            const domain = sandbox.domain(3000)
+            await waitForDevServer(domain)
+            earlyEmitUrl = domain
+            earlyEmitDone = true
+            if (params.projectId) updateProjectRow(params.projectId, { sandbox_id: sandboxId, preview_url: domain }).catch(() => {})
+          } catch (e) {
+            console.warn('[early-emit-webapp] failed:', e instanceof Error ? e.message : e)
+          }
+        })()
+
+        return phase1GF.execute({ ...args, paths: filteredPaths }, ctx)
+      }
+      return rawGF.execute(args, ctx)
+    },
+  } : (skill === 'website' ? websiteGF : rawGF)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pipelineTools: Record<string, any> = skill === 'website'
+    ? { loadSkill: loadSkill(), generateFiles: guardedGF, getUnsplashBatch: getUnsplashBatch(), planProject: capturePlan, lookupReference: lookupReference() }
+    : skill === 'webapp'
+    ? { loadSkill: loadSkill(), generateFiles: guardedGF, planProject: capturePlan, lookupReference: lookupReference() }
+    : { loadSkill: loadSkill(), generateFiles: rawGF, planProject: capturePlan, lookupReference: lookupReference() }
+
+  const maxSteps = skill === 'website' ? 12 : skill === 'webapp' ? 10 : 9
+
+  // ── Generation deadline (always 600s from step start = 200s left for verify) ──
+  const genBudgetMs = 600_000
+  const genAbort = AbortSignal.timeout(genBudgetMs)
+
+  writer.write({ id: 'srv-phase-gen', type: 'data-build-phase', data: { phase: 'generating', label: 'Generating your files...' } })
+
+  // Transform messages: convert data-report-errors parts to text
+  const transformedMessages = params.messages.map(message => ({
+    ...message,
+    parts: message.parts.map(part => {
+      if (part.type === 'data-report-errors') {
+        return {
+          type: 'text' as const,
+          text: `There are errors in the generated code:\n\`\`\`${(part as { data: { summary: string } }).data.summary}\`\`\`\nFix the errors reported.`,
+        }
+      }
+      return part
+    }),
+  }))
+
+  const aiResult = streamText({
+    ...getModelOptions(DEFAULT_MODEL),
+    system: fullSystem,
+    messages: await convertToModelMessages(transformedMessages as ChatUIMessage[]),
+    stopWhen: stepCountIs(maxSteps),
+    maxOutputTokens: getMaxOutputTokens(DEFAULT_MODEL),
+    tools: pipelineTools,
+    abortSignal: genAbort,
+    onError: error => console.error('[workflow-gen] AI error:', error),
+  })
+
+  // Pipe the AI data stream to getWritable() and wait for generation to complete.
+  // toUIMessageStreamResponse() returns a Response whose body is the properly
+  // formatted AI SDK data stream (0:"text"\n, 2:[...]\n, e:..., d:... lines).
+  // We decode the Uint8Array chunks to strings and write them to the workflow writer.
+  try {
+    const aiResp = aiResult.toUIMessageStreamResponse({ sendReasoning: false, sendStart: false })
+    if (aiResp.body) {
+      const dec = new TextDecoder()
+      const reader = aiResp.body.getReader()
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (value) await wfWriter.write(dec.decode(value, { stream: true }))
+      }
+      const trailing = dec.decode()
+      if (trailing) await wfWriter.write(trailing)
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (!/abort|timeout|cancel/i.test(msg)) {
+      console.error('[workflow-gen] stream error:', msg)
+    }
+  }
+
+  // Synthetic manifest for website when AI skipped planProject
+  if (!planBox.manifest && skill === 'website') {
+    try {
+      const steps = await Promise.race([
+        aiResult.steps,
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('steps-timeout')), 5000)),
+      ])
+      const allGenPaths: string[] = []
+      for (const step of steps) {
+        for (const tc of ((step.toolCalls as unknown) as Array<{ toolName: string; args: { paths?: string[] } }> ?? [])) {
+          if (tc.toolName === 'generateFiles' && Array.isArray(tc.args?.paths)) allGenPaths.push(...tc.args.paths)
+        }
+      }
+      const PHASE1_CORE_SET = new Set(['src/index.css', 'src/components/Layout.tsx', 'src/pages/Home.tsx', 'src/components/Phase2Sections.tsx'])
+      const phase2Paths = [...new Set(allGenPaths)].filter(p => !PHASE1_CORE_SET.has(p))
+      const phase1Paths = [...new Set(allGenPaths)].filter(p => PHASE1_CORE_SET.has(p))
+      if (phase2Paths.length >= 2) {
+        planBox.manifest = {
+          files: [
+            ...phase1Paths.map(p => ({ path: p, phase: 1, exports: ['default'] })),
+            ...phase2Paths.map(p => ({ path: p, phase: 2, exports: ['default'] })),
+          ],
+          phaseCount: 2, multiPhase: true, extraPackages: [],
+        }
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  // Website Phase2Sections guarantee
+  if (skill === 'website') {
+    try {
+      const existing = await readSandboxFile(sandbox, 'src/components/Phase2Sections.tsx')
+      if (!existing || existing.trim().length < 20) {
+        await sandbox.writeFiles([{ path: 'src/components/Phase2Sections.tsx', content: Buffer.from(`export default function Phase2Sections() {\n  return <div className="bg-background" style={{ minHeight: '60vh' }} />\n}\n`, 'utf8') }])
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  // Manifest missing file stamp
+  if (planBox.manifest) {
+    await checkAndStampMissingFiles(sandbox, planBox.manifest.files.map(f => f.path)).catch(() => {})
+  }
+
+  // CSS sanity fix + palette lock
+  try {
+    const cssStream = await sandbox.readFile({ path: 'src/index.css' })
+    if (cssStream) {
+      const chunks: Buffer[] = []
+      for await (const c of cssStream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as string))
+      let css = Buffer.concat(chunks).toString('utf8')
+      let changed = false
+      if (css.includes("@import 'tailwindcss/base'") || css.includes('@import "tailwindcss/base"')) {
+        css = css
+          .replace(/@import ['"]tailwindcss\/base['"]\s*;?/g, '@tailwind base;')
+          .replace(/@import ['"]tailwindcss\/components['"]\s*;?/g, '@tailwind components;')
+          .replace(/@import ['"]tailwindcss\/utilities['"]\s*;?/g, '@tailwind utilities;')
+        changed = true
+      }
+      if (tokens) {
+        const locked = lockPaletteInCss(css, tokens)
+        if (locked && locked !== css) { css = locked; changed = true }
+      } else if (!css.includes(':root')) {
+        css += `\n:root {\n  --background: 0 0% 100%;\n  --foreground: 222.2 84% 4.9%;\n  --primary: 221.2 83.2% 53.3%;\n  --primary-foreground: 210 40% 98%;\n  --border: 214.3 31.8% 91.4%;\n  --radius: 0.5rem;\n}\n`
+        changed = true
+      }
+      if (css.includes('@apply') || /@apply/i.test(css)) {
+        const before = css; css = css.replace(/@apply\s+[^;{}\n]*;?/gi, ''); if (css !== before) changed = true
+      }
+      const validated = ensureValidCss(css)
+      if (validated !== css) { css = validated; changed = true }
+      if (changed) await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(css, 'utf8') }])
+    }
+  } catch { /* non-fatal */ }
+
+  // Early snapshot (all files written)
+  if (params.projectId && params.userId) {
+    snapshotProject(sandbox, params.userId, params.projectId)
+      .then(p => p ? updateProjectRow(params.projectId!, { sandbox_id: sandboxId, snapshot_path: p }) : undefined)
+      .catch(() => {})
+  }
+
+  // Code review (non-early-emit path: games + slow paths)
+  if (!earlyEmitDone) await reviewGeneratedCode(sandbox, skill)
+
+  // Start install + dev server if not already done
+  if (!earlyEmitDone) {
+    writer.write({ id: 'srv-install', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['install'], status: 'waiting' } })
+    try {
+      const installCmd = await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'] })
+      await Promise.race([installCmd.wait(), new Promise<void>((_, rej) => setTimeout(() => rej(new Error('install timed out')), 90_000))])
+      writer.write({ id: 'srv-install', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['install'], status: 'done', exitCode: 0 } })
+    } catch {
+      writer.write({ id: 'srv-install', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['install'], status: 'error' } })
+    }
+    // Start dev server
+    writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' } })
+    try {
+      const devCmd = await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'] })
+      writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, commandId: devCmd.cmdId, command: 'bun', args: ['run', 'dev'], status: 'running' } })
+    } catch { /* non-fatal */ }
+  }
+
+  return {
+    sandboxId,
+    url: sandbox.domain(3000),
+    skill: params.skill,
+    brandName: params.brandName,
+    projectId: params.projectId,
+    userId: params.userId,
+    runId: params.runId,
+    invocationStart: params.invocationStart,
+    manifestFilePaths: planBox.manifest?.files.map(f => f.path) ?? [],
+    firstUserText: params.firstUserText,
+    lastUserText: params.lastUserText,
+    earlyEmitDone,
+    earlyEmitUrl,
+  }
+}
+
+// ── Step 2: Verify + reveal ──────────────────────────────────────────────────
+
+async function stepVerify({
+  params,
+  genResult,
+}: {
+  params: BuildPipelineParams
+  genResult: GenerateResult
+}): Promise<void> {
+  'use step'
+
+  const { sandboxId, url, skill, brandName, projectId, userId, runId, invocationStart, firstUserText, lastUserText, earlyEmitDone, earlyEmitUrl } = genResult
+
+  if (!sandboxId || !url) return // generation failed, nothing to verify
+
+  const wf = getWritable<string>()
+  const wfWriter = wf.getWriter()
+  const writer = makeWriter(wfWriter, runId)
+
+  try {
+    const sandbox = await Sandbox.get({ sandboxId })
+
+    // Nav shells for multi-page websites
+    if (skill === 'website' && !earlyEmitDone) {
+      try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
+    }
+
+    // verifyAndRepair in background (fires early, dev server may still be starting)
+    if (!earlyEmitDone) {
+      void verifyAndRepair({ sandbox, sandboxId, writer }).catch(() => {})
+    }
+
+    // Wait for dev server
+    let devError: string | null = null
+    let resolvedUrl = earlyEmitDone ? earlyEmitUrl : url
+
+    if (!earlyEmitDone) {
+      writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
+      resolvedUrl = sandbox.domain(3000)
+      devError = await waitForDevServer(resolvedUrl)
+
+      if (devError && (await installMissingModules(sandbox, devError))) {
+        logRepair({ layer: 'dev-500', action: 'auto-installed-and-restarted', detail: devError.slice(0, 200), sandboxId })
+        await restartDevServer(sandbox)
+        devError = await waitForDevServer(resolvedUrl)
+      }
+
+      if (devError) {
+        logRepair({ layer: 'dev-500', action: 'silent-fallback', detail: devError.slice(0, 200), sandboxId })
+        try { await applyFallbackTerminalState(sandbox, devError, { skill, brand: brandName || 'This project' }) } catch { /* non-fatal */ }
+      }
+
+      if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
+    }
+
+    // 502 gate
+    if (!devError) {
+      try {
+        const probe = await fetch(resolvedUrl, { signal: AbortSignal.timeout(5000) }).then(r => r.status).catch(() => 0)
+        if (probe === 502) {
+          logRepair({ layer: 'dev-502', action: 'reveal-gate-restart', detail: 'url 502 at reveal gate', sandboxId })
+          await restartDevServer(sandbox)
+          const recheck = await waitForDevServer(resolvedUrl, 30_000, sandbox)
+          if (recheck) {
+            devError = recheck
+            try { await applyFallbackTerminalState(sandbox, recheck, { skill, brand: brandName || 'This project' }) } catch { /* non-fatal */ }
+          }
+        }
+      } catch { /* probe failure is non-fatal */ }
+    }
+
+    // Nav shells for websites (after dev server confirmed up)
+    if (skill === 'website' && !devError) {
+      try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
+    }
+
+    // Deadline gate: if >660s elapsed since invocation start, reveal now
+    let revealed = false
+    if (!devError) {
+      const elapsed = Date.now() - invocationStart
+      if (elapsed > 660_000) {
+        console.warn(`[verify-step] ${Math.round(elapsed / 1000)}s elapsed — skipping headless verify`)
+        writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
+        revealed = true
+      }
+    }
+
+    // Headless render check
+    let rtResult: { status: 'ok' | 'broken' | 'skipped'; detail: string; score?: number | null; screenshot?: Buffer } | null = null
+    if (!devError && !revealed) {
+      try {
+        writer.write({ id: 'srv-preview-starting', type: 'data-narration', data: { text: 'Starting preview — this may take up to 30 seconds, please wait.' } })
+        writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'executing' } })
+
+        let rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
+        for (let attempt = 1; attempt <= 3 && rt.status === 'broken'; attempt++) {
+          const fixed = await repairFile('src/pages/Home.tsx', (await readSandboxFile(sandbox, 'src/pages/Home.tsx') ?? ''), rt.detail).catch(() => null)
+          if (!fixed) break
+          await sandbox.writeFiles([{ path: 'src/pages/Home.tsx', content: Buffer.from(sanitizeTsx('src/pages/Home.tsx', fixed), 'utf8') }])
+          await new Promise(r => setTimeout(r, 2500))
+          rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
+        }
+        rtResult = rt
+        writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'done', exitCode: 0 } })
+      } catch (e) {
+        console.warn('[verify-step] headless check failed:', e instanceof Error ? e.message : e)
+        writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'done', exitCode: 0 } })
+      }
+    }
+
+    // Final hard gate
+    if (!devError && rtResult && rtResult.status === 'broken') {
+      try {
+        await applyFallbackTerminalState(sandbox, 'force-app-level', { skill, brand: brandName || 'This project' })
+        await new Promise(r => setTimeout(r, 3500))
+        const finalCheck = await headlessRuntimeCheck(resolvedUrl, sandboxId).catch(() => null)
+        if (finalCheck) rtResult = finalCheck
+      } catch { /* non-fatal */ }
+    }
+
+    // Functional verify
+    if (!devError && !revealed) {
+      writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: skill === 'game' ? 'Playtesting your game and polishing it' : 'Testing every feature and polishing it', args: [], status: 'executing' } })
+      try {
+        const request = firstUserText || lastUserText || ''
+        for (let round = 1; round <= 3; round++) {
+          const fv = await functionalVerify(resolvedUrl, request, skill)
+          if (fv.ok || fv.issues.length === 0) break
+          logRepair({ layer: 'runtime-check', action: `functional-issues-r${round}`, detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
+          const issueText = `Fix these SPECIFIC problems:\n- ${fv.issues.join('\n- ')}`
+          let changedAny = false
+          for (const path of ['src/pages/Home.tsx', ...genResult.manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 8)) {
+            const content = await readSandboxFile(sandbox, path)
+            if (!content) continue
+            const fixed = await repairFile(path, content, issueText)
+            if (fixed && fixed !== content) {
+              await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
+              changedAny = true
+            }
+          }
+          if (!changedAny) break
+          await new Promise(r => setTimeout(r, 2500))
+        }
+      } catch { /* non-fatal */ }
+      writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: 'Playtest complete', args: [], status: 'done', exitCode: 0 } })
+    }
+
+    // Reveal URL
+    if (!revealed) {
+      writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
+      revealed = true
+    }
+    if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
+
+    // Suggestions
+    void (async () => {
+      try {
+        const items = await generateSuggestions({ request: lastUserText, skill, filePaths: genResult.manifestFilePaths })
+        if (items.length) writer.write({ id: 'srv-suggestions', type: 'data-suggestions', data: { items } })
+      } catch { /* non-fatal */ }
+    })()
+
+    // Checkpoint + final snapshot
+    if (!devError) saveCheckpoint(sandbox).catch(() => {})
+    if (projectId && userId) {
+      let snapshotPath: string | null = null
+      for (let attempt = 0; attempt < 2 && !snapshotPath; attempt++) {
+        try {
+          snapshotPath = await Promise.race([snapshotProject(sandbox, userId, projectId), new Promise<null>(resolve => setTimeout(() => resolve(null), 60_000))])
+        } catch { /* retry */ }
+      }
+      await updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl, ...(snapshotPath ? { snapshot_path: snapshotPath } : {}) }).catch(() => {})
+    }
+
+    if (runId) updateRun(runId, { status: 'done' }).catch(() => {})
+  } finally {
+    await wfWriter.close()
+  }
+}
+
+// Re-export start for convenience
+export { start }
