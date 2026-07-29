@@ -549,9 +549,17 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     } catch { /* non-fatal */ }
   }
 
+  // Safe domain resolution — throws if port has no route (shouldn't happen but guard it)
+  let sandboxUrl = ''
+  try { sandboxUrl = sandbox.domain(3000) } catch { sandboxUrl = `https://${sandboxId}-3000.sandbox.vercel.app` }
+
+  // CRITICAL: close the step's writable so the Workflow SDK knows this step is done
+  // and can start stepVerify. Without this the SDK holds the stream open indefinitely.
+  await wfWriter.close().catch(() => {})
+
   return {
     sandboxId,
-    url: sandbox.domain(3000),
+    url: sandboxUrl,
     skill: params.skill,
     brandName: params.brandName,
     projectId: params.projectId,
@@ -585,6 +593,10 @@ async function stepVerify({
   const wfWriter = wf.getWriter()
   const writer = makeWriter(wfWriter, runId)
 
+  // Declare outside try so catch/finally can always access them
+  let revealed = false
+  let resolvedUrl: string = earlyEmitDone ? (earlyEmitUrl ?? url) : url
+
   try {
     const sandbox = await Sandbox.get({ sandboxId })
 
@@ -600,11 +612,10 @@ async function stepVerify({
 
     // Wait for dev server
     let devError: string | null = null
-    let resolvedUrl = earlyEmitDone ? earlyEmitUrl : url
 
     if (!earlyEmitDone) {
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
-      resolvedUrl = sandbox.domain(3000)
+      try { resolvedUrl = sandbox.domain(3000) } catch { /* keep genResult.url */ }
       devError = await waitForDevServer(resolvedUrl)
 
       if (devError && (await installMissingModules(sandbox, devError))) {
@@ -643,7 +654,6 @@ async function stepVerify({
     }
 
     // Deadline gate: if >660s elapsed since invocation start, reveal now
-    let revealed = false
     if (!devError) {
       const elapsed = Date.now() - invocationStart
       if (elapsed > 660_000) {
@@ -741,8 +751,18 @@ async function stepVerify({
     }
 
     if (runId) updateRun(runId, { status: 'done' }).catch(() => {})
+  } catch (err) {
+    console.error('[stepVerify] error:', err instanceof Error ? err.message : err)
+    // Always reveal URL so the client never stays blank
+    if (!revealed && resolvedUrl) {
+      try {
+        writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
+        revealed = true
+      } catch { /* ignore */ }
+    }
+    if (runId) updateRun(runId, { status: 'done' }).catch(() => {})
   } finally {
-    await wfWriter.close()
+    await wfWriter.close().catch(() => {})
   }
 }
 
