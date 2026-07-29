@@ -2388,46 +2388,43 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
     onError: error => console.error('Pipeline AI error:', error),
   })
 
-  // Silence filter: strip technical repair commentary from the AI stream before it reaches
-  // the user's chat. RULE 1 in the system prompt says ZERO text during a build, but LLMs
-  // are imperfect. This enforces it server-side:
-  //   • Text before the first tool call → passes through (the opening line)
-  //   • Text in steps that also call a tool → dropped (repair narration the user must never see)
-  //   • Text in steps with NO tool calls → passes through (the completion line)
+  // Silence filter — v2 (global hold).
+  //
+  // V1 flaw: text in pure text-only steps (no tool call in that step) between tool-call
+  // steps was being flushed immediately at step-finish — those "Now fix X..." repair thoughts
+  // slipped through as visible chat messages.
+  //
+  // V2 strategy: hold ALL text in a single global buffer after the first tool call.
+  // The buffer is CLEARED whenever a new tool call arrives (dropping repair narration from
+  // earlier pure-text steps). Only what's in the buffer at stream-end survives: that is the
+  // completion line, which the AI outputs after all tools are done.
+  //   • Text before first tool call → immediate pass-through (the opening line)
+  //   • Text in any step after the first tool → buffered globally
+  //   • New tool call arrives → global buffer cleared (repair narration discarded)
+  //   • End of stream → global buffer flushed (the completion line)
   let _gFirstToolSeen = false
-  let _gStepHasTool = false
-  const _gTextBuf: unknown[] = []
+  const _gHoldBuf: unknown[] = []
   const _silenceFilter = new TransformStream({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     transform(part: any, controller: TransformStreamDefaultController) {
       const t: string = part.type ?? ''
-      if (t === 'step-start') {
-        _gStepHasTool = false
-        _gTextBuf.length = 0
-        controller.enqueue(part)
-      } else if (t === 'step-finish') {
-        if (!_gStepHasTool) {
-          for (const b of _gTextBuf) controller.enqueue(b)
-        }
-        _gTextBuf.length = 0
-        controller.enqueue(part)
-      } else if (t === 'text-delta') {
+      if (t === 'text-delta') {
         if (!_gFirstToolSeen) {
-          controller.enqueue(part) // opening line — before any tool call
+          controller.enqueue(part) // opening line — passes through before any tool
         } else {
-          _gTextBuf.push(part) // buffer; step-finish decides whether to flush or drop
+          _gHoldBuf.push(part) // hold; cleared by next tool call or flushed at end
         }
       } else if (t === 'tool-input-delta' || t === 'tool-result') {
         _gFirstToolSeen = true
-        _gStepHasTool = true
-        _gTextBuf.length = 0 // discard repair preamble for this step
+        _gHoldBuf.length = 0 // discard any held repair narration — a new tool is running
         controller.enqueue(part)
       } else {
         controller.enqueue(part)
       }
     },
     flush(controller: TransformStreamDefaultController) {
-      for (const b of _gTextBuf) controller.enqueue(b) // completion line at end of stream
+      // Stream ended: whatever is in the hold buffer is the completion line
+      for (const b of _gHoldBuf) controller.enqueue(b)
     },
   })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
