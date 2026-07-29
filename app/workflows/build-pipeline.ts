@@ -423,22 +423,35 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     onError: error => console.error('[workflow-gen] AI error:', error),
   })
 
-  // Pipe the AI data stream to getWritable() and wait for generation to complete.
-  // toUIMessageStreamResponse() returns a Response whose body is the properly
-  // formatted AI SDK data stream (0:"text"\n, 2:[...]\n, e:..., d:... lines).
-  // We decode the Uint8Array chunks to strings and write them to the workflow writer.
+  // Pipe the AI data stream to getWritable(), filtering out the d: done marker.
+  // The AI SDK ends every stream with d:{finishReason,...} which signals the
+  // client that the build is complete. We CANNOT emit that from stepGenerate —
+  // if we do, the client closes its stream listener before stepVerify can reveal
+  // the preview URL. We strip d: here and emit it at the very end of stepVerify.
   try {
     const aiResp = aiResult.toUIMessageStreamResponse({ sendReasoning: false, sendStart: false })
     if (aiResp.body) {
       const dec = new TextDecoder()
       const reader = aiResp.body.getReader()
+      // Line-aware streaming filter: hold partial lines in lineBuf so we can
+      // inspect complete lines before forwarding. Chunks don't align to line ends.
+      let lineBuf = ''
+      const writeFiltered = async (chunk: string) => {
+        lineBuf += chunk
+        const lines = lineBuf.split('\n')
+        lineBuf = lines.pop() ?? '' // last element may be partial
+        const toWrite = lines.filter(l => !l.startsWith('d:')).join('\n')
+        if (toWrite) await wfWriter.write(toWrite + '\n')
+      }
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        if (value) await wfWriter.write(dec.decode(value, { stream: true }))
+        if (value) await writeFiltered(dec.decode(value, { stream: true }))
       }
+      // Flush trailing decoder bytes + remaining buffer (skip d: lines)
       const trailing = dec.decode()
-      if (trailing) await wfWriter.write(trailing)
+      if (trailing) lineBuf += trailing
+      if (lineBuf && !lineBuf.startsWith('d:')) await wfWriter.write(lineBuf)
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -751,6 +764,11 @@ async function stepVerify({
     }
 
     if (runId) updateRun(runId, { status: 'done' }).catch(() => {})
+
+    // Terminal done marker — tells the client the full pipeline is complete.
+    // We suppressed d: in stepGenerate so the client stayed in "streaming" state
+    // until we could reveal the preview URL here. Now we close it properly.
+    await wfWriter.write('d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n')
   } catch (err) {
     console.error('[stepVerify] error:', err instanceof Error ? err.message : err)
     // Always reveal URL so the client never stays blank
@@ -761,6 +779,8 @@ async function stepVerify({
       } catch { /* ignore */ }
     }
     if (runId) updateRun(runId, { status: 'done' }).catch(() => {})
+    // Still send done marker even on error path
+    try { await wfWriter.write('d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n') } catch { /* ignore */ }
   } finally {
     await wfWriter.close().catch(() => {})
   }
