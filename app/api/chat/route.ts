@@ -36,7 +36,7 @@ import { getWarmEntry } from '@/ai/warm-pool'
 import { restoreBakedDeps } from '@/lib/baked-deps'
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
-import { createRun, appendRunEvent, updateRun } from '@/lib/runs'
+import { createRun, appendRunEvent, updateRun, getRunEventsSince, getRun, isTerminalRunStatus, type RunEventRow } from '@/lib/runs'
 import { stampShell, navTargetPageFiles } from '@/lib/shell-template'
 import { reviewGeneratedCode } from '@/lib/code-review-gate'
 import {
@@ -1638,9 +1638,87 @@ export async function POST(req: Request) {
     invocationStart,
   }
 
-  const wfRun = await start(buildProject, [wfParams])
+  // Launch the two-step workflow in the background. The workflow writes all events
+  // to run_events via appendRunEvent(). This route returns a polling stream that
+  // reads from run_events and re-emits in AI SDK data stream format — no live
+  // connection to the workflow needed, and no cross-step stream-sealing problem.
+  await start(buildProject, [wfParams])
 
-  return new Response(wfRun.getReadable<string>(), {
+  const enc = new TextEncoder()
+  const runPollingStream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let closed = false
+      const close = () => {
+        if (closed) return
+        closed = true
+        try { controller.close() } catch { /* already closed */ }
+      }
+      const enqueue = (line: string) => {
+        if (closed) return
+        try { controller.enqueue(enc.encode(line)) } catch { close() }
+      }
+
+      // Message-start frame + immediate run-id event so client can reconnect if needed
+      const messageId = `wf_${Date.now()}`
+      enqueue(`f:{"messageId":"${messageId}"}\n`)
+      if (runId) {
+        enqueue(`2:${JSON.stringify([{ type: 'data-run', data: { runId } }])}\n`)
+      }
+
+      let cursor = 0
+      try {
+        while (true) {
+          if (req.signal.aborted || closed) break
+
+          const events = await getRunEventsSince(runId!, cursor, 500).catch(() => [] as RunEventRow[])
+          for (const ev of events) {
+            if (ev.seq > cursor) cursor = ev.seq
+            const payload = ev.payload as { type?: string; text?: string } | null
+            if (!payload) continue
+            const evType = ev.type ?? (payload as { type?: string }).type ?? ''
+            if (evType === 'text') {
+              const text = (payload as { text?: string }).text
+              if (text) enqueue(`0:${JSON.stringify(text)}\n`)
+            } else if (evType && evType !== 'data-run') {
+              // payload IS the full UIMessageChunk — emit as AI SDK data part
+              enqueue(`2:${JSON.stringify([payload])}\n`)
+            }
+          }
+
+          if (events.length < 500) {
+            // Caught up — check terminal status
+            const runRow = await getRun(runId!).catch(() => null)
+            if (isTerminalRunStatus(runRow?.status)) {
+              // Drain any final events that landed between last fetch and status read
+              const tail = await getRunEventsSince(runId!, cursor, 500).catch(() => [] as RunEventRow[])
+              for (const ev of tail) {
+                if (ev.seq > cursor) cursor = ev.seq
+                const payload = ev.payload as { type?: string; text?: string } | null
+                if (!payload) continue
+                const evType = ev.type ?? (payload as { type?: string }).type ?? ''
+                if (evType === 'text') {
+                  const text = (payload as { text?: string }).text
+                  if (text) enqueue(`0:${JSON.stringify(text)}\n`)
+                } else if (evType && evType !== 'data-run') {
+                  enqueue(`2:${JSON.stringify([payload])}\n`)
+                }
+              }
+              // Emit done marker so client transitions to 'ready'
+              enqueue('d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n')
+              break
+            }
+            await new Promise(r => setTimeout(r, 1000))
+          }
+        }
+      } catch (e) {
+        console.warn('[run-poll] error:', e instanceof Error ? e.message : e)
+      } finally {
+        close()
+      }
+    },
+  })
+
+  return new Response(runPollingStream, {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
       'X-Vercel-AI-Data-Stream': 'v1',

@@ -4,7 +4,6 @@
 // run.getReadable<string>() as the SSE response — the client's useChat hook
 // reads it identically to the old createUIMessageStreamResponse path.
 
-import { getWritable } from 'workflow'
 import { start } from 'workflow/api'
 import { Sandbox } from '@vercel/sandbox'
 import {
@@ -87,18 +86,31 @@ function encodeDataPart(part: { id?: string; type: string; data?: any }): string
   return `2:${JSON.stringify([{ type: part.type, ...(part.id ? { id: part.id } : {}), ...(part.data !== undefined ? { data: part.data } : {}) }])}\n`
 }
 
-/** Minimal WritableStreamDefaultWriter wrapper that also logs to the run table. */
-function makeWriter(
-  wfWriter: WritableStreamDefaultWriter<string>,
+/** Serializable result passed from stepGenerate → stepVerify across the durable step boundary. */
+interface GenerateResult {
+  sandboxId: string
+  resolvedUrl: string
+  manifestFilePaths: string[]
+  planManifest: NormalizedManifest | null
+  skill: Skill
+  brandName: string | null
+  projectId: string | null
+  userId: string | null
   runId: string | null
-): PipelineWriter {
+  invocationStart: number
+  firstUserText: string
+  lastUserText: string
+  userText: string
+}
+
+/** Supabase-only writer — logs every event to run_events (no live stream). */
+function makeWriter(runId: string | null): PipelineWriter {
   return {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     write(part: { id?: string; type: string; data?: any }) {
-      const line = encodeDataPart(part)
-      wfWriter.write(line).catch(() => {})
       if (runId) {
-        appendRunEvent(runId, part.type, part.data)
+        // Store the full UIMessageChunk so the polling stream can reconstruct it.
+        appendRunEvent(runId, part.type, part)
       }
     },
   }
@@ -109,21 +121,15 @@ function makeWriter(
 export async function buildProject(params: BuildPipelineParams): Promise<void> {
   'use workflow'
 
-  await stepGenerate(params)
+  const genResult = await stepGenerate(params)
+  await stepVerify(params, genResult)
 }
 
 // ── Step 1: Scaffold + AI generation ────────────────────────────────────────
 
-async function stepGenerate(params: BuildPipelineParams): Promise<void> {
+async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult> {
   'use step'
-  const wf = getWritable<string>()
-  const wfWriter = wf.getWriter()
-  const writer = makeWriter(wfWriter, params.runId)
-
-  // First event: send run ID so client can reconnect via run log
-  if (params.runId) {
-    await wfWriter.write(encodeDataPart({ id: 'srv-run', type: 'data-run', data: { runId: params.runId } }))
-  }
+  const writer = makeWriter(params.runId)
 
   // Sandbox: reconnect if pre-created, otherwise create fresh
   writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { status: 'loading' } })
@@ -137,9 +143,22 @@ async function stepGenerate(params: BuildPipelineParams): Promise<void> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { error: { message }, status: 'error' } })
-    try { await wfWriter.write('d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n') } catch { /* ignore */ }
-    await wfWriter.close().catch(() => {})
-    return
+    if (params.runId) await updateRun(params.runId, { status: 'error' }).catch(() => {})
+    return {
+      sandboxId: params.sandboxId ?? '',
+      resolvedUrl: '',
+      manifestFilePaths: [],
+      planManifest: null,
+      skill: params.skill,
+      brandName: params.brandName,
+      projectId: params.projectId,
+      userId: params.userId,
+      runId: params.runId,
+      invocationStart: params.invocationStart,
+      firstUserText: params.firstUserText,
+      lastUserText: params.lastUserText,
+      userText: params.userText,
+    }
   }
   const sandboxId = sandbox.sandboxId
 
@@ -268,8 +287,6 @@ async function stepGenerate(params: BuildPipelineParams): Promise<void> {
   ])
 
   let p1GFCalled = false
-  let earlyEmitDone = false
-  let earlyEmitUrl = ''
 
   // Page paths for multi-page injection
   const pageMapPaths: string[] = activePageMap
@@ -324,28 +341,6 @@ async function stepGenerate(params: BuildPipelineParams): Promise<void> {
         }
         const filteredPaths = phase1Paths.length > 0 ? phase1Paths : nonScaffold.length > 0 ? nonScaffold : args.paths
 
-        // Early emit for webapp: start dev server after Phase 1
-        void (async () => {
-          try {
-            writer.write({ id: 'srv-phase-install', type: 'data-build-phase', data: { phase: 'installing', label: 'Installing packages...' } })
-            if (bgInstallPromise) await bgInstallPromise
-            await reviewGeneratedCode(sandbox, skill)
-            writer.write({ id: 'srv-phase-build', type: 'data-build-phase', data: { phase: 'building', label: 'Building and starting preview...' } })
-            writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' } })
-            const devCmd = await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'] })
-            writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, commandId: devCmd.cmdId, command: 'bun', args: ['run', 'dev'], status: 'running' } })
-            void verifyAndRepair({ sandbox, sandboxId, writer }).catch(() => {})
-            writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
-            const domain = sandbox.domain(3000)
-            await waitForDevServer(domain)
-            earlyEmitUrl = domain
-            earlyEmitDone = true
-            if (params.projectId) updateProjectRow(params.projectId, { sandbox_id: sandboxId, preview_url: domain }).catch(() => {})
-          } catch (e) {
-            console.warn('[early-emit-webapp] failed:', e instanceof Error ? e.message : e)
-          }
-        })()
-
         return phase1GF.execute({ ...args, paths: filteredPaths }, ctx)
       }
       return rawGF.execute(args, ctx)
@@ -392,42 +387,34 @@ async function stepGenerate(params: BuildPipelineParams): Promise<void> {
     onError: error => console.error('[workflow-gen] AI error:', error),
   })
 
-  // Pipe the AI data stream to getWritable(), filtering out the d: done marker.
-  // The AI SDK ends every stream with d:{finishReason,...} which signals the
-  // client that the build is complete. We CANNOT emit that from stepGenerate —
-  // if we do, the client closes its stream listener before stepVerify can reveal
-  // the preview URL. We strip d: here and emit it at the very end of stepVerify.
+  // Drain the AI response body to execute all tool calls.
+  // generateFiles calls rawWriterForGF.write() → writer.write() → appendRunEvent()
+  // so file events land in run_events in real-time and are polled by the route.
   try {
     const aiResp = aiResult.toUIMessageStreamResponse({ sendReasoning: false, sendStart: false })
     if (aiResp.body) {
-      const dec = new TextDecoder()
       const reader = aiResp.body.getReader()
-      // Line-aware streaming filter: hold partial lines in lineBuf so we can
-      // inspect complete lines before forwarding. Chunks don't align to line ends.
-      let lineBuf = ''
-      const writeFiltered = async (chunk: string) => {
-        lineBuf += chunk
-        const lines = lineBuf.split('\n')
-        lineBuf = lines.pop() ?? '' // last element may be partial
-        const toWrite = lines.filter(l => !l.startsWith('d:')).join('\n')
-        if (toWrite) await wfWriter.write(toWrite + '\n')
-      }
       while (true) {
-        const { done, value } = await reader.read()
+        const { done } = await reader.read()
         if (done) break
-        if (value) await writeFiltered(dec.decode(value, { stream: true }))
       }
-      // Flush trailing decoder bytes + remaining buffer (skip d: lines)
-      const trailing = dec.decode()
-      if (trailing) lineBuf += trailing
-      if (lineBuf && !lineBuf.startsWith('d:')) await wfWriter.write(lineBuf)
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (!/abort|timeout|cancel/i.test(msg)) {
-      console.error('[workflow-gen] stream error:', msg)
+      console.error('[workflow-gen] drain error:', msg)
     }
   }
+  // Log the complete AI text after all tool calls have executed
+  try {
+    const fullText = await Promise.race([
+      aiResult.text,
+      new Promise<string>((_, rej) => setTimeout(() => rej(new Error('text-timeout')), 10_000)),
+    ]).catch(() => '')
+    if (fullText && params.runId) {
+      appendRunEvent(params.runId, 'text', { type: 'text', text: fullText })
+    }
+  } catch { /* non-fatal */ }
 
   // Synthetic manifest for website when AI skipped planProject
   if (!planBox.manifest && skill === 'website') {
@@ -510,70 +497,103 @@ async function stepGenerate(params: BuildPipelineParams): Promise<void> {
       .catch(() => {})
   }
 
-  // Code review (non-early-emit path: games + slow paths)
-  if (!earlyEmitDone) await reviewGeneratedCode(sandbox, skill)
+  // Code review before handing off to stepVerify
+  await reviewGeneratedCode(sandbox, skill).catch(() => {})
 
-  // Start install + dev server if not already done
-  if (!earlyEmitDone) {
-    writer.write({ id: 'srv-install', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['install'], status: 'waiting' } })
-    try {
-      const installCmd = await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'] })
-      await Promise.race([installCmd.wait(), new Promise<void>((_, rej) => setTimeout(() => rej(new Error('install timed out')), 90_000))])
-      writer.write({ id: 'srv-install', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['install'], status: 'done', exitCode: 0 } })
-    } catch {
-      writer.write({ id: 'srv-install', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['install'], status: 'error' } })
-    }
-    // Start dev server
-    writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' } })
-    try {
-      const devCmd = await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'] })
-      writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, commandId: devCmd.cmdId, command: 'bun', args: ['run', 'dev'], status: 'running' } })
-    } catch { /* non-fatal */ }
-  }
-
-  // Safe domain resolution — throws if port has no route (shouldn't happen but guard it)
+  // Compute the preview URL to pass to stepVerify
   let sandboxUrl = ''
   try { sandboxUrl = sandbox.domain(3000) } catch { sandboxUrl = `https://${sandboxId}-3000.sandbox.vercel.app` }
 
-  // ── Verify + reveal (runs in the same step — no cross-step stream handoff needed) ──
-  const { projectId, userId, runId, invocationStart, firstUserText, lastUserText } = params
-  const manifestFilePaths = planBox.manifest?.files.map(f => f.path) ?? []
+  return {
+    sandboxId,
+    resolvedUrl: sandboxUrl,
+    manifestFilePaths: planBox.manifest?.files.map(f => f.path) ?? [],
+    planManifest: planBox.manifest,
+    skill: params.skill,
+    brandName: params.brandName,
+    projectId: params.projectId,
+    userId: params.userId,
+    runId: params.runId,
+    invocationStart: params.invocationStart,
+    firstUserText: params.firstUserText,
+    lastUserText: params.lastUserText,
+    userText: params.userText,
+  }
+}
+
+// ── Step 2: Install + verify + reveal preview URL ────────────────────────────
+
+async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult): Promise<void> {
+  'use step'
+  const writer = makeWriter(params.runId)
+  const { sandboxId, resolvedUrl: initialUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, invocationStart, firstUserText, lastUserText } = genResult
+
+  // No sandbox was created — error path from stepGenerate
+  if (!sandboxId) {
+    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
+    return
+  }
+
+  // Reconnect to the sandbox that stepGenerate created and wrote files into
+  let sandbox: Sandbox
+  try {
+    sandbox = await Sandbox.get({ sandboxId })
+  } catch (err) {
+    console.warn('[stepVerify] sandbox reconnect failed:', err instanceof Error ? err.message : err)
+    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
+    return
+  }
+
+  // Install packages
+  writer.write({ id: 'srv-phase-install', type: 'data-build-phase', data: { phase: 'installing', label: 'Installing packages...' } })
+  writer.write({ id: 'srv-install', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['install'], status: 'waiting' } })
+  try {
+    const installCmd = await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun install || pnpm install'] })
+    await Promise.race([installCmd.wait(), new Promise<void>((_, rej) => setTimeout(() => rej(new Error('install timed out')), 90_000))])
+    writer.write({ id: 'srv-install', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['install'], status: 'done', exitCode: 0 } })
+  } catch {
+    writer.write({ id: 'srv-install', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['install'], status: 'error' } })
+  }
+
+  // Start dev server
+  writer.write({ id: 'srv-phase-build', type: 'data-build-phase', data: { phase: 'building', label: 'Building and starting preview...' } })
+  writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' } })
+  try {
+    const devCmd = await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'] })
+    writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, commandId: devCmd.cmdId, command: 'bun', args: ['run', 'dev'], status: 'running' } })
+  } catch { /* non-fatal */ }
+
+  // Re-resolve URL (sandbox.domain() is safe to call again)
+  let resolvedUrl = initialUrl
+  try { resolvedUrl = sandbox.domain(3000) } catch { /* keep initialUrl */ }
 
   let revealed = false
-  let resolvedUrl: string = earlyEmitDone ? (earlyEmitUrl ?? sandboxUrl) : sandboxUrl
 
   try {
-    // Nav shells for multi-page websites (early, before dev server wait)
-    if (skill === 'website' && !earlyEmitDone) {
+    // Nav shells for multi-page websites (before dev server wait)
+    if (skill === 'website') {
       try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
     }
 
-    // verifyAndRepair in background (fires early, dev server may still be starting)
-    if (!earlyEmitDone) {
-      void verifyAndRepair({ sandbox, sandboxId, writer }).catch(() => {})
-    }
+    // verifyAndRepair fires in background while dev server starts
+    void verifyAndRepair({ sandbox, sandboxId, writer }).catch(() => {})
 
     // Wait for dev server
-    let devError: string | null = null
+    writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
+    let devError = await waitForDevServer(resolvedUrl)
 
-    if (!earlyEmitDone) {
-      writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
-      try { resolvedUrl = sandbox.domain(3000) } catch { /* keep sandboxUrl */ }
+    if (devError && (await installMissingModules(sandbox, devError))) {
+      logRepair({ layer: 'dev-500', action: 'auto-installed-and-restarted', detail: devError.slice(0, 200), sandboxId })
+      await restartDevServer(sandbox)
       devError = await waitForDevServer(resolvedUrl)
-
-      if (devError && (await installMissingModules(sandbox, devError))) {
-        logRepair({ layer: 'dev-500', action: 'auto-installed-and-restarted', detail: devError.slice(0, 200), sandboxId })
-        await restartDevServer(sandbox)
-        devError = await waitForDevServer(resolvedUrl)
-      }
-
-      if (devError) {
-        logRepair({ layer: 'dev-500', action: 'silent-fallback', detail: devError.slice(0, 200), sandboxId })
-        try { await applyFallbackTerminalState(sandbox, devError, { skill, brand: brandName || 'This project' }) } catch { /* non-fatal */ }
-      }
-
-      if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
     }
+
+    if (devError) {
+      logRepair({ layer: 'dev-500', action: 'silent-fallback', detail: devError.slice(0, 200), sandboxId })
+      try { await applyFallbackTerminalState(sandbox, devError, { skill, brand: brandName || 'This project' }) } catch { /* non-fatal */ }
+    }
+
+    if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
 
     // 502 gate
     if (!devError) {
@@ -596,7 +616,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<void> {
       try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
     }
 
-    // Deadline gate: if >660s elapsed since invocation start, reveal now
+    // Deadline gate: if >660s elapsed since invocation start, skip headless verify
     if (!devError) {
       const elapsed = Date.now() - invocationStart
       if (elapsed > 660_000) {
@@ -672,7 +692,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<void> {
     }
     if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
 
-    // Suggestions (fire-and-forget, non-blocking)
+    // Suggestions (fire-and-forget)
     void (async () => {
       try {
         const items = await generateSuggestions({ request: lastUserText, skill, filePaths: manifestFilePaths })
@@ -692,23 +712,16 @@ async function stepGenerate(params: BuildPipelineParams): Promise<void> {
       await updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl, ...(snapshotPath ? { snapshot_path: snapshotPath } : {}) }).catch(() => {})
     }
 
-    if (runId) updateRun(runId, { status: 'done' }).catch(() => {})
-
-    // Terminal done marker — we suppressed d: from the AI SDK stream so the client
-    // stayed in "streaming" state until we could reveal the preview URL above.
-    await wfWriter.write('d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n')
   } catch (err) {
-    console.error('[verify] error:', err instanceof Error ? err.message : err)
+    console.error('[stepVerify] error:', err instanceof Error ? err.message : err)
     if (!revealed && resolvedUrl) {
       try {
         writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
-        revealed = true
       } catch { /* ignore */ }
     }
-    if (runId) updateRun(runId, { status: 'done' }).catch(() => {})
-    try { await wfWriter.write('d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n') } catch { /* ignore */ }
   } finally {
-    await wfWriter.close().catch(() => {})
+    // Always mark the run as done so the polling stream stops
+    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
   }
 }
 
