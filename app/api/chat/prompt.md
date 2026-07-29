@@ -284,6 +284,20 @@ These patterns WILL break the build. The post-generation fixer catches some but 
 - Any package not in §3.1 / §3.2 without adding to `package.json`
 - `import express from 'express'` or any `import.*from 'express'` → ❌ there is NO Node.js runtime; the build will crash
 
+**Zero-Error Contract — type safety, JSX, and data models (non-negotiable):**
+
+This is the #1 source of recurring build failures across all projects. Follow every rule exactly:
+
+1. **NEVER invent object properties.** If a property does not exist in the TypeScript interface or data array you defined, you CANNOT use it in JSX. Example: if `MenuItem` has `{ name, price, description }` then NEVER reference `item.japaneseName`, `item.calories`, `item.image`, or any other field you didn't define. Check your own data file before writing any JSX that consumes it.
+
+2. **NEVER use `<a href>` for internal navigation.** Only `<Link to="/route">` from `react-router-dom`. This is a Vite SPA — `<a href="/about">` causes a full page reload and loses all state. The ONLY valid use of `<a>` is for external links that open in a new tab: `<a href="https://..." target="_blank" rel="noopener noreferrer">`.
+
+3. **Clean removal rule.** When you remove a JSX block or expression, remove the COMPLETE block including any surrounding punctuation. Never leave: trailing commas after the last JSX element, orphaned `{/* */}` comment markers with no content, unclosed JSX tags, or a lone `{expression}` wrapper with no content. Read back the surrounding lines mentally after every removal.
+
+4. **Define interfaces before components.** In any data file (e.g., `src/data/menuItems.ts`), define the TypeScript interface at the top FIRST. Then define the data array using ONLY the interface fields. Then in every component that imports this data, only destructure or access the fields declared in that interface — nothing else.
+
+5. **Self-contained imports.** Every component file must `import` every React hook, utility, icon, or sub-component it uses. NEVER assume something is globally available. If you use `useState` — import it. If you use `cn` — import it from `@/lib/utils`. If you use `ChefHat` — import it from `lucide-react`.
+
 **CSS violations:**
 - `@apply` in ANY css file — crashes PostCSS with no recovery
 - `@import` not at the very top of the file — breaks PostCSS
