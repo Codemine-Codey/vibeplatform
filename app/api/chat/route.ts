@@ -7,8 +7,6 @@ import {
   stepCountIs,
   streamText,
 } from 'ai'
-import { start } from 'workflow/api'
-import { buildProject, type BuildPipelineParams } from '@/app/workflows/build-pipeline'
 import type { UIMessage, UIMessageStreamWriter } from 'ai'
 import type { DataPart } from '@/ai/messages/data-parts'
 import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL, VISION_MODEL, ERROR_MODEL, getMaxOutputTokens } from '@/ai/constants'
@@ -36,7 +34,7 @@ import { getWarmEntry } from '@/ai/warm-pool'
 import { restoreBakedDeps } from '@/lib/baked-deps'
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
-import { createRun, appendRunEvent, updateRun, getRunEventsSince, getRun, isTerminalRunStatus, type RunEventRow } from '@/lib/runs'
+import { createRun, appendRunEvent, updateRun } from '@/lib/runs'
 import { stampShell, navTargetPageFiles } from '@/lib/shell-template'
 import { reviewGeneratedCode } from '@/lib/code-review-gate'
 import {
@@ -1616,115 +1614,43 @@ export async function POST(req: Request) {
     : ''
   const designContext = `${formatBrief(brief)}${researchContext}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
 
-  // Create run row (workflow writes data-run as its first event)
+  // Create run row so the client can reconnect via /api/runs/[id]/stream if needed.
   const runId = await createRun({ userId: authedUser.id }).catch(() => null)
 
-  const wfParams: BuildPipelineParams = {
-    runId,
-    userId: user?.id ?? null,
-    projectId,
-    sandboxId,
-    messages,
-    systemPrompt,
-    skill,
-    designContext,
-    tokens: brief.colorTokens ?? null,
-    brandName: brief.brandName ?? null,
-    pageMap: brief.pageMap ?? null,
-    fontPairing: brief.fontPairing ?? null,
-    firstUserText: userText,
-    lastUserText: userText,
-    userText,
-    invocationStart,
-  }
-
-  // Launch the two-step workflow in the background. The workflow writes all events
-  // to run_events via appendRunEvent(). This route returns a polling stream that
-  // reads from run_events and re-emits in AI SDK data stream format — no live
-  // connection to the workflow needed, and no cross-step stream-sealing problem.
-  await start(buildProject, [wfParams])
-
-  const enc = new TextEncoder()
-  const runPollingStream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      let closed = false
-      const close = () => {
-        if (closed) return
-        closed = true
-        try { controller.close() } catch { /* already closed */ }
-      }
-      const enqueue = (line: string) => {
-        if (closed) return
-        try { controller.enqueue(enc.encode(line)) } catch { close() }
-      }
-
-      // Message-start frame + immediate run-id event so client can reconnect if needed
-      const messageId = `wf_${Date.now()}`
-      enqueue(`f:{"messageId":"${messageId}"}\n`)
-      if (runId) {
-        enqueue(`2:${JSON.stringify([{ type: 'data-run', data: { runId } }])}\n`)
-      }
-
-      let cursor = 0
-      try {
-        while (true) {
-          if (req.signal.aborted || closed) break
-
-          const events = await getRunEventsSince(runId!, cursor, 500).catch(() => [] as RunEventRow[])
-          for (const ev of events) {
-            if (ev.seq > cursor) cursor = ev.seq
-            const payload = ev.payload as { type?: string; text?: string } | null
-            if (!payload) continue
-            const evType = ev.type ?? (payload as { type?: string }).type ?? ''
-            if (evType === 'text') {
-              const text = (payload as { text?: string }).text
-              if (text) enqueue(`0:${JSON.stringify(text)}\n`)
-            } else if (evType && evType !== 'data-run') {
-              // payload IS the full UIMessageChunk — emit as AI SDK data part
-              enqueue(`2:${JSON.stringify([payload])}\n`)
-            }
-          }
-
-          if (events.length < 500) {
-            // Caught up — check terminal status
-            const runRow = await getRun(runId!).catch(() => null)
-            if (isTerminalRunStatus(runRow?.status)) {
-              // Drain any final events that landed between last fetch and status read
-              const tail = await getRunEventsSince(runId!, cursor, 500).catch(() => [] as RunEventRow[])
-              for (const ev of tail) {
-                if (ev.seq > cursor) cursor = ev.seq
-                const payload = ev.payload as { type?: string; text?: string } | null
-                if (!payload) continue
-                const evType = ev.type ?? (payload as { type?: string }).type ?? ''
-                if (evType === 'text') {
-                  const text = (payload as { text?: string }).text
-                  if (text) enqueue(`0:${JSON.stringify(text)}\n`)
-                } else if (evType && evType !== 'data-run') {
-                  enqueue(`2:${JSON.stringify([payload])}\n`)
-                }
-              }
-              // Emit done marker so client transitions to 'ready'
-              enqueue('d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n')
-              break
-            }
-            await new Promise(r => setTimeout(r, 1000))
-          }
+  // Run the pipeline inline — proven path (Workflow SDK webhooks weren't executing
+  // so events never landed in run_events). Events are dual-written to the live AI SDK
+  // stream AND to run_events via wrapWriterWithLog, so reconnect still works.
+  return createUIMessageStreamResponse({
+    stream: createUIMessageStream({
+      originalMessages: messages,
+      execute: async ({ writer: rawWriter }) => {
+        if (runId) rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
+        const writer = runId ? wrapWriterWithLog(rawWriter, runId) : rawWriter
+        let terminalStatus = 'done'
+        try {
+          await runPipeline({
+            writer,
+            messages,
+            systemPrompt,
+            skill,
+            projectId,
+            userId: user?.id ?? null,
+            designContext,
+            sandboxPromise: sandbox ? Promise.resolve(sandbox) : undefined,
+            tokens: brief.colorTokens ?? undefined,
+            brandName: brief.brandName ?? undefined,
+            pageMap: brief.pageMap ?? undefined,
+            fontPairing: brief.fontPairing ?? undefined,
+            runId,
+            invocationStart,
+          })
+        } catch (err) {
+          terminalStatus = 'error'; throw err
+        } finally {
+          if (runId) await updateRun(runId, { status: terminalStatus }).catch(() => {})
         }
-      } catch (e) {
-        console.warn('[run-poll] error:', e instanceof Error ? e.message : e)
-      } finally {
-        close()
-      }
-    },
-  })
-
-  return new Response(runPollingStream, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'X-Vercel-AI-Data-Stream': 'v1',
-      'Cache-Control': 'no-cache, no-transform',
-      'X-Accel-Buffering': 'no',
-    },
+      },
+    }),
   })
 }
 
