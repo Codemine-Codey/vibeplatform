@@ -155,7 +155,8 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { error: { message }, status: 'error' } })
-    // Return a "failed" result that stepVerify can no-op on
+    // Release writer lock so SDK can transition to stepVerify (and stepVerify can no-op on empty url)
+    wfWriter.releaseLock()
     return {
       sandboxId: params.sandboxId ?? '',
       url: '',
@@ -566,9 +567,12 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
   let sandboxUrl = ''
   try { sandboxUrl = sandbox.domain(3000) } catch { sandboxUrl = `https://${sandboxId}-3000.sandbox.vercel.app` }
 
-  // CRITICAL: close the step's writable so the Workflow SDK knows this step is done
-  // and can start stepVerify. Without this the SDK holds the stream open indefinitely.
-  await wfWriter.close().catch(() => {})
+  // Release the writer lock (but do NOT close the stream). Releasing the lock
+  // signals pollWritableLock → state.promise resolves → SDK considers this step
+  // done and transitions to stepVerify. Closing (wfWriter.close()) would call
+  // world.closeStream() and permanently seal the server-side stream, making
+  // stepVerify's getWritable() writes go to a closed channel (silently lost).
+  wfWriter.releaseLock()
 
   return {
     sandboxId,
