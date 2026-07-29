@@ -80,23 +80,6 @@ export interface BuildPipelineParams {
   userText: string
 }
 
-// Inter-step handoff: what stepGenerate returns for stepVerify to use.
-interface GenerateResult {
-  sandboxId: string
-  url: string
-  skill: Skill
-  brandName: string | null
-  projectId: string | null
-  userId: string | null
-  runId: string | null
-  invocationStart: number
-  manifestFilePaths: string[]
-  firstUserText: string
-  lastUserText: string
-  earlyEmitDone: boolean
-  earlyEmitUrl: string
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -126,13 +109,12 @@ function makeWriter(
 export async function buildProject(params: BuildPipelineParams): Promise<void> {
   'use workflow'
 
-  const genResult = await stepGenerate(params)
-  await stepVerify({ params, genResult })
+  await stepGenerate(params)
 }
 
 // ── Step 1: Scaffold + AI generation ────────────────────────────────────────
 
-async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult> {
+async function stepGenerate(params: BuildPipelineParams): Promise<void> {
   'use step'
   const wf = getWritable<string>()
   const wfWriter = wf.getWriter()
@@ -155,23 +137,9 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { error: { message }, status: 'error' } })
-    // Release writer lock so SDK can transition to stepVerify (and stepVerify can no-op on empty url)
-    wfWriter.releaseLock()
-    return {
-      sandboxId: params.sandboxId ?? '',
-      url: '',
-      skill: params.skill,
-      brandName: params.brandName,
-      projectId: params.projectId,
-      userId: params.userId,
-      runId: params.runId,
-      invocationStart: params.invocationStart,
-      manifestFilePaths: [],
-      firstUserText: params.firstUserText,
-      lastUserText: params.lastUserText,
-      earlyEmitDone: false,
-      earlyEmitUrl: '',
-    }
+    try { await wfWriter.write('d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n') } catch { /* ignore */ }
+    await wfWriter.close().catch(() => {})
+    return
   }
   const sandboxId = sandbox.sandboxId
 
@@ -567,57 +535,15 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
   let sandboxUrl = ''
   try { sandboxUrl = sandbox.domain(3000) } catch { sandboxUrl = `https://${sandboxId}-3000.sandbox.vercel.app` }
 
-  // Release the writer lock (but do NOT close the stream). Releasing the lock
-  // signals pollWritableLock → state.promise resolves → SDK considers this step
-  // done and transitions to stepVerify. Closing (wfWriter.close()) would call
-  // world.closeStream() and permanently seal the server-side stream, making
-  // stepVerify's getWritable() writes go to a closed channel (silently lost).
-  wfWriter.releaseLock()
+  // ── Verify + reveal (runs in the same step — no cross-step stream handoff needed) ──
+  const { projectId, userId, runId, invocationStart, firstUserText, lastUserText } = params
+  const manifestFilePaths = planBox.manifest?.files.map(f => f.path) ?? []
 
-  return {
-    sandboxId,
-    url: sandboxUrl,
-    skill: params.skill,
-    brandName: params.brandName,
-    projectId: params.projectId,
-    userId: params.userId,
-    runId: params.runId,
-    invocationStart: params.invocationStart,
-    manifestFilePaths: planBox.manifest?.files.map(f => f.path) ?? [],
-    firstUserText: params.firstUserText,
-    lastUserText: params.lastUserText,
-    earlyEmitDone,
-    earlyEmitUrl,
-  }
-}
-
-// ── Step 2: Verify + reveal ──────────────────────────────────────────────────
-
-async function stepVerify({
-  params,
-  genResult,
-}: {
-  params: BuildPipelineParams
-  genResult: GenerateResult
-}): Promise<void> {
-  'use step'
-
-  const { sandboxId, url, skill, brandName, projectId, userId, runId, invocationStart, firstUserText, lastUserText, earlyEmitDone, earlyEmitUrl } = genResult
-
-  if (!sandboxId || !url) return // generation failed, nothing to verify
-
-  const wf = getWritable<string>()
-  const wfWriter = wf.getWriter()
-  const writer = makeWriter(wfWriter, runId)
-
-  // Declare outside try so catch/finally can always access them
   let revealed = false
-  let resolvedUrl: string = earlyEmitDone ? (earlyEmitUrl ?? url) : url
+  let resolvedUrl: string = earlyEmitDone ? (earlyEmitUrl ?? sandboxUrl) : sandboxUrl
 
   try {
-    const sandbox = await Sandbox.get({ sandboxId })
-
-    // Nav shells for multi-page websites
+    // Nav shells for multi-page websites (early, before dev server wait)
     if (skill === 'website' && !earlyEmitDone) {
       try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
     }
@@ -632,7 +558,7 @@ async function stepVerify({
 
     if (!earlyEmitDone) {
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
-      try { resolvedUrl = sandbox.domain(3000) } catch { /* keep genResult.url */ }
+      try { resolvedUrl = sandbox.domain(3000) } catch { /* keep sandboxUrl */ }
       devError = await waitForDevServer(resolvedUrl)
 
       if (devError && (await installMissingModules(sandbox, devError))) {
@@ -674,7 +600,7 @@ async function stepVerify({
     if (!devError) {
       const elapsed = Date.now() - invocationStart
       if (elapsed > 660_000) {
-        console.warn(`[verify-step] ${Math.round(elapsed / 1000)}s elapsed — skipping headless verify`)
+        console.warn(`[verify] ${Math.round(elapsed / 1000)}s elapsed — skipping headless verify`)
         writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
         revealed = true
       }
@@ -686,7 +612,6 @@ async function stepVerify({
       try {
         writer.write({ id: 'srv-preview-starting', type: 'data-narration', data: { text: 'Starting preview — this may take up to 30 seconds, please wait.' } })
         writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'executing' } })
-
         let rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
         for (let attempt = 1; attempt <= 3 && rt.status === 'broken'; attempt++) {
           const fixed = await repairFile('src/pages/Home.tsx', (await readSandboxFile(sandbox, 'src/pages/Home.tsx') ?? ''), rt.detail).catch(() => null)
@@ -698,7 +623,7 @@ async function stepVerify({
         rtResult = rt
         writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'done', exitCode: 0 } })
       } catch (e) {
-        console.warn('[verify-step] headless check failed:', e instanceof Error ? e.message : e)
+        console.warn('[verify] headless check failed:', e instanceof Error ? e.message : e)
         writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'done', exitCode: 0 } })
       }
     }
@@ -724,7 +649,7 @@ async function stepVerify({
           logRepair({ layer: 'runtime-check', action: `functional-issues-r${round}`, detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
           const issueText = `Fix these SPECIFIC problems:\n- ${fv.issues.join('\n- ')}`
           let changedAny = false
-          for (const path of ['src/pages/Home.tsx', ...genResult.manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 8)) {
+          for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 8)) {
             const content = await readSandboxFile(sandbox, path)
             if (!content) continue
             const fixed = await repairFile(path, content, issueText)
@@ -747,10 +672,10 @@ async function stepVerify({
     }
     if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
 
-    // Suggestions
+    // Suggestions (fire-and-forget, non-blocking)
     void (async () => {
       try {
-        const items = await generateSuggestions({ request: lastUserText, skill, filePaths: genResult.manifestFilePaths })
+        const items = await generateSuggestions({ request: lastUserText, skill, filePaths: manifestFilePaths })
         if (items.length) writer.write({ id: 'srv-suggestions', type: 'data-suggestions', data: { items } })
       } catch { /* non-fatal */ }
     })()
@@ -769,13 +694,11 @@ async function stepVerify({
 
     if (runId) updateRun(runId, { status: 'done' }).catch(() => {})
 
-    // Terminal done marker — tells the client the full pipeline is complete.
-    // We suppressed d: in stepGenerate so the client stayed in "streaming" state
-    // until we could reveal the preview URL here. Now we close it properly.
+    // Terminal done marker — we suppressed d: from the AI SDK stream so the client
+    // stayed in "streaming" state until we could reveal the preview URL above.
     await wfWriter.write('d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n')
   } catch (err) {
-    console.error('[stepVerify] error:', err instanceof Error ? err.message : err)
-    // Always reveal URL so the client never stays blank
+    console.error('[verify] error:', err instanceof Error ? err.message : err)
     if (!revealed && resolvedUrl) {
       try {
         writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
@@ -783,7 +706,6 @@ async function stepVerify({
       } catch { /* ignore */ }
     }
     if (runId) updateRun(runId, { status: 'done' }).catch(() => {})
-    // Still send done marker even on error path
     try { await wfWriter.write('d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n') } catch { /* ignore */ }
   } finally {
     await wfWriter.close().catch(() => {})
