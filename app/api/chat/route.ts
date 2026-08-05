@@ -50,7 +50,7 @@ import { createProjectRow, getProject, snapshotProject, updateProjectRow, getPro
 import { tokenStore } from '@/lib/token-context'
 import { ensureValidCss } from '@/lib/css-guard'
 import { trimStaleReadResults } from '@/lib/trim-history'
-import prompt from './prompt.md'
+import prompt from './prompt.md.ts'
 
 export const maxDuration = 800
 

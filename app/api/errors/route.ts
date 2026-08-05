@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 import { generateText, tool, stepCountIs } from 'ai'
 import { linesSchema } from '@/components/error-monitor/schemas'
 import { resultSchema } from '@/components/error-monitor/schemas'
-import prompt from './prompt.md'
+import prompt from './prompt.md.ts'
 import z from 'zod/v3'
 
 export const maxDuration = 60

@@ -24,6 +24,8 @@ const files = [
   'ai/packs/website.md',
   'ai/packs/webapp.md',
   'ai/packs/game.md',
+  'app/api/chat/prompt.md',
+  'app/api/errors/prompt.md',
 ]
 
 for (const rel of files) {
