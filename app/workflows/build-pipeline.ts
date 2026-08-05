@@ -154,8 +154,12 @@ function makeSilenceFilter() {
         controller.enqueue(part)
       }
     },
-    flush(controller: TransformStreamDefaultController) {
-      for (const b of holdBuf) controller.enqueue(b)
+    flush(_controller: TransformStreamDefaultController) {
+      // Drop ALL held text — the AI's closing message is never reliable here because
+      // stepVerify hasn't run yet. A programmatic data-narration is written after
+      // verify confirms the page is actually working. Leaking repair-commentary or
+      // premature "your project is ready" lines to the user is the worst outcome.
+      holdBuf.length = 0
     },
   })
 }
@@ -610,7 +614,9 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
     }
 
-    void verifyAndRepair({ sandbox, sandboxId, writer }).catch(() => {})
+    // MUST await — not fire-and-forget. verifyAndRepair can restart the dev server
+    // mid-repair; if we proceed to headless check concurrently the server may 502.
+    await verifyAndRepair({ sandbox, sandboxId, writer })
 
     writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
     let devError = await waitForDevServer(resolvedUrl)
@@ -665,7 +671,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
         writer.write({ id: 'srv-preview-starting', type: 'data-narration', data: { text: 'Starting preview — this may take up to 30 seconds, please wait.' } })
         writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'executing' } })
         let rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
-        for (let attempt = 1; attempt <= 3 && rt.status === 'broken'; attempt++) {
+        for (let attempt = 1; attempt <= 5 && rt.status === 'broken'; attempt++) {
           const fixed = await repairFile('src/pages/Home.tsx', (await readSandboxFile(sandbox, 'src/pages/Home.tsx') ?? ''), rt.detail).catch(() => null)
           if (!fixed) break
           await sandbox.writeFiles([{ path: 'src/pages/Home.tsx', content: Buffer.from(sanitizeTsx('src/pages/Home.tsx', fixed), 'utf8') }])
@@ -718,11 +724,21 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       }
     }
 
-    // Reveal
+    // Reveal — written ONLY once all verify/repair rounds are complete and the
+    // server is confirmed stable. This is the single source of truth for "ready".
     if (!revealed) {
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
       revealed = true
     }
+    // Programmatic closing narration — replaces the AI's text (which is suppressed by
+    // the silence filter). Written after reveal so the user only sees it once the
+    // preview is genuinely live and the verify pass has completed.
+    const brand = brandName ?? 'your project'
+    writer.write({
+      id: 'srv-ready-narration',
+      type: 'data-narration',
+      data: { text: `${brand.charAt(0).toUpperCase() + brand.slice(1)} is ready — open the Preview tab to see it live.` },
+    })
     if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
 
     // Suggestions

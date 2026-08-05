@@ -301,11 +301,11 @@ export async function verifyAndRepair({
     type: 'data-run-command',
     data: { sandboxId, command: 'Getting your project ready', args: [], status: 'executing' },
   })
-  const repairDeadline = Date.now() + 240_000
+  const repairDeadline = Date.now() + 360_000
   try {
-    for (let attempt = 1; attempt <= 5; attempt++) {
+    for (let attempt = 1; attempt <= 7; attempt++) {
       if (Date.now() > repairDeadline) {
-        console.warn('[verify] repair budget (240s) exhausted — proceeding with current build')
+        console.warn('[verify] repair budget (360s) exhausted — proceeding with current build')
         break
       }
       let log = ''
