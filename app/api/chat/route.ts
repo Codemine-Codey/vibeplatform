@@ -36,7 +36,7 @@ import { getWarmEntry } from '@/ai/warm-pool'
 import { restoreBakedDeps } from '@/lib/baked-deps'
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
-import { createRun, appendRunEvent, updateRun } from '@/lib/runs'
+import { createRun, appendRunEvent, updateRun, getRun, getRunEventsSince, isTerminalRunStatus } from '@/lib/runs'
 import { stampShell, navTargetPageFiles } from '@/lib/shell-template'
 import { reviewGeneratedCode } from '@/lib/code-review-gate'
 import {
@@ -1620,12 +1620,12 @@ export async function POST(req: Request) {
   // Create run row so the client can reconnect via /api/runs/[id]/stream if needed.
   const runId = await createRun({ userId: authedUser.id }).catch(() => null)
 
-  // Launch the durable workflow. start() enqueues the build and returns IMMEDIATELY.
-  // run.readable is a ReadableStream backed by Vercel's durable infrastructure —
-  // the HTTP handler exits after ~5s; stepGenerate + stepVerify each get their own
-  // fresh 800s Vercel invocation, so total build time can exceed 26 minutes.
-  // The stream format is identical to createUIMessageStreamResponse (AI SDK v5 protocol),
-  // so useChat on the client parses it identically.
+  // Launch the durable workflow. start() enqueues the build and returns IMMEDIATELY —
+  // Vercel Workflows run asynchronously and do NOT stream back to the original HTTP
+  // connection via run.readable. Instead, each step writes events to Supabase via
+  // appendRunEvent(runId, ...), and THIS route returns a polling SSE stream that tails
+  // those events from Supabase in real time. The client's Chat class reads it identically
+  // to any other createUIMessageStreamResponse (same SSE format + x-vercel-ai-ui-message-stream: v1).
   const run = await start(buildProject, [{
     runId,
     userId: user?.id ?? null,
@@ -1644,13 +1644,72 @@ export async function POST(req: Request) {
     invocationStart,
     userText,
   }])
+  void run // start() fires workflow; run.readable is NOT used — we poll Supabase instead
 
-  return new Response(run.readable as ReadableStream, {
+  // Supabase-backed polling SSE: polls run_events every ~800ms until the run is done.
+  // Identical framing to /api/runs/[id]/stream — the Chat class parses it the same way.
+  if (!runId) {
+    // No run ID (createRun failed) — can't stream. Return a minimal error stream.
+    const enc = new TextEncoder()
+    return new Response(
+      new ReadableStream({ start(c) { c.enqueue(enc.encode('data: {"type":"finish-step"}\n\n')); c.close() } }),
+      { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', 'x-vercel-ai-ui-message-stream': 'v1' } }
+    )
+  }
+
+  const encoder = new TextEncoder()
+  const pollingStream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let closed = false
+      const close = () => {
+        if (closed) return
+        closed = true
+        try { controller.close() } catch { /* already closed */ }
+      }
+      const emit = (payload: unknown) => {
+        if (closed) return
+        try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`)) }
+        catch { close() }
+      }
+      try {
+        let cursor = 0
+        // Brief initial delay to let stepGenerate start writing events to Supabase.
+        // Without this, the first poll fires before the first appendRunEvent call.
+        await new Promise(r => setTimeout(r, 1200))
+        while (true) {
+          if (closed) break
+          const events = await getRunEventsSince(runId, cursor, 500)
+          for (const ev of events) {
+            emit(ev.payload)
+            if (ev.seq > cursor) cursor = ev.seq
+          }
+          // A full batch means there may be more — loop immediately without sleeping.
+          if (events.length === 500) continue
+          // Caught up — check if the run reached a terminal state.
+          const latest = await getRun(runId)
+          if (isTerminalRunStatus(latest?.status)) {
+            // Drain any final events that landed between last fetch and status check.
+            const tail = await getRunEventsSince(runId, cursor, 500)
+            for (const ev of tail) { emit(ev.payload); if (ev.seq > cursor) cursor = ev.seq }
+            break
+          }
+          await new Promise(r => setTimeout(r, 800))
+        }
+      } catch (e) {
+        console.warn('[chat-workflow-stream] polling error:', e instanceof Error ? e.message : e)
+      } finally {
+        close()
+      }
+    },
+  })
+
+  return new Response(pollingStream, {
     headers: {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache, no-transform',
+      'x-vercel-ai-ui-message-stream': 'v1',
       'x-accel-buffering': 'no',
-      'x-workflow-run-id': run.runId,
+      'x-workflow-run-id': runId,
     },
   })
 }
