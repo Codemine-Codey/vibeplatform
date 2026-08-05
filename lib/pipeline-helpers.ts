@@ -301,11 +301,14 @@ export async function verifyAndRepair({
     type: 'data-run-command',
     data: { sandboxId, command: 'Getting your project ready', args: [], status: 'executing' },
   })
-  const repairDeadline = Date.now() + 360_000
+  // Budget: 600s (10 min). The step gets 800s total; leaving ~200s for headless
+  // check + functional verify + snapshot. No artificial cap — if repair finishes
+  // in 30s it moves on immediately. Only hits 600s if all 7 rounds are needed.
+  const repairDeadline = Date.now() + 600_000
   try {
     for (let attempt = 1; attempt <= 7; attempt++) {
       if (Date.now() > repairDeadline) {
-        console.warn('[verify] repair budget (360s) exhausted — proceeding with current build')
+        console.warn('[verify] repair budget (600s) exhausted — proceeding with current build')
         break
       }
       let log = ''
