@@ -1,18 +1,47 @@
 diff --git a/dist/base-builder.js b/dist/base-builder.js
-index b196585a026a01b224dfa8a9231eb62ded627f8c..cf7cf9764704768417d718415d093c01e1a614f4 100644
+index b196585a026a01b224dfa8a9231eb62ded627f8c..682c7aeac480813cd2116e3e8c137f603a203a5d 100644
 --- a/dist/base-builder.js
 +++ b/dist/base-builder.js
-@@ -278,7 +278,8 @@ export class BaseBuilder {
+@@ -263,10 +263,27 @@ export class BaseBuilder {
+         const effectiveTsconfigPath = tsconfigPath ?? (await this.findTsConfigPath());
+         const esbuildTsconfigOptions = await getEsbuildTsconfigOptions(effectiveTsconfigPath);
+         try {
++            // Plugin that marks all bare node_module specifiers as external during
++            // discovery. The discovery phase only needs to scan OUR source files for
++            // 'use workflow'/'use step' directives — bundling node_modules is not only
++            // unnecessary but causes silent esbuild failures (native addons, complex
++            // dynamic requires, etc.) that leave the manifest empty.
++            // @/ path aliases are local files — return null so esbuild resolves them
++            // via its own tsconfig-paths resolver and they get scanned normally.
++            const externalNodeModulesPlugin = {
++                name: 'external-node-modules',
++                setup(build) {
++                    build.onResolve({ filter: /^[^./\\]/ }, (args) => {
++                        if (args.path.startsWith('@/')) return null;
++                        return { path: args.path, external: true };
++                    });
++                },
++            };
+             await esbuild.build({
+                 treeShaking: true,
+                 entryPoints: inputs,
+                 plugins: [
++                    externalNodeModulesPlugin,
+                     createDiscoverEntriesPlugin(state, this.transformProjectRoot),
+                 ],
+                 platform: 'node',
+@@ -277,8 +294,8 @@ export class BaseBuilder {
+                 absWorkingDir: this.config.workingDir,
                  logLevel: 'silent',
                  ...esbuildTsconfigOptions,
-                 // External packages that should not be bundled during discovery
+-                // External packages that should not be bundled during discovery
 -                external: this.config.externalPackages || [],
-+                // .md files are external so esbuild doesn't fail on missing loader
++                // .md files are also external (companion .md.ts files are used instead)
 +                external: [...(this.config.externalPackages || []), '*.md'],
              });
          }
          catch (_) { }
-@@ -495,6 +496,8 @@ export class BaseBuilder {
+@@ -495,6 +512,8 @@ export class BaseBuilder {
              // Use tsconfig for path alias resolution.
              // For symlinked configs this uses tsconfigRaw to preserve cwd-relative aliases.
              ...esbuildTsconfigOptions,

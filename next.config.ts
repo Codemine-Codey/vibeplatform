@@ -1,26 +1,9 @@
 import type { NextConfig } from 'next'
 import { withWorkflow } from '@workflow/next'
 
-// All dependencies must be external during @workflow/builders esbuild discovery.
-// The discovery phase bundles app/api/chat/route.ts following all imports — if any
-// package can't be bundled by esbuild it fails silently and the workflow manifest
-// stays empty (no flow/step routes generated). Listing every dep here causes
-// @workflow/next to pass them as `external` in the discovery esbuild call.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pkg = require('./package.json') as {
-  dependencies?: Record<string, string>
-  devDependencies?: Record<string, string>
-}
-const allDeps = [
-  ...Object.keys(pkg.dependencies ?? {}),
-  ...Object.keys(pkg.devDependencies ?? {}),
-]
-
 const nextConfig: NextConfig = {
   // Chromium + puppeteer must stay external — never bundle the browser binary.
-  // ALL other deps also listed here so @workflow/builders esbuild discovery doesn't
-  // fail silently trying to bundle packages it can't handle (e.g. @vercel/sandbox).
-  serverExternalPackages: [...new Set(['@sparticuz/chromium', 'puppeteer-core', ...allDeps])],
+  serverExternalPackages: ['@sparticuz/chromium', 'puppeteer-core'],
   // CRITICAL: serverExternalPackages keeps the package UNBUNDLED, but Next's file
   // tracer (@vercel/nft) still doesn't follow the dynamic path to @sparticuz/chromium's
   // bin/*.br DATA files (the compressed browser binary), so they were MISSING from the
