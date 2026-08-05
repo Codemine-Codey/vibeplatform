@@ -2360,16 +2360,13 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   const maxSteps = skill === 'website' ? 12 : skill === 'webapp' ? 10 : 9
 
   // ── #89: GENERATION DEADLINE (never die mid-generation → never blank) ─────────────
-  // Bound the AI generation so the pipeline ALWAYS has time to reach verify-before-reveal +
-  // the fallback within the 800s function budget. A complex build that overruns must NOT let
-  // the invocation die during `await aiResult.text` (which leaves the user on an infinite
-  // "Building…" with no preview). We abort generation ~270s before the cap; whatever files
-  // exist are then salvaged (shells from the manifest) and the render-check reveals a working
-  // preview or a clean branded fallback — never a blank/infinite spinner.
-  // 270s margin (was 210s): headless (90s) + functional-verify (90s) + install (30s) + 60s buffer.
+  // Bound the AI generation so the pipeline ALWAYS has time to start the dev server and
+  // emit a URL within the 800s function budget. 150s margin: dev-server-start (30s) +
+  // basic headless (90s) + 30s buffer. Verify phases are individually time-gated below
+  // (remaining-time check) so they self-skip rather than eating into each other.
   const genBudgetMs = Math.max(
     60_000,
-    (invocationStart ?? Date.now()) + (maxDuration * 1000 - 270_000) - Date.now()
+    (invocationStart ?? Date.now()) + (maxDuration * 1000 - 150_000) - Date.now()
   )
   const genAbort = AbortSignal.timeout(genBudgetMs)
 
@@ -2828,16 +2825,13 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   }
 
   // ── Phase C: verify-phase deadline gate ──────────────────────────────────────────────
-  // If the function has already spent >520s (leaving ~280s before the 800s cap), skip
-  // headless verify + functional verify entirely and reveal immediately. The dev server
-  // is up and a fallback was already applied if needed — skipping guarantees we can save
-  // the snapshot and emit the URL before the invocation is killed. Quality over blank.
-  // 520s threshold (was 660s): gives 280s headroom — enough for install (30s) + headless (90s)
-  // + functional verify (90s) + 70s buffer. Prevents the invocation from being killed mid-verify.
+  // Check how many ms remain before the 800s cap. If < 130s remain, there is no time
+  // for headless (90s) without risking a dead function — reveal immediately with
+  // whatever the dev server gives us. This fires only when generation ran long (>650s).
   if (!devError && !revealed) {
-    const elapsed = Date.now() - (invocationStart ?? Date.now())
-    if (elapsed > 520_000) {
-      console.warn(`[deadline-gate] ${Math.round(elapsed / 1000)}s elapsed — skipping headless verify to guarantee reveal before cap`)
+    const msRemaining = (invocationStart ?? Date.now()) + maxDuration * 1000 - Date.now()
+    if (msRemaining < 130_000) {
+      console.warn(`[deadline-gate] only ${Math.round(msRemaining / 1000)}s remaining — skipping verify to guarantee reveal before cap`)
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
       revealed = true
     }
@@ -2977,7 +2971,8 @@ NEVER put all files into one generateFiles call for webapps — server enforces 
   // (fixes land via HMR before reveal). AWAITED + bounded. Interactive skills (game/webapp)
   // where controls are the point; websites already have render + per-route + nav checks above.
   // Skipped if deadline gate already revealed (Phase C) — no time to run verify + reveal again.
-  if (!devError && !revealed) {
+  // Also skipped if < 220s remain (functional verify needs ~180s for up to 3 rounds).
+  if (!devError && !revealed && ((invocationStart ?? Date.now()) + maxDuration * 1000 - Date.now()) >= 220_000) {
     // EVERY project is interaction-tested + visually judged before reveal (games are played,
     // webapps/websites are clicked + typed into), and the cheap vision model looks at the
     // running result for quality — repaired up to 3× BEFORE the user ever sees it.

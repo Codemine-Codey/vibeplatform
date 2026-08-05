@@ -356,8 +356,9 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
 
   const maxSteps = skill === 'website' ? 12 : skill === 'webapp' ? 10 : 9
 
-  // ── Generation deadline (always 600s from step start = 200s left for verify) ──
-  const genBudgetMs = 600_000
+  // ── Generation deadline: use almost the full step budget, leave 150s for dev-server
+  // start + basic headless. Each step gets its own 800s Vercel invocation budget.
+  const genBudgetMs = 650_000
   const genAbort = AbortSignal.timeout(genBudgetMs)
 
   writer.write({ id: 'srv-phase-gen', type: 'data-build-phase', data: { phase: 'generating', label: 'Generating your files...' } })
@@ -616,11 +617,12 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
     }
 
-    // Deadline gate: if >660s elapsed since invocation start, skip headless verify
+    // Deadline gate: each workflow step has its own 800s budget, so use remaining-time
+    // check. Skip headless if < 130s remain in this step's budget.
     if (!devError) {
-      const elapsed = Date.now() - invocationStart
-      if (elapsed > 660_000) {
-        console.warn(`[verify] ${Math.round(elapsed / 1000)}s elapsed — skipping headless verify`)
+      const stepElapsed = Date.now() - invocationStart
+      if (stepElapsed > 660_000) {
+        console.warn(`[verify-step] ${Math.round(stepElapsed / 1000)}s in step — skipping headless verify`)
         writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
         revealed = true
       }
