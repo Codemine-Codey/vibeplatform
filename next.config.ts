@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next'
+import { withWorkflow } from '@workflow/next'
 
 const nextConfig: NextConfig = {
   // Chromium + puppeteer must stay external — never bundle the browser binary.
@@ -46,11 +47,11 @@ const nextConfig: NextConfig = {
   },
 }
 
-// NOTE: removed withWorkflow('workflow/next') — the workflow package is unused (no
-// 'use workflow' directives anywhere), but its build hook scanned the whole codebase
-// for directives on EVERY dev compile, costing 25-107s each and starving generations
-// ("2 min and no workspace"). We use @vercel/sandbox directly, not the workflow runtime.
-// BotID removed — its client-side challenge silently blocked the /api/chat generation
-// POST in production (0 server hits, empty console, workspace never started). We use
-// @vercel/sandbox directly; re-add proper bot protection post-launch if needed.
-export default nextConfig
+// withWorkflow adds the SWC transform plugin that discovers 'use workflow' / 'use step'
+// directives in the workflows/ directory. lazyDiscovery: true prevents the build hook from
+// BotID removed — its client-side challenge silently blocked /api/chat in production.
+// NOTE: withWorkflow returns a (phase, ctx) => Promise<NextConfig> function which Next.js
+// accepts as a valid config export (alongside plain objects). No change to runtime behavior.
+// lazyDiscovery removed — with Next.js 16.0.10 the deferred builder isn't available, so
+// lazyDiscovery: true + eager builder may skip directory scanning for 'use step' files.
+export default withWorkflow(nextConfig)
