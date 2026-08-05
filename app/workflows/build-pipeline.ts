@@ -188,7 +188,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     if (params.sandboxId) {
       sandbox = await Sandbox.get({ sandboxId: params.sandboxId })
     } else {
-      sandbox = await Sandbox.create({ timeout: 1_200_000, ports: [3000] })
+      sandbox = await Sandbox.create({ timeout: 1_800_000, ports: [3000] })
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

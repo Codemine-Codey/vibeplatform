@@ -1,0 +1,23 @@
+diff --git a/dist/base-builder.js b/dist/base-builder.js
+index b196585a026a01b224dfa8a9231eb62ded627f8c..00eb044922d8180f54a85562bdc8042e2dee07cd 100644
+--- a/dist/base-builder.js
++++ b/dist/base-builder.js
+@@ -276,6 +276,7 @@ export class BaseBuilder {
+                 sourcemap: false,
+                 absWorkingDir: this.config.workingDir,
+                 logLevel: 'silent',
++                loader: { '.md': 'text' },
+                 ...esbuildTsconfigOptions,
+                 // External packages that should not be bundled during discovery
+                 external: this.config.externalPackages || [],
+@@ -492,6 +493,10 @@ export class BaseBuilder {
+             minify: false,
+             jsx: 'preserve',
+             logLevel: 'error',
++            // Treat .md files as plain text — our AI tool descriptions use .md imports
++            // (e.g. generate-files.md) which webpack handles via asset/source but esbuild
++            // does not support natively. This mirrors what webpack's raw-loader does.
++            loader: { '.md': 'text' },
+             // Use tsconfig for path alias resolution.
+             // For symlinked configs this uses tsconfigRaw to preserve cwd-relative aliases.
+             ...esbuildTsconfigOptions,
