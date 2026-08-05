@@ -1933,6 +1933,21 @@ async function reopenFromSnapshot(
         ...(project.database_id ? { databaseId: project.database_id } : {}),
       },
     })
+    // Re-emit file paths so Code tab and Publish Live are functional after restore
+    try {
+      const listCmd = await sandbox.runCommand({
+        detached: true, cmd: 'bash',
+        args: ['-c', "find src -type f \\( -name '*.tsx' -o -name '*.ts' -o -name '*.css' \\) 2>/dev/null | sort | head -120 > /tmp/cm-paths.txt"],
+      })
+      await Promise.race([listCmd.wait(), new Promise<void>((_, rej) => setTimeout(() => rej(new Error('t')), 10_000))])
+      const pathsRaw = await readSandboxFile(sandbox, '/tmp/cm-paths.txt')
+      const restoredPaths = pathsRaw ? pathsRaw.split('\n').map(p => p.trim()).filter(p => p.length > 0) : []
+      if (restoredPaths.length > 0) {
+        // 'uploaded' adds paths to store; 'done' triggers 3s iframe auto-refresh after server restart
+        writer.write({ id: 'srv-paths', type: 'data-generating-files', data: { paths: restoredPaths, status: 'uploaded' } })
+        writer.write({ id: 'srv-paths-done', type: 'data-generating-files', data: { paths: [], status: 'done' } })
+      }
+    } catch { /* non-fatal — Code tab just stays empty */ }
     writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url, status: 'done' } })
     await updateProjectRow(project.id, { sandbox_id: sandbox.sandboxId, preview_url: url }).catch(() => {})
     console.warn(`[reopen] restored terminated sandbox ${oldSandboxId} -> ${sandbox.sandboxId} from snapshot`)

@@ -3,7 +3,6 @@
 import { BarLoader } from 'react-spinners'
 import { RefreshCwIcon } from 'lucide-react'
 import { Panel, PanelHeader } from '@/components/panels/panels'
-import { ScrollArea } from '@radix-ui/react-scroll-area'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -117,16 +116,17 @@ export function Preview({ className, disabled, lastFilesUploadedAt, url }: Props
       <div className="flex h-[calc(100%-2rem-1px)] relative">
         {currentUrl && !disabled && (
           <>
-            <ScrollArea className="w-full">
+            <div className="w-full h-full">
               <iframe
                 ref={iframeRef}
                 src={currentUrl}
                 className="w-full h-full"
+                style={{ display: 'block', border: 'none' }}
                 onLoad={() => { setIsLoading(false); setError(null) }}
                 onError={() => { setIsLoading(false); setError('Failed to load the page') }}
                 title="Browser content"
               />
-            </ScrollArea>
+            </div>
 
             {isLoading && !error && (
               <div className="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center flex-col gap-2">
