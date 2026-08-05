@@ -131,37 +131,39 @@ function makeStepWriter(runId: string | null): {
   return { writer, flushAndRelease }
 }
 
-// ── Silence filter — same logic as route.ts v2 ───────────────────────────────
-// Suppresses AI repair narration between tool calls (only opening + closing lines pass).
+// ── Silence filter — suppresses ALL AI text after the first tool call ─────────
+// The AI SDK UI stream sends text-start / text-delta / text-end triplets for each
+// text part. Holding text-delta but passing text-start/text-end creates orphaned
+// parts that crash the AI SDK client with "Received text-end for missing text part".
+// Fix: after the first tool event, drop ALL text-* events (start, delta, end, text).
+// Tool events always pass through. Non-text data events (data-*, tool-call-*) pass
+// through always. Before first tool, everything passes (the opening line is fine).
 function makeSilenceFilter() {
   let firstToolSeen = false
-  const holdBuf: unknown[] = []
 
   return new TransformStream({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     transform(part: any, controller: TransformStreamDefaultController) {
       const t: string = part.type ?? ''
-      if (t === 'text-delta') {
-        if (!firstToolSeen) {
-          controller.enqueue(part)
-        } else {
-          holdBuf.push(part)
-        }
-      } else if (t === 'tool-input-delta' || t === 'tool-result') {
+
+      // Any tool event: mark tools as seen, always pass through
+      if (t.startsWith('tool-')) {
         firstToolSeen = true
-        holdBuf.length = 0
         controller.enqueue(part)
-      } else {
-        controller.enqueue(part)
+        return
       }
+
+      // Text events: pass before first tool, drop after
+      if (t === 'text-start' || t === 'text-delta' || t === 'text-end' || t === 'text') {
+        if (!firstToolSeen) controller.enqueue(part)
+        // after firstToolSeen: drop entirely — no orphaned start/end pairs
+        return
+      }
+
+      // Everything else (step-start, step-finish, data-*, finish-step, etc.) passes always
+      controller.enqueue(part)
     },
-    flush(_controller: TransformStreamDefaultController) {
-      // Drop ALL held text — the AI's closing message is never reliable here because
-      // stepVerify hasn't run yet. A programmatic data-narration is written after
-      // verify confirms the page is actually working. Leaking repair-commentary or
-      // premature "your project is ready" lines to the user is the worst outcome.
-      holdBuf.length = 0
-    },
+    flush(_controller: TransformStreamDefaultController) { /* nothing held */ },
   })
 }
 
@@ -748,9 +750,16 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       }
     }
 
-    // Reveal — written ONLY once all verify/repair rounds are complete and the
-    // server is confirmed stable. This is the single source of truth for "ready".
+    // Final warmup check before reveal — repair loops and W6 QA can restart the dev
+    // server mid-cycle. Re-confirm it's responding before revealing the URL so the
+    // user's browser doesn't hit a blank/502 iframe the moment the preview appears.
+    // waitForDevServer returns null=OK, string=error.
     if (!revealed) {
+      const finalDevError = await waitForDevServer(resolvedUrl, 20_000, sandbox).catch(() => null)
+      if (finalDevError) {
+        // Server has an error — one restart attempt before reveal
+        try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
+      }
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
       revealed = true
     }
