@@ -1,16 +1,21 @@
 // Vercel Workflow SDK — durable build pipeline.
-// Each 'use step' function gets its own fresh 800s invocation budget, breaking
-// the single-function 13-min cap. The route triggers this workflow and returns
-// run.getReadable<string>() as the SSE response — the client's useChat hook
-// reads it identically to the old createUIMessageStreamResponse path.
+// 'use workflow' / 'use step' directives are compiled by @workflow/next's SWC plugin.
+// Each 'use step' function gets its own fresh 800s Vercel invocation budget, so
+// generation (stepGenerate) + verify (stepVerify) can each run the full 800s —
+// breaking the single-function 13-min cap entirely.
+//
+// Streaming to client: steps call getWritable() which writes to run.readable.
+// The chat route calls start(buildProject, [params]) and returns run.readable
+// as the HTTP response body. Vercel's infrastructure serves the stream durably —
+// the HTTP handler function invocation exits quickly; each step invocation runs
+// independently and writes events that Vercel delivers to the client.
 
-import { start } from 'workflow/api'
+import { getWritable } from 'workflow'
 import { Sandbox } from '@vercel/sandbox'
 import {
   convertToModelMessages,
   streamText,
   stepCountIs,
-  generateText,
 } from 'ai'
 import { getModelOptions } from '@/ai/gateway'
 import {
@@ -18,7 +23,7 @@ import {
   FILE_GENERATION_MODEL,
   getMaxOutputTokens,
 } from '@/ai/constants'
-import { getScaffoldFiles, SCAFFOLD_PATH_SET } from '@/ai/tools/scaffold'
+import { getScaffoldFiles } from '@/ai/tools/scaffold'
 import { restoreBakedDeps } from '@/lib/baked-deps'
 import { buildFullIndexCss, lockPaletteInCss } from '@/lib/design-tokens'
 import { ensureValidCss } from '@/lib/css-guard'
@@ -51,19 +56,17 @@ import {
 } from '@/lib/projects-db'
 import { saveCheckpoint } from '@/ai/tools/checkpoint'
 import type { Skill, ColorTokens, PageSpec } from '@/ai/types/project-brief'
-import { formatBrief } from '@/ai/types/project-brief'
 import type { ChatUIMessage } from '@/components/chat/types'
 
 // ── Serializable params passed to the workflow ───────────────────────────────
+// ALL fields must be JSON-serializable — no Promises, no class instances.
 
 export interface BuildPipelineParams {
-  // Caller-provided IDs (created before start())
   runId: string | null
   userId: string | null
   projectId: string | null
   /** Pre-created sandbox ID (parallel provision in route). Null = create fresh. */
   sandboxId: string | null
-  // Chat
   messages: ChatUIMessage[]
   systemPrompt: string
   skill: Skill
@@ -75,18 +78,11 @@ export interface BuildPipelineParams {
   firstUserText: string
   lastUserText: string
   invocationStart: number
-  /** User prompt text for suggestions + research reference */
   userText: string
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Internal step-to-step handoff (serializable) ─────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function encodeDataPart(part: { id?: string; type: string; data?: any }): string {
-  return `2:${JSON.stringify([{ type: part.type, ...(part.id ? { id: part.id } : {}), ...(part.data !== undefined ? { data: part.data } : {}) }])}\n`
-}
-
-/** Serializable result passed from stepGenerate → stepVerify across the durable step boundary. */
 interface GenerateResult {
   sandboxId: string
   resolvedUrl: string
@@ -103,17 +99,65 @@ interface GenerateResult {
   userText: string
 }
 
-/** Supabase-only writer — logs every event to run_events (no live stream). */
-function makeWriter(runId: string | null): PipelineWriter {
-  return {
+// ── Helper: make a PipelineWriter backed by getWritable() + run_events ───────
+// getWritable() MUST be called inside a 'use step' function.
+// Returns { writer, flushAndRelease } — call flushAndRelease() at step end.
+function makeStepWriter(runId: string | null): {
+  writer: PipelineWriter
+  flushAndRelease: () => Promise<void>
+} {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const writable = getWritable<Record<string, any>>()
+  const gWriter = writable.getWriter()
+  const pending: Promise<void>[] = []
+
+  const writer: PipelineWriter = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     write(part: { id?: string; type: string; data?: any }) {
-      if (runId) {
-        // Store the full UIMessageChunk so the polling stream can reconstruct it.
-        appendRunEvent(runId, part.type, part)
-      }
+      // Write to the live stream (run.readable on client)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pending.push(gWriter.write(part as Record<string, any>).catch(() => {}))
+      // Dual-write to Supabase run_events for reconnect endpoint
+      if (runId) appendRunEvent(runId, part.type, part)
     },
   }
+
+  async function flushAndRelease() {
+    await Promise.all(pending).catch(() => {})
+    gWriter.releaseLock()
+  }
+
+  return { writer, flushAndRelease }
+}
+
+// ── Silence filter — same logic as route.ts v2 ───────────────────────────────
+// Suppresses AI repair narration between tool calls (only opening + closing lines pass).
+function makeSilenceFilter() {
+  let firstToolSeen = false
+  const holdBuf: unknown[] = []
+
+  return new TransformStream({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    transform(part: any, controller: TransformStreamDefaultController) {
+      const t: string = part.type ?? ''
+      if (t === 'text-delta') {
+        if (!firstToolSeen) {
+          controller.enqueue(part)
+        } else {
+          holdBuf.push(part)
+        }
+      } else if (t === 'tool-input-delta' || t === 'tool-result') {
+        firstToolSeen = true
+        holdBuf.length = 0
+        controller.enqueue(part)
+      } else {
+        controller.enqueue(part)
+      }
+    },
+    flush(controller: TransformStreamDefaultController) {
+      for (const b of holdBuf) controller.enqueue(b)
+    },
+  })
 }
 
 // ── The workflow entry point ─────────────────────────────────────────────────
@@ -129,7 +173,13 @@ export async function buildProject(params: BuildPipelineParams): Promise<void> {
 
 async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult> {
   'use step'
-  const writer = makeWriter(params.runId)
+
+  const { writer, flushAndRelease } = makeStepWriter(params.runId)
+
+  // Emit the run ID so the client can reconnect via /api/runs/[id]/stream
+  if (params.runId) {
+    writer.write({ id: 'srv-run', type: 'data-run', data: { runId: params.runId } })
+  }
 
   // Sandbox: reconnect if pre-created, otherwise create fresh
   writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { status: 'loading' } })
@@ -144,6 +194,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     const message = err instanceof Error ? err.message : String(err)
     writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { error: { message }, status: 'error' } })
     if (params.runId) await updateRun(params.runId, { status: 'error' }).catch(() => {})
+    await flushAndRelease()
     return {
       sandboxId: params.sandboxId ?? '',
       resolvedUrl: '',
@@ -162,22 +213,18 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
   }
   const sandboxId = sandbox.sandboxId
 
-  // .env was already injected by route.ts (before start() was called) into the
-  // pre-created sandbox. For freshly-created sandboxes (sandboxId was null) the
-  // route has already set the project row's sandbox_id; the workflow just ensures
-  // it stays current in case of a reconnect.
   if (params.projectId && params.sandboxId !== sandboxId) {
     updateProjectRow(params.projectId, { sandbox_id: sandboxId }).catch(() => {})
   }
 
-  // Write scaffold files + start background dep install
+  // Write scaffold + start background dep install
   let bgInstallPromise: Promise<void> | null = null
   try {
     const scaffoldBuffers = getScaffoldFiles().map(f => ({ path: f.path, content: Buffer.from(f.content, 'utf8') }))
     try {
       await sandbox.writeFiles(scaffoldBuffers)
     } catch {
-      await sandbox.writeFiles(scaffoldBuffers) // one retry
+      await sandbox.writeFiles(scaffoldBuffers)
     }
     bgInstallPromise = (async () => {
       const baked = await restoreBakedDeps(sandbox).catch(() => false)
@@ -190,7 +237,6 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     })().catch(() => {})
   } catch { /* non-fatal */ }
 
-  // Notify client sandbox is ready
   writer.write({
     id: 'srv-sandbox',
     type: 'data-create-sandbox',
@@ -211,7 +257,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
   const designBody = loadSkillBody(designSkill) ?? ''
   const catalog = getSkillCatalog().map(s => `- ${s.name}: ${s.description}`).join('\n')
 
-  // Forced Tavily research (same as route.ts)
+  // Tavily research (scoped to skill)
   let researchContext = ''
   try {
     const q = skill === 'game'
@@ -288,16 +334,15 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
 
   let p1GFCalled = false
 
-  // Page paths for multi-page injection
   const pageMapPaths: string[] = activePageMap
     ? activePageMap.map((p: PageSpec) => `src/pages/${p.page.replace(/[^A-Za-z0-9]/g, '')}.tsx`)
     : []
 
-  // Build the writer-compatible object for generateFiles
+  // Build a writer-compatible object for generateFiles (needs write + merge stub)
   const rawWriterForGF = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     write: (part: any) => writer.write(part),
-    merge: (_: ReadableStream) => { /* not called in generate-files tool */ },
+    merge: (_: ReadableStream) => { /* generateFiles never calls merge */ },
     get onError() { return undefined },
     set onError(_: unknown) {},
   }
@@ -340,7 +385,6 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
           }
         }
         const filteredPaths = phase1Paths.length > 0 ? phase1Paths : nonScaffold.length > 0 ? nonScaffold : args.paths
-
         return phase1GF.execute({ ...args, paths: filteredPaths }, ctx)
       }
       return rawGF.execute(args, ctx)
@@ -356,8 +400,8 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
 
   const maxSteps = skill === 'website' ? 12 : skill === 'webapp' ? 10 : 9
 
-  // ── Generation deadline: use almost the full step budget, leave 150s for dev-server
-  // start + basic headless. Each step gets its own 800s Vercel invocation budget.
+  // Each workflow step gets its own 800s budget — generation can use 650s
+  // (leaving 150s for dev-server-start + basic headless in the verify step).
   const genBudgetMs = 650_000
   const genAbort = AbortSignal.timeout(genBudgetMs)
 
@@ -388,34 +432,26 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     onError: error => console.error('[workflow-gen] AI error:', error),
   })
 
-  // Drain the AI response body to execute all tool calls.
-  // generateFiles calls rawWriterForGF.write() → writer.write() → appendRunEvent()
-  // so file events land in run_events in real-time and are polled by the route.
+  // Pipe the AI stream through the silence filter into the step's writable stream.
+  // The silence filter passes: (1) the opening line before any tool call, and
+  // (2) the completion line at stream end. All repair narration between tool calls
+  // is silently discarded.
+  const silenced = (aiResult.toUIMessageStream({ sendReasoning: false, sendStart: false }) as ReadableStream<unknown>).pipeThrough(makeSilenceFilter())
   try {
-    const aiResp = aiResult.toUIMessageStreamResponse({ sendReasoning: false, sendStart: false })
-    if (aiResp.body) {
-      const reader = aiResp.body.getReader()
-      while (true) {
-        const { done } = await reader.read()
-        if (done) break
-      }
+    const reader = silenced.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      writer.write(value as any)
     }
+    reader.releaseLock()
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (!/abort|timeout|cancel/i.test(msg)) {
-      console.error('[workflow-gen] drain error:', msg)
+      console.error('[workflow-gen] stream drain error:', msg)
     }
   }
-  // Log the complete AI text after all tool calls have executed
-  try {
-    const fullText = await Promise.race([
-      aiResult.text,
-      new Promise<string>((_, rej) => setTimeout(() => rej(new Error('text-timeout')), 10_000)),
-    ]).catch(() => '')
-    if (fullText && params.runId) {
-      appendRunEvent(params.runId, 'text', { type: 'text', text: fullText })
-    }
-  } catch { /* non-fatal */ }
 
   // Synthetic manifest for website when AI skipped planProject
   if (!planBox.manifest && skill === 'website') {
@@ -455,7 +491,6 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     } catch { /* non-fatal */ }
   }
 
-  // Manifest missing file stamp
   if (planBox.manifest) {
     await checkAndStampMissingFiles(sandbox, planBox.manifest.files.map(f => f.path)).catch(() => {})
   }
@@ -475,8 +510,8 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
           .replace(/@import ['"]tailwindcss\/utilities['"]\s*;?/g, '@tailwind utilities;')
         changed = true
       }
-      if (tokens) {
-        const locked = lockPaletteInCss(css, tokens)
+      if (params.tokens) {
+        const locked = lockPaletteInCss(css, params.tokens)
         if (locked && locked !== css) { css = locked; changed = true }
       } else if (!css.includes(':root')) {
         css += `\n:root {\n  --background: 0 0% 100%;\n  --foreground: 222.2 84% 4.9%;\n  --primary: 221.2 83.2% 53.3%;\n  --primary-foreground: 210 40% 98%;\n  --border: 214.3 31.8% 91.4%;\n  --radius: 0.5rem;\n}\n`
@@ -491,19 +526,19 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     }
   } catch { /* non-fatal */ }
 
-  // Early snapshot (all files written)
+  // Early snapshot
   if (params.projectId && params.userId) {
     snapshotProject(sandbox, params.userId, params.projectId)
       .then(p => p ? updateProjectRow(params.projectId!, { sandbox_id: sandboxId, snapshot_path: p }) : undefined)
       .catch(() => {})
   }
 
-  // Code review before handing off to stepVerify
   await reviewGeneratedCode(sandbox, skill).catch(() => {})
 
-  // Compute the preview URL to pass to stepVerify
   let sandboxUrl = ''
   try { sandboxUrl = sandbox.domain(3000) } catch { sandboxUrl = `https://${sandboxId}-3000.sandbox.vercel.app` }
+
+  await flushAndRelease()
 
   return {
     sandboxId,
@@ -526,26 +561,27 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
 
 async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult): Promise<void> {
   'use step'
-  const writer = makeWriter(params.runId)
+
+  const { writer, flushAndRelease } = makeStepWriter(genResult.runId)
   const { sandboxId, resolvedUrl: initialUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, invocationStart, firstUserText, lastUserText } = genResult
 
-  // No sandbox was created — error path from stepGenerate
   if (!sandboxId) {
     if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
+    await flushAndRelease()
     return
   }
 
-  // Reconnect to the sandbox that stepGenerate created and wrote files into
   let sandbox: Sandbox
   try {
     sandbox = await Sandbox.get({ sandboxId })
   } catch (err) {
     console.warn('[stepVerify] sandbox reconnect failed:', err instanceof Error ? err.message : err)
     if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
+    await flushAndRelease()
     return
   }
 
-  // Install packages
+  // Install
   writer.write({ id: 'srv-phase-install', type: 'data-build-phase', data: { phase: 'installing', label: 'Installing packages...' } })
   writer.write({ id: 'srv-install', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['install'], status: 'waiting' } })
   try {
@@ -564,22 +600,18 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
     writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, commandId: devCmd.cmdId, command: 'bun', args: ['run', 'dev'], status: 'running' } })
   } catch { /* non-fatal */ }
 
-  // Re-resolve URL (sandbox.domain() is safe to call again)
   let resolvedUrl = initialUrl
   try { resolvedUrl = sandbox.domain(3000) } catch { /* keep initialUrl */ }
 
   let revealed = false
 
   try {
-    // Nav shells for multi-page websites (before dev server wait)
     if (skill === 'website') {
       try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
     }
 
-    // verifyAndRepair fires in background while dev server starts
     void verifyAndRepair({ sandbox, sandboxId, writer }).catch(() => {})
 
-    // Wait for dev server
     writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
     let devError = await waitForDevServer(resolvedUrl)
 
@@ -609,27 +641,25 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
             try { await applyFallbackTerminalState(sandbox, recheck, { skill, brand: brandName || 'This project' }) } catch { /* non-fatal */ }
           }
         }
-      } catch { /* probe failure is non-fatal */ }
+      } catch { /* non-fatal */ }
     }
 
-    // Nav shells for websites (after dev server confirmed up)
     if (skill === 'website' && !devError) {
       try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
     }
 
-    // Deadline gate: each workflow step has its own 800s budget, so use remaining-time
-    // check. Skip headless if < 130s remain in this step's budget.
+    // Deadline gate: each step gets 800s. Skip headless if < 130s remain.
     if (!devError) {
       const stepElapsed = Date.now() - invocationStart
       if (stepElapsed > 660_000) {
-        console.warn(`[verify-step] ${Math.round(stepElapsed / 1000)}s in step — skipping headless verify`)
+        console.warn(`[verify-step] ${Math.round(stepElapsed / 1000)}s elapsed — skipping verify`)
         writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
         revealed = true
       }
     }
 
     // Headless render check
-    let rtResult: { status: 'ok' | 'broken' | 'skipped'; detail: string; score?: number | null; screenshot?: Buffer } | null = null
+    let rtResult: { status: 'ok' | 'broken' | 'skipped'; detail: string } | null = null
     if (!devError && !revealed) {
       try {
         writer.write({ id: 'srv-preview-starting', type: 'data-narration', data: { text: 'Starting preview — this may take up to 30 seconds, please wait.' } })
@@ -646,11 +676,9 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
         writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'done', exitCode: 0 } })
       } catch (e) {
         console.warn('[verify] headless check failed:', e instanceof Error ? e.message : e)
-        writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'done', exitCode: 0 } })
       }
     }
 
-    // Final hard gate
     if (!devError && rtResult && rtResult.status === 'broken') {
       try {
         await applyFallbackTerminalState(sandbox, 'force-app-level', { skill, brand: brandName || 'This project' })
@@ -660,41 +688,44 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       } catch { /* non-fatal */ }
     }
 
-    // Functional verify
+    // Functional verify (skip if < 220s remain in this step)
     if (!devError && !revealed) {
-      writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: skill === 'game' ? 'Playtesting your game and polishing it' : 'Testing every feature and polishing it', args: [], status: 'executing' } })
-      try {
-        const request = firstUserText || lastUserText || ''
-        for (let round = 1; round <= 3; round++) {
-          const fv = await functionalVerify(resolvedUrl, request, skill)
-          if (fv.ok || fv.issues.length === 0) break
-          logRepair({ layer: 'runtime-check', action: `functional-issues-r${round}`, detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
-          const issueText = `Fix these SPECIFIC problems:\n- ${fv.issues.join('\n- ')}`
-          let changedAny = false
-          for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 8)) {
-            const content = await readSandboxFile(sandbox, path)
-            if (!content) continue
-            const fixed = await repairFile(path, content, issueText)
-            if (fixed && fixed !== content) {
-              await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
-              changedAny = true
+      const stepElapsed = Date.now() - invocationStart
+      if (stepElapsed < 580_000) {
+        writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: skill === 'game' ? 'Playtesting your game and polishing it' : 'Testing every feature and polishing it', args: [], status: 'executing' } })
+        try {
+          const request = firstUserText || lastUserText || ''
+          for (let round = 1; round <= 3; round++) {
+            const fv = await functionalVerify(resolvedUrl, request, skill)
+            if (fv.ok || fv.issues.length === 0) break
+            logRepair({ layer: 'runtime-check', action: `functional-issues-r${round}`, detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
+            const issueText = `Fix these SPECIFIC problems:\n- ${fv.issues.join('\n- ')}`
+            let changedAny = false
+            for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 8)) {
+              const content = await readSandboxFile(sandbox, path)
+              if (!content) continue
+              const fixed = await repairFile(path, content, issueText)
+              if (fixed && fixed !== content) {
+                await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
+                changedAny = true
+              }
             }
+            if (!changedAny) break
+            await new Promise(r => setTimeout(r, 2500))
           }
-          if (!changedAny) break
-          await new Promise(r => setTimeout(r, 2500))
-        }
-      } catch { /* non-fatal */ }
-      writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: 'Playtest complete', args: [], status: 'done', exitCode: 0 } })
+        } catch { /* non-fatal */ }
+        writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: 'Playtest complete', args: [], status: 'done', exitCode: 0 } })
+      }
     }
 
-    // Reveal URL
+    // Reveal
     if (!revealed) {
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
       revealed = true
     }
     if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
 
-    // Suggestions (fire-and-forget)
+    // Suggestions
     void (async () => {
       try {
         const items = await generateSuggestions({ request: lastUserText, skill, filePaths: manifestFilePaths })
@@ -702,7 +733,6 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       } catch { /* non-fatal */ }
     })()
 
-    // Checkpoint + final snapshot
     if (!devError) saveCheckpoint(sandbox).catch(() => {})
     if (projectId && userId) {
       let snapshotPath: string | null = null
@@ -717,15 +747,11 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
   } catch (err) {
     console.error('[stepVerify] error:', err instanceof Error ? err.message : err)
     if (!revealed && resolvedUrl) {
-      try {
-        writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
-      } catch { /* ignore */ }
+      writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
     }
   } finally {
-    // Always mark the run as done so the polling stream stops
     if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
+    await flushAndRelease()
   }
 }
 
-// Re-export start for convenience
-export { start }

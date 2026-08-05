@@ -7,6 +7,8 @@ import {
   stepCountIs,
   streamText,
 } from 'ai'
+import { buildProject } from '@/app/workflows/build-pipeline'
+import { start } from 'workflow/api'
 import type { UIMessage, UIMessageStreamWriter } from 'ai'
 import type { DataPart } from '@/ai/messages/data-parts'
 import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL, VISION_MODEL, ERROR_MODEL, getMaxOutputTokens } from '@/ai/constants'
@@ -1617,40 +1619,36 @@ export async function POST(req: Request) {
   // Create run row so the client can reconnect via /api/runs/[id]/stream if needed.
   const runId = await createRun({ userId: authedUser.id }).catch(() => null)
 
-  // Run the pipeline inline — proven path (Workflow SDK webhooks weren't executing
-  // so events never landed in run_events). Events are dual-written to the live AI SDK
-  // stream AND to run_events via wrapWriterWithLog, so reconnect still works.
-  return createUIMessageStreamResponse({
-    stream: createUIMessageStream({
-      originalMessages: messages,
-      execute: async ({ writer: rawWriter }) => {
-        if (runId) rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
-        const writer = runId ? wrapWriterWithLog(rawWriter, runId) : rawWriter
-        let terminalStatus = 'done'
-        try {
-          await runPipeline({
-            writer,
-            messages,
-            systemPrompt,
-            skill,
-            projectId,
-            userId: user?.id ?? null,
-            designContext,
-            sandboxPromise: sandbox ? Promise.resolve(sandbox) : undefined,
-            tokens: brief.colorTokens ?? undefined,
-            brandName: brief.brandName ?? undefined,
-            pageMap: brief.pageMap ?? undefined,
-            fontPairing: brief.fontPairing ?? undefined,
-            runId,
-            invocationStart,
-          })
-        } catch (err) {
-          terminalStatus = 'error'; throw err
-        } finally {
-          if (runId) await updateRun(runId, { status: terminalStatus }).catch(() => {})
-        }
-      },
-    }),
+  // Launch the durable workflow. start() returns IMMEDIATELY with run.readable —
+  // a ReadableStream backed by Vercel's durable infrastructure that keeps flowing
+  // even after this function invocation ends. stepGenerate + stepVerify each get
+  // their own fresh 800s invocation budget with no single-function cap.
+  const run = await start(buildProject, [{
+    runId,
+    userId: user?.id ?? null,
+    projectId,
+    sandboxId,
+    messages,
+    systemPrompt,
+    skill,
+    designContext,
+    tokens: brief.colorTokens ?? null,
+    brandName: brief.brandName ?? null,
+    pageMap: brief.pageMap ?? null,
+    fontPairing: brief.fontPairing ?? null,
+    firstUserText: getFirstUserText(messages),
+    lastUserText: getLastUserText(messages),
+    invocationStart,
+    userText,
+  }])
+
+  return new Response(run.readable as ReadableStream, {
+    headers: {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      'x-accel-buffering': 'no',
+      'x-workflow-run-id': run.runId,
+    },
   })
 }
 
