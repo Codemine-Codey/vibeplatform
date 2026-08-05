@@ -3,7 +3,7 @@ import type { DataPart } from '../messages/data-parts'
 import { Command, Sandbox } from '@vercel/sandbox'
 import { getRichError } from './get-rich-error'
 import { tool } from 'ai'
-import description from './run-command.md'
+import description from './run-command.md.ts'
 import z from 'zod/v3'
 
 // Commands that would expose secrets or credentials are blocked entirely.

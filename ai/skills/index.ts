@@ -7,15 +7,15 @@
 // Layer 3 (injection): loadSkillBody(name) returns the full SKILL.md body for
 //   that turn only — kept out of context until actually needed.
 //
-// Skill .md files are bundled as raw strings by the existing md→string loader
-// (next.config.ts / turbopack), so there is no runtime filesystem read.
-import websiteDesign from './website-design.md'
-import tasteDesign from './taste-design.md'
-import webappPatterns from './webapp-patterns.md'
-import gamePatterns from './game-patterns.md'
-import motionFx from './motion-fx.md'
-import threejs from './threejs.md'
-import components from './components.md'
+// Skill content is generated into companion .md.ts files (scripts/gen-md-strings.mjs)
+// so any bundler (Next.js webpack or @workflow/builders esbuild) can handle them.
+import websiteDesign from './website-design.md.ts'
+import tasteDesign from './taste-design.md.ts'
+import webappPatterns from './webapp-patterns.md.ts'
+import gamePatterns from './game-patterns.md.ts'
+import motionFx from './motion-fx.md.ts'
+import threejs from './threejs.md.ts'
+import components from './components.md.ts'
 import type { Skill } from '@/ai/types/project-brief'
 
 const RAW: Record<string, string> = {

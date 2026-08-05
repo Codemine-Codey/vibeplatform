@@ -1,7 +1,7 @@
 import type { Skill } from '@/ai/types/project-brief'
-import websitePack from './website.md'
-import webappPack from './webapp.md'
-import gamePack from './game.md'
+import websitePack from './website.md.ts'
+import webappPack from './webapp.md.ts'
+import gamePack from './game.md.ts'
 
 const PACKS: Record<Skill, string> = {
   website: websitePack,

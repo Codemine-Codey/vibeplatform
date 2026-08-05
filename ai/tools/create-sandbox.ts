@@ -4,7 +4,7 @@ import { Sandbox } from '@vercel/sandbox'
 import { getScaffoldFiles } from './scaffold'
 import { getRichError } from './get-rich-error'
 import { tool } from 'ai'
-import description from './create-sandbox.md'
+import description from './create-sandbox.md.ts'
 import z from 'zod/v3'
 
 interface Params {

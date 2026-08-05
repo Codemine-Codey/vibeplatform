@@ -2,7 +2,7 @@ import { tool, generateText } from 'ai'
 import { Sandbox } from '@vercel/sandbox'
 import { getModelOptions } from '@/ai/gateway'
 import { ERROR_MODEL } from '@/ai/constants'
-import description from './visual-check.md'
+import description from './visual-check.md.ts'
 import z from 'zod/v3'
 
 // Source-file review is a TEXT task — DeepSeek Flash (cheap, fast). The screenshot

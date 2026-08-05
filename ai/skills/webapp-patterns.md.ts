@@ -1,0 +1,405 @@
+// AUTO-GENERATED from webapp-patterns.md — edit the .md file, then re-run scripts/gen-md-strings.mjs
+const content = `---
+name: webapp-patterns
+description: Production-quality web-app design + engineering law — component architecture, the full state matrix (loading/empty/error), accessibility, anti-AI-aesthetic, plus data tables, charts, and forms. The authoritative skill for app/dashboard/tool builds.
+---
+
+> Adapted from addyosmani/agent-skills frontend-ui-engineering (MIT) + platform additions.
+> PLATFORM OVERRIDES (always win): NO <svg> — Lucide React icons only. Use the brief's EXACT color tokens + font pairing; text MUST have strong contrast. Pre-installed shadcn components (button, card, input, textarea, select, dialog, badge, label, separator) — reuse for standard controls, build custom for signature UI. framer-motion is available.
+
+# Frontend UI Engineering
+
+## 0. CORRECTNESS — bugs that must NEVER ship (READ FIRST, non-negotiable)
+These are the silent failures that make an app look broken or hang. Each is BANNED:
+- **Zustand selectors return PRIMITIVES, or use \`useShallow\` — NEVER a fresh object/array.** \`useStore(s => s.getStats())\` or \`s => ({ a, b })\` returns a NEW reference every render → \`useSyncExternalStore\` infinite loop / "maximum update depth". Instead: select each primitive separately (\`s => s.tasks.length\`), derive objects with \`useMemo\`, or \`import { useShallow } from 'zustand/react/shallow'\` for grouped selects. NEVER call a store method that builds an object/array inside a selector.
+- **Write EVERY file you import in the SAME response.** Never import a component/module you do not also create now. A parent/wrapper MUST match the child's EXACT export style (default vs named) and EXACT props — read your own child's signature and conform to it. Mismatched props/exports (e.g. a wrapper passing whole-board props to a single-column component) is the #1 contract bug. If you reference \`FooWrapper\`, you write \`FooWrapper\` correctly against \`Foo\`'s real API.
+- **dnd-kit: exactly ONE \`<DndContext>\` at the board/list root**, with sensors (\`PointerSensor\` + \`KeyboardSensor\`). Columns are \`useDroppable\`; items are \`useSortable\` inside a \`SortableContext\`. The root owns DndContext, sensors, \`onDragEnd\`, and the \`DragOverlay\`; children are presentational. Never scatter a DndContext per column.
+- **No loops**: localStorage hydration runs ONCE in a \`useEffect\` (never during render). Never call \`setState\` during render. Effects have correct, minimal deps. Derived data uses \`useMemo\`, not state synced in an effect.
+- **Every state handled**: loading, empty (use the \`EmptyState\` block), and error — no blank screens, no crash on empty/undefined data (guard with \`?.\` + defaults).
+- **Lists use stable \`key\`s** (item ids, never the array index when items reorder/drag). Controlled inputs always have both \`value\` and \`onChange\`.
+- **Timers live in effects + clear in cleanup.** Any \`setInterval\`/\`setTimeout\`/\`requestAnimationFrame\` lives in a \`useEffect\` and is cleared in cleanup (\`return () => clearInterval(id)\`). When the next value depends on the previous, use the functional updater (\`setCount(c => c + 1)\`) — never reference the state variable directly in the callback (stale closure).
+- **Guard every divisor.** Guard every computed ratio/average/percentage against a zero/empty denominator BEFORE dividing (\`total ? done/total : 0\`). A new or empty dataset is the default first render — \`NaN%\`, \`Infinity\`, or a NaN-width bar must be impossible.
+- **Dates via date-fns only.** Use \`date-fns\` (pre-installed) for all date parsing/formatting — never \`new Date(arbitraryString)\`. Validate with \`isValid()\` before formatting; render a fallback (\`'—'\`) for invalid/missing dates. Never let \`Invalid Date\` or a thrown \`RangeError\` reach the screen.
+- **Forms call preventDefault FIRST.** Every \`<form>\` \`onSubmit\` calls \`e.preventDefault()\` FIRST — an un-prevented submit reloads the SPA and wipes all state. \`<input type="number">\` yields a STRING — coerce with \`Number()\` and guard \`Number.isNaN\` before any math.
+- **Async effects are cancellation-guarded.** Async work in a \`useEffect\` (fetch, load) MUST be cancellation-guarded: a \`let active = true\` flag (or \`AbortController\`), bail in cleanup (\`return () => { active = false }\`), and only apply results \`if (active)\` — so a fast re-trigger can't let an old response overwrite a new one.
+- **No fresh literals as deps or context values.** Never pass a freshly-built object/array/function literal as a \`useEffect\`/\`useMemo\` dependency or as a Context Provider value — a new reference each render re-fires the effect or re-renders every consumer. Depend on primitives or wrap in \`useMemo\`/\`useCallback\`.
+- **Controlled inputs are never undefined.** Controlled inputs must have a DEFINED value from the first render — initialize fields to \`''\` (or \`0\`/\`false\`), never \`undefined\`. Use \`value={x ?? ''}\` if the source can be nullish, so an input never flips uncontrolled→controlled.
+- **Wrap every storage read in try/catch.** Wrap every \`JSON.parse(localStorage.getItem(key))\` in try/catch returning a typed default, and guard the result (\`Array.isArray(x) ? x : []\`). Corrupt/old-schema storage must degrade to default state, never throw and blank the app for a returning user.
+
+## Overview
+
+Build production-quality user interfaces that are accessible, performant, and visually polished. The goal is UI that looks like it was built by a design-aware engineer at a top company — not like it was generated by an AI. This means real design system adherence, proper accessibility, thoughtful interaction patterns, and no generic "AI aesthetic."
+
+## When to Use
+
+- Building new UI components or pages
+- Modifying existing user-facing interfaces
+- Implementing responsive layouts
+- Adding interactivity or state management
+- Fixing visual or UX issues
+
+## Component Architecture
+
+### File Structure
+
+Colocate everything related to a component:
+
+\`\`\`
+src/components/
+  TaskList/
+    TaskList.tsx          # Component implementation
+    TaskList.test.tsx     # Tests
+    TaskList.stories.tsx  # Storybook stories (if using)
+    use-task-list.ts      # Custom hook (if complex state)
+    types.ts              # Component-specific types (if needed)
+\`\`\`
+
+### Component Patterns
+
+**Prefer composition over configuration:**
+
+\`\`\`tsx
+// Good: Composable
+<Card>
+  <CardHeader>
+    <CardTitle>Tasks</CardTitle>
+  </CardHeader>
+  <CardBody>
+    <TaskList tasks={tasks} />
+  </CardBody>
+</Card>
+
+// Avoid: Over-configured
+<Card
+  title="Tasks"
+  headerVariant="large"
+  bodyPadding="md"
+  content={<TaskList tasks={tasks} />}
+/>
+\`\`\`
+
+**Keep components focused:**
+
+\`\`\`tsx
+// Good: Does one thing
+export function TaskItem({ task, onToggle, onDelete }: TaskItemProps) {
+  return (
+    <li className="flex items-center gap-3 p-3">
+      <Checkbox checked={task.done} onChange={() => onToggle(task.id)} />
+      <span className={task.done ? 'line-through text-muted' : ''}>{task.title}</span>
+      <Button variant="ghost" size="sm" onClick={() => onDelete(task.id)}>
+        <TrashIcon />
+      </Button>
+    </li>
+  );
+}
+\`\`\`
+
+**Separate data fetching from presentation:**
+
+\`\`\`tsx
+// Container: handles data
+export function TaskListContainer() {
+  const { tasks, isLoading, error } = useTasks();
+
+  if (isLoading) return <TaskListSkeleton />;
+  if (error) return <ErrorState message="Failed to load tasks" retry={refetch} />;
+  if (tasks.length === 0) return <EmptyState message="No tasks yet" />;
+
+  return <TaskList tasks={tasks} />;
+}
+
+// Presentation: handles rendering
+export function TaskList({ tasks }: { tasks: Task[] }) {
+  return (
+    <ul role="list" className="divide-y">
+      {tasks.map(task => <TaskItem key={task.id} task={task} />)}
+    </ul>
+  );
+}
+\`\`\`
+
+## State Management
+
+**Choose the simplest approach that works:**
+
+\`\`\`
+Local state (useState)           → Component-specific UI state
+Lifted state                     → Shared between 2-3 sibling components
+Context                          → Theme, auth, locale (read-heavy, write-rare)
+URL state (searchParams)         → Filters, pagination, shareable UI state
+Server state (React Query, SWR)  → Remote data with caching
+Global store (Zustand, Redux)    → Complex client state shared app-wide
+\`\`\`
+
+**Avoid prop drilling deeper than 3 levels.** If you're passing props through components that don't use them, introduce context or restructure the component tree.
+
+## Design System Adherence
+
+### Avoid the AI Aesthetic
+
+AI-generated UI has recognizable patterns. Avoid all of them:
+
+| AI Default | Why It Is a Problem | Production Quality |
+|---|---|---|
+| Purple/indigo everything | Models default to visually "safe" palettes, making every app look identical | Use the project's actual color palette |
+| Excessive gradients | Gradients add visual noise and clash with most design systems | Flat or subtle gradients matching the design system |
+| Rounded everything (rounded-2xl) | Maximum rounding signals "friendly" but ignores the hierarchy of corner radii in real designs | Consistent border-radius from the design system |
+| Generic hero sections | Template-driven layout with no connection to the actual content or user need | Content-first layouts |
+| Lorem ipsum-style copy | Placeholder text hides layout problems that real content reveals (length, wrapping, overflow) | Realistic placeholder content |
+| Oversized padding everywhere | Equal generous padding destroys visual hierarchy and wastes screen space | Consistent spacing scale |
+| Stock card grids | Uniform grids are a layout shortcut that ignores information priority and scanning patterns | Purpose-driven layouts |
+| Shadow-heavy design | Layered shadows add depth that competes with content and slows rendering on low-end devices | Subtle or no shadows unless the design system specifies |
+
+### Spacing and Layout
+
+Use a consistent spacing scale. Don't invent values:
+
+\`\`\`css
+/* Use the scale: 0.25rem increments (or whatever the project uses) */
+/* Good */  padding: 1rem;      /* 16px */
+/* Good */  gap: 0.75rem;       /* 12px */
+/* Bad */   padding: 13px;      /* Not on any scale */
+/* Bad */   margin-top: 2.3rem; /* Not on any scale */
+\`\`\`
+
+### Typography
+
+Respect the type hierarchy:
+
+\`\`\`
+h1 → Page title (one per page)
+h2 → Section title
+h3 → Subsection title
+body → Default text
+small → Secondary/helper text
+\`\`\`
+
+Don't skip heading levels. Don't use heading styles for non-heading content.
+
+### Color
+
+- Use semantic color tokens: \`text-primary\`, \`bg-surface\`, \`border-default\` — not raw hex values
+- Ensure sufficient contrast (4.5:1 for normal text, 3:1 for large text)
+- Don't rely solely on color to convey information (use icons, text, or patterns too)
+
+## Accessibility (WCAG 2.1 AA)
+
+Every component must meet these standards:
+
+### Keyboard Navigation
+
+\`\`\`tsx
+// Every interactive element must be keyboard accessible
+<button onClick={handleClick}>Click me</button>        // ✓ Focusable by default
+<div onClick={handleClick}>Click me</div>               // ✗ Not focusable
+<div role="button" tabIndex={0} onClick={handleClick}    // ✓ But prefer <button>
+     onKeyDown={e => {
+       if (e.key === 'Enter') handleClick();
+       if (e.key === ' ') e.preventDefault();
+     }}
+     onKeyUp={e => {
+       if (e.key === ' ') handleClick();
+     }}>
+  Click me
+</div>
+\`\`\`
+
+### ARIA Labels
+
+\`\`\`tsx
+// Label interactive elements that lack visible text
+<button aria-label="Close dialog"><XIcon /></button>
+
+// Label form inputs
+<label htmlFor="email">Email</label>
+<input id="email" type="email" />
+
+// Or use aria-label when no visible label exists
+<input aria-label="Search tasks" type="search" />
+\`\`\`
+
+### Focus Management
+
+\`\`\`tsx
+// Move focus when content changes
+function Dialog({ isOpen, onClose }: DialogProps) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (isOpen) closeRef.current?.focus();
+  }, [isOpen]);
+
+  // Trap focus inside dialog when open
+  return (
+    <dialog open={isOpen}>
+      <button ref={closeRef} onClick={onClose}>Close</button>
+      {/* dialog content */}
+    </dialog>
+  );
+}
+\`\`\`
+
+### Meaningful Empty and Error States
+
+\`\`\`tsx
+// Don't show blank screens
+function TaskList({ tasks }: { tasks: Task[] }) {
+  if (tasks.length === 0) {
+    return (
+      <div role="status" className="text-center py-12">
+        <TasksEmptyIcon className="mx-auto h-12 w-12 text-muted" />
+        <h3 className="mt-2 text-sm font-medium">No tasks</h3>
+        <p className="mt-1 text-sm text-muted">Get started by creating a new task.</p>
+        <Button className="mt-4" onClick={onCreateTask}>Create Task</Button>
+      </div>
+    );
+  }
+
+  return <ul role="list">...</ul>;
+}
+\`\`\`
+
+## Responsive Design
+
+Design for mobile first, then expand:
+
+\`\`\`tsx
+// Tailwind: mobile-first responsive
+<div className="
+  grid grid-cols-1      /* Mobile: single column */
+  sm:grid-cols-2        /* Small: 2 columns */
+  lg:grid-cols-3        /* Large: 3 columns */
+  gap-4
+">
+\`\`\`
+
+Test at these breakpoints: 320px, 768px, 1024px, 1440px.
+
+## Loading and Transitions
+
+\`\`\`tsx
+// Skeleton loading (not spinners for content)
+function TaskListSkeleton() {
+  return (
+    <div className="space-y-3" aria-busy="true" aria-label="Loading tasks">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="h-12 bg-muted animate-pulse rounded" />
+      ))}
+    </div>
+  );
+}
+
+// Optimistic updates for perceived speed
+function useToggleTask() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: toggleTask,
+    onMutate: async (taskId) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks'] });
+      const previous = queryClient.getQueryData(['tasks']);
+
+      queryClient.setQueryData(['tasks'], (old: Task[]) =>
+        old.map(t => t.id === taskId ? { ...t, done: !t.done } : t)
+      );
+
+      return { previous };
+    },
+    onError: (_err, _taskId, context) => {
+      queryClient.setQueryData(['tasks'], context?.previous);
+    },
+  });
+}
+\`\`\`
+
+## See Also
+
+For detailed accessibility requirements and testing tools, see \`references/accessibility-checklist.md\`.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "Accessibility is a nice-to-have" | It's a legal requirement in many jurisdictions and an engineering quality standard. |
+| "We'll make it responsive later" | Retrofitting responsive design is 3x harder than building it from the start. |
+| "The design isn't final, so I'll skip styling" | Use the design system defaults. Unstyled UI creates a broken first impression for reviewers. |
+| "This is just a prototype" | Prototypes become production code. Build the foundation right. |
+| "The AI aesthetic is fine for now" | It signals low quality. Use the project's actual design system from the start. |
+
+## Red Flags
+
+- Components with more than 200 lines (split them)
+- Inline styles or arbitrary pixel values
+- Missing error states, loading states, or empty states
+- No keyboard navigation testing
+- Color as the sole indicator of state (red/green without text or icons)
+- Generic "AI look" (purple gradients, oversized cards, stock layouts)
+
+## Verification
+
+After building UI:
+
+- [ ] Component renders without console errors
+- [ ] All interactive elements are keyboard accessible (Tab through the page)
+- [ ] Screen reader can convey the page's content and structure
+- [ ] Responsive: works at 320px, 768px, 1024px, 1440px
+- [ ] Loading, error, and empty states all handled
+- [ ] Follows the project's design system (spacing, colors, typography)
+- [ ] No accessibility warnings in dev tools or axe-core
+
+## Data tables (build these properly)
+- Sticky header, hairline or zebra rows, row hover, right-aligned numbers, sortable columns (click header), empty + loading (skeleton rows) states.
+- Pagination or virtualized scroll for long lists. Never dump 1000 rows unpaginated.
+
+## Charts
+- Use a real lib: add "recharts" to package.json. Label axes, use the brand accent color, responsive container. No fake chart drawn with divs.
+
+## Forms + validation
+- Label ABOVE input (never placeholder-as-label). Inline validation on blur + on submit. Disable->pending state on the submit button. Clear error text below the field. Keyboard: Enter submits, Esc cancels.
+- Persist to localStorage where it makes the app feel real (data survives refresh).
+
+## The state matrix — EVERY data view handles all of:
+Loading (skeletons matching content shape) · Empty (CSS/Lucide illustration + helpful prompt + primary action, never a grey box) · Error (calm message + recovery action) · Populated (the real experience) · Success (satisfying confirmation).
+
+---
+
+## Universal data pattern — works for ANY app (ledger, kanban, CRM, tracker, etc.)
+
+Every webapp is a variation of: **a typed list + CRUD operations + persistence + UI views**. Use this pattern regardless of domain:
+
+\`\`\`typescript
+// 1. Define your entity (replace fields with whatever the app needs)
+interface Item {
+  id: string
+  // add domain-specific fields here: amount, date, status, priority, assignee, etc.
+  createdAt: number
+}
+
+// 2. State — localStorage hydrated, type-safe
+const [items, setItems] = useState<Item[]>(() => {
+  try { return JSON.parse(localStorage.getItem('cm_items') || '[]') }
+  catch { return [] }
+})
+
+// 3. Mutate + persist in one step (immutable — no direct array/object mutation)
+const save = (next: Item[]) => {
+  setItems(next)
+  localStorage.setItem('cm_items', JSON.stringify(next))
+}
+const add    = (data: Omit<Item,'id'|'createdAt'>) => save([{ id: crypto.randomUUID(), createdAt: Date.now(), ...data }, ...items])
+const update = (id: string, patch: Partial<Item>)  => save(items.map(x => x.id === id ? { ...x, ...patch } : x))
+const remove = (id: string)                         => save(items.filter(x => x.id !== id))
+
+// 4. Derived views — filter/sort/group with useMemo, never duplicate state
+const totals = useMemo(() => ({ count: items.length, /* domain sum, avg, etc. */ }), [items])
+\`\`\`
+
+**Keyboard form**: \`<form onSubmit={e => { e.preventDefault(); add(formData); reset() }}>\` — never skip \`preventDefault\`.
+**Empty state**: icon + friendly label + primary action button. Never a blank white box.
+**Persistence**: always save to localStorage so data survives a page refresh.
+**Columns/groups**: derive from the list with \`groupBy\` — never a separate state for each group.
+**Sorting**: \`[...items].sort((a,b) => ...)\` in useMemo — never mutate the original array.
+
+This pattern scales from a ledger to a kanban to a CRM — only the fields and views change, not the architecture.`
+export default content

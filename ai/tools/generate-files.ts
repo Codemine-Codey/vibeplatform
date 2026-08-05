@@ -11,7 +11,7 @@ import { detectEmptyRender, computeCssClosure } from '../gates/semantic-gate'
 import { SCAFFOLD_PATH_SET } from './scaffold'
 import { markFileWritten } from '../edit-tracker'
 import { tool } from 'ai'
-import description from './generate-files.md'
+import description from './generate-files.md.ts'
 import z from 'zod/v3'
 import * as ts from 'typescript'
 

@@ -2,7 +2,7 @@ import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import type { DataPart } from '../messages/data-parts'
 import { Sandbox } from '@vercel/sandbox'
 import { tool } from 'ai'
-import description from './get-sandbox-url.md'
+import description from './get-sandbox-url.md.ts'
 import z from 'zod/v3'
 
 interface Params {
