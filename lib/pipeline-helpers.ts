@@ -749,3 +749,125 @@ export async function functionalVerify(url: string, userRequest: string, skill: 
     try { if (browser) await (browser as any).close() } catch { /* ignore */ }
   }
 }
+
+// ── W6: AI-Directed Browser QA ───────────────────────────────────────────────
+// Vision model SEES the rendered page, decides what to interact with, Claude
+// executes those actions, then the vision model judges the result. Up to 4 rounds.
+// Catches UX failures that blind button-probing misses: wrong flows, dead
+// sequences, visual regressions after an interaction, broken game-over states.
+// Graceful: never blocks the reveal. Returns specific issues for targeted repair.
+export async function aiDrivenQA(
+  url: string,
+  userRequest: string,
+  skill: Skill,
+): Promise<{ ok: boolean; issues: string[] }> {
+  let browser: unknown = null
+  try {
+    const chromiumMod = await import('@sparticuz/chromium')
+    const puppeteer = await import('puppeteer-core')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chromium = (chromiumMod as any).default ?? chromiumMod
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    browser = await (puppeteer as any).launch({ args: chromium.args, executablePath: await chromium.executablePath(), headless: true })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const page = await (browser as any).newPage()
+    await page.setViewport({ width: 1280, height: 800 })
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 15_000 }).catch(() => {})
+    await new Promise(r => setTimeout(r, 1500))
+
+    const allIssues: string[] = []
+
+    for (let round = 1; round <= 4; round++) {
+      // Capture current state
+      const shot: Buffer | null = await page.screenshot({ type: 'png', fullPage: false }).catch(() => null)
+      if (!shot) break
+
+      // Ask vision model: what should I do next to test this app?
+      const planRes = await generateText({
+        ...getModelOptions(VISION_MODEL),
+        maxOutputTokens: 400,
+        abortSignal: AbortSignal.timeout(25_000),
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `You are testing a ${skill} that was built for: "${userRequest.slice(0, 200)}". Round ${round}/4.\n` +
+                `Look at the current screenshot and decide the SINGLE MOST IMPORTANT action to test next.\n` +
+                `Respond STRICT JSON only:\n` +
+                `{"action":"click"|"type"|"press"|"scroll"|"none","selector":"CSS selector or empty","value":"text to type or key name","reason":"why this tests the app","issues":["any visual problems already visible"]}\n` +
+                `action=none means the app looks correct and complete — stop testing.\n` +
+                `For click: selector = a CSS selector of the element. For type: selector = input CSS selector, value = text. For press: value = key name (Space/Enter/ArrowUp). For scroll: value = "down" or "up".`,
+            },
+            { type: 'image', image: shot },
+          ],
+        }],
+      }).catch(() => null)
+
+      if (!planRes) break
+
+      // Parse visible issues already in the screenshot
+      let action = 'none', selector = '', value = '', immediateIssues: string[] = []
+      try {
+        const m = planRes.text.match(/\{[\s\S]*\}/)
+        if (m) {
+          const j = JSON.parse(m[0]) as { action?: string; selector?: string; value?: string; reason?: string; issues?: string[] }
+          action = j.action ?? 'none'
+          selector = j.selector ?? ''
+          value = j.value ?? ''
+          immediateIssues = Array.isArray(j.issues) ? j.issues : []
+        }
+      } catch { break }
+
+      allIssues.push(...immediateIssues)
+      if (action === 'none') break
+
+      // Execute the action
+      try {
+        if (action === 'click' && selector) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const el = await (page as any).$(selector).catch(() => null)
+          if (el) await el.click({ delay: 30 }).catch(() => {})
+        } else if (action === 'type' && selector) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const el = await (page as any).$(selector).catch(() => null)
+          if (el) {
+            await el.click().catch(() => {})
+            await el.type(value || 'test input', { delay: 20 }).catch(() => {})
+          }
+        } else if (action === 'press') {
+          await page.keyboard.press(value || 'Space').catch(() => {})
+        } else if (action === 'scroll') {
+          await page.evaluate((dir: string) => window.scrollBy(0, dir === 'down' ? 600 : -600), value).catch(() => {})
+        }
+        await new Promise(r => setTimeout(r, 1200))
+      } catch { /* best-effort action */ }
+
+      // After action: check for errors or visual regressions
+      const afterShot: Buffer | null = await page.screenshot({ type: 'png', fullPage: false }).catch(() => null)
+      if (!afterShot) continue
+
+      // Overlay errors (Vite overlay, React boundary) — same checks as headlessRuntimeCheck
+      const signals = await page.evaluate(() => {
+        const overlay = document.querySelector('vite-error-overlay')
+        const overlayText = overlay ? ((overlay as HTMLElement & { shadowRoot?: ShadowRoot }).shadowRoot?.textContent || overlay.textContent || '').trim().slice(0, 200) : ''
+        const bodyText = (document.body?.innerText || '').trim()
+        const boundaryHit = bodyText.length < 400 && /something went wrong|error occurred|failed to render/i.test(bodyText)
+        return { overlayText, boundaryHit, bodyText: bodyText.slice(0, 100) }
+      }).catch(() => ({ overlayText: '', boundaryHit: false, bodyText: '' }))
+
+      if (signals.overlayText) { allIssues.push(`Error overlay appeared after ${action}: ${signals.overlayText.slice(0, 100)}`); break }
+      if (signals.boundaryHit) { allIssues.push(`React error boundary appeared after ${action}`); break }
+    }
+
+    const ok = allIssues.length === 0
+    console.log(`[ai-driven-qa] ok=${ok} issues=${allIssues.slice(0, 2).join(' | ')}`)
+    return { ok, issues: allIssues.slice(0, 6) }
+  } catch (e) {
+    console.warn('[ai-driven-qa] skipped:', e instanceof Error ? e.message : e)
+    return { ok: true, issues: [] }
+  } finally {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    try { if (browser) await (browser as any).close() } catch { /* ignore */ }
+  }
+}

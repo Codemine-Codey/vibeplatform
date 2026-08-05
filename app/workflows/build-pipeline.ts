@@ -42,6 +42,7 @@ import {
   verifyAndRepair,
   headlessRuntimeCheck,
   functionalVerify,
+  aiDrivenQA,
   waitForDevServer,
   restartDevServer,
   ensureNavShells,
@@ -721,6 +722,29 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
           }
         } catch { /* non-fatal */ }
         writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: 'Playtest complete', args: [], status: 'done', exitCode: 0 } })
+      }
+    }
+
+    // W6: AI-vision-directed QA — runs after functional verify if time allows
+    if (!devError && !revealed) {
+      const stepElapsed = Date.now() - invocationStart
+      if (stepElapsed < 640_000) {
+        try {
+          const request = firstUserText || lastUserText || ''
+          const w6 = await aiDrivenQA(resolvedUrl, request, skill)
+          if (!w6.ok && w6.issues.length > 0) {
+            logRepair({ layer: 'runtime-check', action: 'w6-ai-qa', detail: w6.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
+            const issueText = `Fix these SPECIFIC UX/visual problems found during AI-directed QA:\n- ${w6.issues.join('\n- ')}`
+            for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 6)) {
+              const content = await readSandboxFile(sandbox, path)
+              if (!content) continue
+              const fixed = await repairFile(path, content, issueText)
+              if (fixed && fixed !== content) {
+                await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
+              }
+            }
+          }
+        } catch { /* W6 is best-effort — never blocks reveal */ }
       }
     }
 
