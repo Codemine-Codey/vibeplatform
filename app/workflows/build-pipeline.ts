@@ -857,9 +857,32 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
         writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'executing' } })
         let rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
         for (let attempt = 1; attempt <= 5 && rt.status === 'broken'; attempt++) {
-          const fixed = await repairFile('src/pages/Home.tsx', (await readSandboxFile(sandbox, 'src/pages/Home.tsx') ?? ''), rt.detail).catch(() => null)
-          if (!fixed) break
-          await sandbox.writeFiles([{ path: 'src/pages/Home.tsx', content: Buffer.from(sanitizeTsx('src/pages/Home.tsx', fixed), 'utf8') }])
+          // Extract the actual offending file from the error detail instead of always
+          // targeting Home.tsx. Errors like "ReservationsSections is not defined at
+          // ReservationsSections.tsx:979" tell us exactly which file to fix.
+          const errFileMatch = rt.detail.match(/([A-Za-z0-9_.-]+\.tsx?):\d+/g)
+          const errFileNames = errFileMatch
+            ? [...new Set(errFileMatch.map(m => m.replace(/:\d+$/, '')))]
+            : []
+          // Build candidate list: erroring files first, then Home.tsx as fallback
+          const candidates: string[] = []
+          for (const fname of errFileNames) {
+            const candidate = manifestFilePaths.find(p => p.endsWith('/' + fname) || p === fname || p.endsWith(fname))
+              ?? ['src/pages', 'src/components', 'src'].map(dir => `${dir}/${fname}`).find(() => true)
+              ?? `src/pages/${fname}`
+            if (!candidates.includes(candidate)) candidates.push(candidate)
+          }
+          if (!candidates.includes('src/pages/Home.tsx')) candidates.push('src/pages/Home.tsx')
+          let repairedAny = false
+          for (const filePath of candidates.slice(0, 4)) {
+            const content = await readSandboxFile(sandbox, filePath)
+            if (!content) continue
+            const fixed = await repairFile(filePath, content, rt.detail).catch(() => null)
+            if (!fixed || fixed === content) continue
+            await sandbox.writeFiles([{ path: filePath, content: Buffer.from(sanitizeTsx(filePath, fixed), 'utf8') }])
+            repairedAny = true
+          }
+          if (!repairedAny) break
           await new Promise(r => setTimeout(r, 2500))
           rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
         }
@@ -935,17 +958,36 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       } catch { /* W6 is best-effort — never blocks reveal */ }
     }
 
-    // Reveal
+    // Reveal — do one final headless check to confirm the preview actually renders
+    // before telling the user it's ready. This prevents the "cream blank" problem
+    // where a broken JS app passes all earlier checks.
     if (!revealed) {
       const finalDevError = await waitForDevServer(resolvedUrl, 20_000, sandbox).catch(() => null)
       if (finalDevError) {
         try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
       }
+      // Final confirmatory check — if still broken, attempt one last targeted repair
+      if (rtStatus === 'broken') {
+        try {
+          const confirmCheck = await headlessRuntimeCheck(resolvedUrl, sandboxId)
+          rtStatus = confirmCheck.status
+          if (confirmCheck.status === 'broken') {
+            // One last attempt: re-apply fallback to guarantee something renders
+            await applyFallbackTerminalState(sandbox, 'force-app-level', { skill, brand: brandName || 'This project' })
+            await new Promise(r => setTimeout(r, 3000))
+            const lastCheck = await headlessRuntimeCheck(resolvedUrl, sandboxId).catch(() => null)
+            if (lastCheck) rtStatus = lastCheck.status
+          }
+        } catch { /* best-effort */ }
+      }
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
       revealed = true
     }
     const brand = brandName ?? 'your project'
-    writer.write({ id: 'srv-ready-narration', type: 'data-narration', data: { text: `${brand.charAt(0).toUpperCase() + brand.slice(1)} is ready — open the Preview tab to see it live.` } })
+    const readyText = rtStatus === 'broken'
+      ? `${brand.charAt(0).toUpperCase() + brand.slice(1)} is available — we hit a rendering issue that we couldn't fully resolve automatically. Open the Preview tab and describe what looks off so we can fix it.`
+      : `${brand.charAt(0).toUpperCase() + brand.slice(1)} is ready — open the Preview tab to see it live.`
+    writer.write({ id: 'srv-ready-narration', type: 'data-narration', data: { text: readyText } })
     if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
 
     void (async () => {
@@ -1004,7 +1046,47 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
   }
 
   let revealed = false
+  let rtStatus = checkpoint.rtStatus
   try {
+    // If stepVerify timed out before running the headless check (rtStatus === null),
+    // run it now with the same targeted repair logic before moving to functional verify.
+    if (!devError && rtStatus === null) {
+      try {
+        writer.write({ id: 'srv-preview-starting', type: 'data-narration', data: { text: 'Checking your preview renders correctly — almost there.' } })
+        let rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
+        for (let attempt = 1; attempt <= 5 && rt.status === 'broken'; attempt++) {
+          const errFileMatch = rt.detail.match(/([A-Za-z0-9_.-]+\.tsx?):\d+/g)
+          const errFileNames = errFileMatch ? [...new Set(errFileMatch.map(m => m.replace(/:\d+$/, '')))] : []
+          const candidates: string[] = []
+          for (const fname of errFileNames) {
+            const candidate = manifestFilePaths.find(p => p.endsWith('/' + fname) || p === fname || p.endsWith(fname))
+              ?? `src/pages/${fname}`
+            if (!candidates.includes(candidate)) candidates.push(candidate)
+          }
+          if (!candidates.includes('src/pages/Home.tsx')) candidates.push('src/pages/Home.tsx')
+          let repairedAny = false
+          for (const filePath of candidates.slice(0, 4)) {
+            const content = await readSandboxFile(sandbox, filePath)
+            if (!content) continue
+            const fixed = await repairFile(filePath, content, rt.detail).catch(() => null)
+            if (!fixed || fixed === content) continue
+            await sandbox.writeFiles([{ path: filePath, content: Buffer.from(sanitizeTsx(filePath, fixed), 'utf8') }])
+            repairedAny = true
+          }
+          if (!repairedAny) break
+          await new Promise(r => setTimeout(r, 2500))
+          rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
+        }
+        rtStatus = rt.status
+        if (rt.status === 'broken') {
+          await applyFallbackTerminalState(sandbox, 'force-app-level', { skill, brand: brandName || 'This project' })
+          await new Promise(r => setTimeout(r, 3500))
+          const fc = await headlessRuntimeCheck(resolvedUrl, sandboxId).catch(() => null)
+          if (fc) rtStatus = fc.status
+        }
+      } catch { /* non-fatal */ }
+    }
+
     // Functional verify
     if (!devError) {
       writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: skill === 'game' ? 'Playtesting your game and polishing it' : 'Testing every feature and polishing it', args: [], status: 'executing' } })
@@ -1036,7 +1118,7 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
       if (!withinBudget()) {
         console.warn('[stepVerify2] 11-min deadline reached after functional verify — chaining another stepVerify2')
         await flushAndRelease()
-        return { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError, revealed: false, rtStatus: null }
+        return { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError, revealed: false, rtStatus }
       }
 
       // W6 QA
@@ -1057,16 +1139,31 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
       } catch { /* non-fatal */ }
     }
 
-    // Reveal URL
+    // Reveal URL — confirmatory final check before telling user it's ready
     const finalDevError = await waitForDevServer(resolvedUrl, 20_000, sandbox).catch(() => null)
     if (finalDevError) {
       try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
+    }
+    if (rtStatus === 'broken') {
+      try {
+        const confirmCheck = await headlessRuntimeCheck(resolvedUrl, sandboxId)
+        rtStatus = confirmCheck.status
+        if (confirmCheck.status === 'broken') {
+          await applyFallbackTerminalState(sandbox, 'force-app-level', { skill, brand: brandName || 'This project' })
+          await new Promise(r => setTimeout(r, 3000))
+          const lastCheck = await headlessRuntimeCheck(resolvedUrl, sandboxId).catch(() => null)
+          if (lastCheck) rtStatus = lastCheck.status
+        }
+      } catch { /* best-effort */ }
     }
     writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
     revealed = true
 
     const brand = brandName ?? 'your project'
-    writer.write({ id: 'srv-ready-narration', type: 'data-narration', data: { text: `${brand.charAt(0).toUpperCase() + brand.slice(1)} is ready — open the Preview tab to see it live.` } })
+    const readyText = rtStatus === 'broken'
+      ? `${brand.charAt(0).toUpperCase() + brand.slice(1)} is available — we hit a rendering issue that we couldn't fully resolve automatically. Open the Preview tab and describe what looks off so we can fix it.`
+      : `${brand.charAt(0).toUpperCase() + brand.slice(1)} is ready — open the Preview tab to see it live.`
+    writer.write({ id: 'srv-ready-narration', type: 'data-narration', data: { text: readyText } })
     if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
 
     void (async () => {

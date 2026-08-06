@@ -136,6 +136,18 @@
     background-color: var(--background);
     color: var(--foreground);
   }
+
+  /* Text selection — explicit in both themes to prevent white-on-white in dark mode.
+     Light: charcoal highlight with white text. Dark: indigo-blue highlight with white text. */
+  ::selection {
+    background-color: rgb(41, 41, 41);
+    color: rgb(255, 255, 255);
+  }
+
+  .dark ::selection {
+    background-color: rgb(79, 70, 229);
+    color: rgb(255, 255, 255);
+  }
 }
 
 @theme inline {

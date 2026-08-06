@@ -128,26 +128,30 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         },
         onError: (error) => {
           const msg = error?.message ?? ''
-          // 'terminated' is expected when the AI stream ends cleanly — not user-visible
-          if (msg === 'terminated' || msg.includes('terminated')) {
+          const isTerminated = msg === 'terminated' || msg.includes('terminated')
+          if (isTerminated) {
             console.warn('Stream terminated:', error)
-            // Still attempt reconnect in case this is the 800s polling stream dying
-            const { activeRunId, lastRunEventCursor, url } = useSandboxStore.getState()
-            if (activeRunId && !url) {
-              reconnectAbortRef.current?.abort()
-              const ac = new AbortController()
-              reconnectAbortRef.current = ac
-              reconnectAndDrain(activeRunId, lastRunEventCursor, mapDataToStateRef.current, ac.signal)
-                .catch(() => {})
-            }
-            return
+          } else {
+            console.error('AI communication error:', error)
           }
-          console.error('AI communication error:', error)
-          // Show error inside the chat (persistent, can't be missed like a toast)
-          useSandboxStore.getState().setStreamError(
-            "Something went wrong — please try again."
-          )
-          toast.error('Connection issue — please try again.', { duration: 8000 })
+          // Always reconnect if we have a pending build — covers both clean termination
+          // AND network errors ("Failed to fetch") when Vercel kills the 800s function
+          const { activeRunId, lastRunEventCursor, url } = useSandboxStore.getState()
+          if (activeRunId && !url) {
+            reconnectAbortRef.current?.abort()
+            const ac = new AbortController()
+            reconnectAbortRef.current = ac
+            reconnectAndDrain(activeRunId, lastRunEventCursor, mapDataToStateRef.current, ac.signal)
+              .catch(() => {})
+            return // reconnecting — suppress error toast
+          }
+          if (!isTerminated) {
+            // Show error inside the chat (persistent, can't be missed like a toast)
+            useSandboxStore.getState().setStreamError(
+              "Something went wrong — please try again."
+            )
+            toast.error('Connection issue — please try again.', { duration: 8000 })
+          }
         },
       }),
     []
