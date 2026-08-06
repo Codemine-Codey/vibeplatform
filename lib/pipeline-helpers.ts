@@ -397,7 +397,17 @@ async function preBuildScan(sandbox: Sandbox): Promise<void> {
   }
 }
 
-// Build oracle + LLM repair loop (up to 3 rounds with batch repair). Uses PipelineWriter.
+// ── 4-Step Verify & Repair (tsc-first architecture) ─────────────────────────
+// Old approach: vite build × N rounds (30-60s each) = 3+ minutes for 3 attempts
+// New approach: tsc × 2 rounds (12s each) + vite build × 1 (60s) = ~1.5 min max
+//
+// Phase 1 — tsc fast lint loop (2 rounds max, ~12s each):
+//   Catches TypeScript errors: missing imports, wrong props, undefined names.
+//   Uses batch repair (all files in one AI call). Fast inner loop.
+// Phase 2 — ONE vite build (60s):
+//   Catches what tsc misses: CSS @apply crashes, unresolved modules, syntax.
+//   installMissingModules handles missing packages. One batch repair if needed.
+// Phase 3 — typeCheckGate (tsc final): catches any contract errors batch-repair missed.
 export async function verifyAndRepair({
   sandbox,
   sandboxId,
@@ -412,22 +422,74 @@ export async function verifyAndRepair({
     type: 'data-run-command',
     data: { sandboxId, command: 'Getting your project ready', args: [], status: 'executing' },
   })
-  // PRE-BUILD: scan generated files for missing imports and rewrite bad ones BEFORE the
-  // first vite build. This catches missing packages (recharts, uuid, etc.) and rewrites
-  // muscle-memory imports (react-spring → framer-motion) in a single pass — avoiding the
-  // entire first "build fails → install → rebuild" round in the common case.
+
+  // PRE-BUILD: rewrite bad imports + inject missing packages before any compilation.
   await preBuildScan(sandbox)
 
-  // Budget: 300s (5 min). With batch repair, 3 rounds is enough for the vast majority
-  // of builds. Saves time vs the old 7-round loop.
-  const repairDeadline = Date.now() + 300_000
+  const deadline = Date.now() + 300_000 // 5 min total budget
+
+  // ── Phase 1: tsc fast repair loop (2 rounds, ~12s each) ─────────────────────
+  let tscAvailable = true
+  for (let round = 1; round <= 2; round++) {
+    if (Date.now() > deadline || !tscAvailable) break
+
+    let tscLog = ''
+    try {
+      const cmd = await sandbox.runCommand({
+        detached: true,
+        cmd: 'bash',
+        args: ['-c', '(./node_modules/.bin/tsc --noEmit --skipLibCheck --pretty false 2>&1; echo "##DONE:$?") | tee /tmp/cm-tsc-repair.log >/dev/null'],
+      })
+      await Promise.race([
+        cmd.wait(),
+        new Promise<void>((_, rej) => setTimeout(() => rej(new Error('tsc timeout')), 35_000)),
+      ])
+    } catch { /* timeout — skip to vite */ }
+
+    tscLog = (await readSandboxFile(sandbox, '/tmp/cm-tsc-repair.log')) ?? ''
+    if (!tscLog.includes('##DONE')) { tscAvailable = false; break }
+
+    const exitCode = tscLog.match(/##DONE:(\d+)/)?.[1]
+    if (exitCode === '0') break // tsc clean — proceed to vite build
+
+    const errorBlock = extractBuildError(tscLog)
+    const files = extractErrorFiles(tscLog).filter(p => !SCAFFOLD_PATH_SET.has(p))
+    logRepair({ layer: 'tsc-repair', action: `round-${round}`, detail: errorBlock.slice(0, 200), sandboxId })
+
+    if (files.length === 0) break // errors not localizable — vite build will be more specific
+
+    if (round === 1) {
+      writer.write({
+        id: 'srv-finalize',
+        type: 'data-run-command',
+        data: { sandboxId, command: 'Smoothing out a couple of things', args: [], status: 'executing' },
+      })
+    }
+
+    // Batch-fix ALL tsc error files in ONE AI call
+    const fileContents: Array<{ path: string; content: string }> = []
+    for (const p of files.slice(0, 5)) {
+      const c = await readSandboxFile(sandbox, p)
+      if (c) fileContents.push({ path: p, content: c })
+    }
+    if (fileContents.length === 0 || Date.now() > deadline) break
+
+    const fixes = await repairAllFiles(fileContents, errorBlock)
+    if (fixes && fixes.length > 0) {
+      const writeOps = fixes
+        .filter(fix => fix.content !== fileContents.find(f => f.path === fix.path)?.content)
+        .map(fix => ({ path: fix.path, content: Buffer.from(sanitizeTsx(fix.path, fix.content), 'utf8') }))
+      if (writeOps.length > 0) await sandbox.writeFiles(writeOps)
+    } else {
+      break // batch returned nothing — move on
+    }
+  }
+
+  // ── Phase 2: ONE vite build ──────────────────────────────────────────────────
+  let vitePassed = false
   try {
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      if (Date.now() > repairDeadline) {
-        console.warn('[verify] repair budget (600s) exhausted — proceeding with current build')
-        break
-      }
-      let log = ''
+    if (Date.now() < deadline) {
+      let viteLog = ''
       try {
         const cmd = await sandbox.runCommand({
           detached: true,
@@ -436,91 +498,100 @@ export async function verifyAndRepair({
         })
         await Promise.race([
           cmd.wait(),
-          new Promise<void>((_, rej) => setTimeout(() => rej(new Error('build timeout')), 50_000)),
+          new Promise<void>((_, rej) => setTimeout(() => rej(new Error('build timeout')), 60_000)),
         ])
       } catch { /* timeout */ }
 
-      log = (await readSandboxFile(sandbox, '/tmp/cm-verify.log')) ?? ''
-      const exitMatch = log.match(/##EXIT:(\d+)/)
-      const ok = exitMatch ? exitMatch[1] === '0' : !/error/i.test(log)
-      if (ok) {
-        await typeCheckGate({ sandbox, sandboxId, deadline: repairDeadline })
-        return
-      }
+      viteLog = (await readSandboxFile(sandbox, '/tmp/cm-verify.log')) ?? ''
+      const exitMatch = viteLog.match(/##EXIT:(\d+)/)
+      vitePassed = exitMatch ? exitMatch[1] === '0' : !/error/i.test(viteLog)
 
-      const errorBlock = extractBuildError(log)
-      if (await installMissingModules(sandbox, log)) continue
-
-      const files = extractErrorFiles(log)
-      console.warn(`[verify] attempt ${attempt} failed. files=${files.join(',')} err=${errorBlock.slice(0, 160)}`)
-      logRepair({ layer: 'build-verify', action: `attempt-${attempt}-failed`, detail: errorBlock.slice(0, 200), sandboxId })
-
-      if (attempt <= 2 && files.length > 0) {
-        writer.write({
-          id: 'srv-finalize',
-          type: 'data-run-command',
-          data: { sandboxId, command: attempt === 1 ? 'Smoothing out a couple of things' : 'One final pass', args: [], status: 'executing' },
-        })
-      }
-
-      if (files.length === 0) {
-        const css = await readSandboxFile(sandbox, 'src/index.css')
-        if (css) {
-          const fixed = sanitizeCss(css)
-          if (fixed !== css) {
-            await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(fixed, 'utf8') }])
-            continue
-          }
+      if (!vitePassed && Date.now() < deadline) {
+        // Missing package? Install and re-run (deterministic fix — no LLM needed).
+        if (await installMissingModules(sandbox, viteLog)) {
+          let viteLog2 = ''
+          try {
+            const cmd2 = await sandbox.runCommand({
+              detached: true,
+              cmd: 'bash',
+              args: ['-c', '(./node_modules/.bin/vite build 2>&1; echo "##EXIT:$?") | tee /tmp/cm-verify.log >/dev/null'],
+            })
+            await Promise.race([
+              cmd2.wait(),
+              new Promise<void>((_, rej) => setTimeout(() => rej(new Error('build timeout')), 60_000)),
+            ])
+          } catch { /* timeout */ }
+          viteLog2 = (await readSandboxFile(sandbox, '/tmp/cm-verify.log')) ?? ''
+          const m2 = viteLog2.match(/##EXIT:(\d+)/)
+          vitePassed = m2 ? m2[1] === '0' : false
+          if (!vitePassed) viteLog = viteLog2
         }
-        return
-      }
 
-      // Batch repair: read all error files, then fix them ALL in one AI call instead of
-      // sequential one-at-a-time calls. Saves 1-2 rounds of AI+build time per error group.
-      const toRead = files.slice(0, 5).filter(p => !SCAFFOLD_PATH_SET.has(p))
-      const fileContents: Array<{ path: string; content: string }> = []
-      for (const path of toRead) {
-        const content = await readSandboxFile(sandbox, path)
-        if (content) fileContents.push({ path, content })
-      }
-      let repairedAny = false
-      if (fileContents.length > 0 && Date.now() < repairDeadline) {
-        const fixes = await repairAllFiles(fileContents, errorBlock)
-        if (fixes && fixes.length > 0) {
-          const writeOps = fixes
-            .filter(fix => fix.content !== fileContents.find(f => f.path === fix.path)?.content)
-            .map(fix => ({
-              path: fix.path,
-              content: Buffer.from(
-                fix.path.endsWith('.css') ? sanitizeCss(fix.content) : sanitizeTsx(fix.path, fix.content),
-                'utf8'
-              ),
-            }))
-          if (writeOps.length > 0) {
-            await sandbox.writeFiles(writeOps)
-            repairedAny = true
-          }
-        }
-        // Fall back to sequential repair if batch returned nothing
-        if (!repairedAny) {
-          for (const { path, content } of fileContents) {
-            if (Date.now() > repairDeadline) break
-            const fixed = await repairFile(path, content, errorBlock)
-            if (fixed && fixed !== content) {
-              const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : sanitizeTsx(path, fixed)
-              await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
-              repairedAny = true
+        // Still failing — one final batch repair for CSS/module errors
+        if (!vitePassed && Date.now() < deadline) {
+          const errorBlock = extractBuildError(viteLog)
+          const files = extractErrorFiles(viteLog).filter(p => !SCAFFOLD_PATH_SET.has(p))
+          logRepair({ layer: 'vite-repair', action: 'final-batch', detail: errorBlock.slice(0, 200), sandboxId })
+
+          writer.write({
+            id: 'srv-finalize',
+            type: 'data-run-command',
+            data: { sandboxId, command: 'One final pass', args: [], status: 'executing' },
+          })
+
+          if (files.length > 0) {
+            const fileContents: Array<{ path: string; content: string }> = []
+            for (const p of files.slice(0, 5)) {
+              const c = await readSandboxFile(sandbox, p)
+              if (c) fileContents.push({ path: p, content: c })
+            }
+            const fixes = await repairAllFiles(fileContents, errorBlock)
+            if (fixes && fixes.length > 0) {
+              const writeOps = fixes
+                .filter(fix => fix.content !== fileContents.find(f => f.path === fix.path)?.content)
+                .map(fix => ({
+                  path: fix.path,
+                  content: Buffer.from(
+                    fix.path.endsWith('.css') ? sanitizeCss(fix.content) : sanitizeTsx(fix.path, fix.content),
+                    'utf8'
+                  ),
+                }))
+              if (writeOps.length > 0) await sandbox.writeFiles(writeOps)
+            } else {
+              // Fall back to one-at-a-time for the sequential repair
+              for (const { path, content } of fileContents) {
+                if (Date.now() > deadline) break
+                const fixed = await repairFile(path, content, errorBlock)
+                if (fixed && fixed !== content) {
+                  const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : sanitizeTsx(path, fixed)
+                  await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
+                }
+              }
+            }
+          } else {
+            // No files localizable — try CSS sanitizer
+            const css = await readSandboxFile(sandbox, 'src/index.css')
+            if (css) {
+              const fixed = sanitizeCss(css)
+              if (fixed !== css) await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(fixed, 'utf8') }])
             }
           }
+          // Note: we don't re-run vite build after this final repair — we tried our best
+          // and the dev server + headless check will catch anything that slipped through
         }
       }
-      if (!repairedAny) return
     }
-    writer.write({
-      id: 'srv-phase-repair-failed',
-      type: 'data-build-phase',
-      data: { phase: 'repair-failed', label: 'Launching best-effort preview...' },
-    })
+
+    // ── Phase 3: typeCheckGate (TS contract errors) ──────────────────────────
+    if (vitePassed) {
+      await typeCheckGate({ sandbox, sandboxId, deadline })
+    } else {
+      writer.write({
+        id: 'srv-phase-repair-failed',
+        type: 'data-build-phase',
+        data: { phase: 'repair-failed', label: 'Launching best-effort preview...' },
+      })
+    }
   } finally {
     writer.write({
       id: 'srv-finalize',

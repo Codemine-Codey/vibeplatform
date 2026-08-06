@@ -6,7 +6,9 @@ export function SyntaxHighlighter(props: { path: string; code: string }) {
   // Read-only viewer — code is not copyable/selectable (no copy, cut, or right-click).
   return (
     <div
-      className="select-none"
+      // Dark mode: the grayscale theme's dark tokens are unreadable on the dark panel, so
+      // force a terminal-green for all code text (light mode keeps the grayscale theme).
+      className="select-none dark:[&_code]:!text-emerald-300 dark:[&_span]:!text-emerald-300 dark:[&_code_*]:!text-emerald-300"
       onCopy={(e) => e.preventDefault()}
       onCut={(e) => e.preventDefault()}
       onContextMenu={(e) => e.preventDefault()}
