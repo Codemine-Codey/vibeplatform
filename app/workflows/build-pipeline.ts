@@ -840,6 +840,40 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
     }
 
+    // ── Proactive missing-module generation ────────────────────────────────────
+    // The scaffold's Vite plugin (cmMissingImportFallback) intercepts any @/ import
+    // whose file doesn't exist and writes it to .cm-missing.log. We read that log NOW,
+    // before the headless check, and generate the real files. HMR replaces the null
+    // stubs automatically — no error overlay ever reaches the user.
+    if (!devError) {
+      try {
+        const missingLog = await readSandboxFile(sandbox, '.cm-missing.log')
+        if (missingLog && missingLog.trim().length > 0) {
+          const missingSpecs = [...new Set(missingLog.trim().split('\n').map(s => s.trim()).filter(Boolean))]
+          console.log(`[stepVerify] proactive missing-module generation: ${missingSpecs.join(', ')}`)
+          const generated: string[] = []
+          for (const spec of missingSpecs.slice(0, 6)) {
+            const rawPath = spec.startsWith('@/') ? `src/${spec.slice(2)}` : spec
+            const missingPath = /\.(tsx?|jsx?|css|json)$/.test(rawPath) ? rawPath : `${rawPath}.tsx`
+            // Find an importer to use as context
+            const importerPath = manifestFilePaths.find(p => p.endsWith('.tsx') || p.endsWith('.ts')) ?? 'src/pages/Home.tsx'
+            const importerContent = await readSandboxFile(sandbox, importerPath).catch(() => null) ?? ''
+            const content = await generateMissingFile(missingPath, spec, importerContent).catch(() => null)
+            if (content) {
+              await sandbox.writeFiles([{ path: missingPath, content: Buffer.from(sanitizeTsx(missingPath, content), 'utf8') }])
+              generated.push(missingPath)
+            }
+          }
+          if (generated.length > 0) {
+            // Clear the log so a subsequent headless repair pass doesn't re-process
+            await sandbox.writeFiles([{ path: '.cm-missing.log', content: Buffer.from('', 'utf8') }])
+            // Give HMR time to apply the new files before the headless check
+            await new Promise(r => setTimeout(r, 3500))
+          }
+        }
+      } catch { /* non-fatal — headless repair is the safety net */ }
+    }
+
     // ── 11-min deadline check: if we're already close, hand off to stepVerify2 ─
     // This fires BEFORE headless check / functional verify / QA so stepVerify2
     // gets a full fresh 800s to run them. No URL revealed yet — stepVerify2 does it.
@@ -1074,6 +1108,24 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
     // If stepVerify timed out before running the headless check (rtStatus === null),
     // run it now with the same targeted repair logic before moving to functional verify.
     if (!devError && rtStatus === null) {
+      // Proactive missing-module generation — read .cm-missing.log from the Vite plugin
+      try {
+        const missingLog = await readSandboxFile(sandbox, '.cm-missing.log')
+        if (missingLog && missingLog.trim().length > 0) {
+          const missingSpecs = [...new Set(missingLog.trim().split('\n').map(s => s.trim()).filter(Boolean))]
+          for (const spec of missingSpecs.slice(0, 6)) {
+            const rawPath = spec.startsWith('@/') ? `src/${spec.slice(2)}` : spec
+            const missingPath = /\.(tsx?|jsx?|css|json)$/.test(rawPath) ? rawPath : `${rawPath}.tsx`
+            const importerPath = manifestFilePaths.find(p => p.endsWith('.tsx') || p.endsWith('.ts')) ?? 'src/pages/Home.tsx'
+            const importerContent = await readSandboxFile(sandbox, importerPath).catch(() => null) ?? ''
+            const content = await generateMissingFile(missingPath, spec, importerContent).catch(() => null)
+            if (content) await sandbox.writeFiles([{ path: missingPath, content: Buffer.from(sanitizeTsx(missingPath, content), 'utf8') }])
+          }
+          await sandbox.writeFiles([{ path: '.cm-missing.log', content: Buffer.from('', 'utf8') }])
+          await new Promise(r => setTimeout(r, 3500))
+        }
+      } catch { /* non-fatal */ }
+
       try {
         writer.write({ id: 'srv-preview-starting', type: 'data-narration', data: { text: 'Checking your preview renders correctly — almost there.' } })
         let rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)

@@ -727,9 +727,48 @@ export const SCAFFOLD_FILES: Array<{ path: string; content: string }> = [
     content: `import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import path from 'path'
+import fs from 'fs'
+
+// Catches any @/ import whose file doesn't exist on disk and returns a null-rendering
+// stub component instead of crashing Vite with an error overlay. Missing specs are
+// appended to .cm-missing.log so the build platform can generate the real files and
+// HMR will replace the stubs automatically — no manual intervention needed.
+function cmMissingImportFallback() {
+  return {
+    name: 'cm-missing-import-fallback',
+    enforce: 'pre',
+    resolveId(source) {
+      if (!source.startsWith('@/')) return null
+      const rel = source.slice(2)
+      const base = path.resolve(process.cwd(), 'src', rel)
+      const exts = ['', '.tsx', '.ts', '.jsx', '.js', '/index.tsx', '/index.ts', '/index.jsx', '/index.js']
+      for (const ext of exts) {
+        try { fs.accessSync(base + ext); return null } catch { /* not found with this ext */ }
+      }
+      return '\\0cm-stub:' + source
+    },
+    load(id) {
+      if (!id.startsWith('\\0cm-stub:')) return null
+      const spec = id.replace('\\0cm-stub:', '')
+      try {
+        const log = path.resolve(process.cwd(), '.cm-missing.log')
+        const existing = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : ''
+        if (!existing.includes(spec + '\\n')) fs.appendFileSync(log, spec + '\\n')
+      } catch { /* non-fatal — stub still works without logging */ }
+      const raw = spec.split('/').pop()?.replace(/[^a-zA-Z0-9]/g, '') || 'Fallback'
+      return [
+        "import React from 'react'",
+        'function ' + raw + '() { return null }',
+        'export default ' + raw,
+        'export { ' + raw + ' }',
+      ].join('\\n')
+    },
+  }
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), cmMissingImportFallback()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
