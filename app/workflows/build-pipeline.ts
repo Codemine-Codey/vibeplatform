@@ -98,6 +98,9 @@ interface GenerateResult {
   firstUserText: string
   lastUserText: string
   userText: string
+  // false when the AI generation was aborted mid-stream (hit the 11-min soft deadline)
+  // stepGenerate2 continues from where it left off — stub files are already on disk
+  generationComplete: boolean
 }
 
 // Checkpoint passed from stepVerify → stepVerify2 when the 11-min deadline fires.
@@ -213,11 +216,16 @@ function makeSilenceFilter() {
 export async function buildProject(params: BuildPipelineParams): Promise<void> {
   'use workflow'
 
-  const genResult = await stepGenerate(params)
-  const checkpoint = await stepVerify(params, genResult)
-  // If stepVerify hit its 11-min deadline before revealing the URL, hand off to
-  // stepVerify2 which gets a fresh 800s budget to finish the job.
-  if (checkpoint) await stepVerify2(checkpoint)
+  // Generation: if the AI hits the 11-min soft deadline mid-stream, stepGenerate
+  // returns generationComplete=false. Stub files are already on disk (checkAndStamp
+  // runs before the step exits). stepGenerate2 reconnects and finishes the remaining
+  // files before we move to verify — unlimited generation time.
+  let genResult = await stepGenerate(params)
+  if (!genResult.generationComplete) genResult = await stepGenerate2(params, genResult)
+
+  // Verify: same unlimited chain via while loop.
+  let checkpoint = await stepVerify(params, genResult)
+  while (checkpoint) checkpoint = await stepVerify2(checkpoint)
 }
 
 // ── Step 1: Scaffold + AI generation ────────────────────────────────────────
@@ -260,6 +268,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
       firstUserText: params.firstUserText,
       lastUserText: params.lastUserText,
       userText: params.userText,
+      generationComplete: true,
     }
   }
   const sandboxId = sandbox.sandboxId
@@ -451,9 +460,11 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
 
   const maxSteps = skill === 'website' ? 12 : skill === 'webapp' ? 10 : 9
 
-  // Each workflow step gets its own 800s budget — generation can use 650s
-  // (leaving 150s for dev-server-start + basic headless in the verify step).
-  const genBudgetMs = 650_000
+  // Each step gets its own 800s Vercel budget. Generation uses up to 700s — leaving
+  // ~100s for post-processing (stamp, snapshot, CSS fix). If the AI hits 700s, the
+  // stream is aborted and we return generationComplete=false so buildProject chains
+  // to stepGenerate2 which finishes the missing files in a fresh 800s budget.
+  const genBudgetMs = 700_000
   const genAbort = AbortSignal.timeout(genBudgetMs)
 
   writer.write({ id: 'srv-phase-gen', type: 'data-build-phase', data: { phase: 'generating', label: 'Generating your files...' } })
@@ -612,7 +623,115 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     firstUserText: params.firstUserText,
     lastUserText: params.lastUserText,
     userText: params.userText,
+    generationComplete: !genAbort.aborted,
   }
+}
+
+// ── Step 1B: Continue generation when stepGenerate hit the 11-min deadline ───
+// Stub files are already on disk from checkAndStampMissingFiles in stepGenerate.
+// This step reads the planned manifest, finds stub/missing files, and asks the AI
+// to complete them. Returns an updated GenerateResult with generationComplete=true.
+
+async function stepGenerate2(params: BuildPipelineParams, partial: GenerateResult): Promise<GenerateResult> {
+  'use step'
+
+  const { writer, flushAndRelease } = makeStepWriter(partial.runId)
+  writer.write({ id: 'srv-phase-gen2', type: 'data-build-phase', data: { phase: 'generating', label: 'Completing remaining files...' } })
+
+  let sandbox: Sandbox
+  try {
+    sandbox = await Sandbox.get({ sandboxId: partial.sandboxId })
+  } catch (err) {
+    console.warn('[stepGenerate2] sandbox reconnect failed:', err instanceof Error ? err.message : err)
+    await flushAndRelease()
+    return { ...partial, generationComplete: true }
+  }
+
+  // Find which planned files are stubs (< 100 bytes = auto-stamped placeholder)
+  const stubPaths: string[] = []
+  for (const filePath of partial.manifestFilePaths) {
+    try {
+      const stream = await sandbox.readFile({ path: filePath })
+      if (!stream) { stubPaths.push(filePath); continue }
+      const chunks: Buffer[] = []
+      for await (const c of stream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as string))
+      const content = Buffer.concat(chunks).toString('utf8')
+      if (content.trim().length < 100) stubPaths.push(filePath)
+    } catch {
+      stubPaths.push(filePath)
+    }
+  }
+
+  if (stubPaths.length === 0) {
+    // Nothing to complete — all files are real
+    await flushAndRelease()
+    return { ...partial, generationComplete: true }
+  }
+
+  console.log(`[stepGenerate2] completing ${stubPaths.length} stub files:`, stubPaths)
+
+  const { skill, brandName } = partial
+  const rawWriterForGF = {
+    write: (part: Parameters<PipelineWriter['write']>[0]) => writer.write(part),
+    merge: (_: ReadableStream) => {},
+    get onError() { return undefined },
+    set onError(_: unknown) {},
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const continuationGF = generateFiles({ writer: rawWriterForGF as any, modelId: FILE_GENERATION_MODEL, designContext: params.designContext }) as any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const continuationTools: Record<string, any> = { generateFiles: continuationGF }
+
+  const alreadyGenerated = partial.manifestFilePaths.filter(p => !stubPaths.includes(p))
+  const continuationSystem =
+    params.systemPrompt +
+    `\n\n## CONTINUATION — GENERATION WAS INTERRUPTED\n` +
+    `sandboxId: ${partial.sandboxId}\n` +
+    `Brand: ${brandName ?? 'the project'}\n` +
+    `Skill: ${skill}\n` +
+    `DO NOT call createSandbox, runCommand, or getSandboxURL.\n` +
+    `DO NOT call planProject or getUnsplashBatch — images are already in the code.\n` +
+    `These files were already generated (DO NOT regenerate them):\n${alreadyGenerated.map(p => `  - ${p}`).join('\n')}\n\n` +
+    `These files need to be completed (they are empty stubs on disk):\n${stubPaths.map(p => `  - ${p}`).join('\n')}\n\n` +
+    `Call generateFiles ONCE with EXACTLY this path list: [${stubPaths.map(p => `"${p}"`).join(', ')}]\n` +
+    `Generate each file COMPLETELY — no placeholders, no TODO comments, production-quality code.\n` +
+    `The design brief and original request: ${params.userText}\n`
+
+  const gen2Budget = AbortSignal.timeout(700_000)
+
+  const aiResult2 = streamText({
+    ...getModelOptions(DEFAULT_MODEL),
+    system: continuationSystem,
+    messages: [{ role: 'user', content: `Complete the ${stubPaths.length} missing files for this ${skill} project.` }],
+    stopWhen: stepCountIs(4),
+    maxOutputTokens: getMaxOutputTokens(DEFAULT_MODEL),
+    tools: continuationTools,
+    abortSignal: gen2Budget,
+    onError: error => console.error('[workflow-gen2] AI error:', error),
+  })
+
+  const silenced2 = (aiResult2.toUIMessageStream({ sendReasoning: false, sendStart: false }) as ReadableStream<unknown>).pipeThrough(makeSilenceFilter())
+  try {
+    const reader = silenced2.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      writer.write(value as Parameters<PipelineWriter['write']>[0])
+    }
+    reader.releaseLock()
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (!/abort|timeout|cancel/i.test(msg)) console.error('[workflow-gen2] stream error:', msg)
+  }
+
+  // Ensure any remaining stubs get a proper fallback
+  if (partial.planManifest) {
+    await checkAndStampMissingFiles(sandbox, partial.planManifest.files.map(f => f.path)).catch(() => {})
+  }
+
+  await flushAndRelease()
+  return { ...partial, generationComplete: true }
 }
 
 // ── Step 2: Install + verify + reveal preview URL ────────────────────────────
@@ -856,8 +975,14 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
 // ── Step 3: Continuation verify (runs only when stepVerify hit its 11-min deadline) ──
 // Gets a fresh 800s budget to finish functional verify, QA, and reveal the preview URL.
 
-async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<void> {
+// stepVerify2 is also the continuation for itself — returns another checkpoint if it also
+// hits the 11-min deadline (extremely rare, but guaranteed-safe via the while loop above).
+async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoint | null> {
   'use step'
+
+  const stepStart = Date.now()
+  const STEP_DEADLINE_MS = 660_000 // same 11-min soft deadline
+  const withinBudget = () => Date.now() - stepStart < STEP_DEADLINE_MS
 
   const { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError } = checkpoint
   const { writer, flushAndRelease } = makeStepWriter(runId)
@@ -867,21 +992,21 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<void> {
     sandbox = await Sandbox.get({ sandboxId })
   } catch (err) {
     console.warn('[stepVerify2] sandbox reconnect failed:', err instanceof Error ? err.message : err)
-    // Sandbox gone — emit whatever URL we have so user isn't left with nothing
     if (resolvedUrl) writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
     await flushAndRelease()
     if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
-    return
+    return null
   }
 
   let revealed = false
   try {
-    // Functional verify (already had headless check in stepVerify)
+    // Functional verify
     if (!devError) {
       writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: skill === 'game' ? 'Playtesting your game and polishing it' : 'Testing every feature and polishing it', args: [], status: 'executing' } })
       try {
         const request = firstUserText || lastUserText || ''
         for (let round = 1; round <= 3; round++) {
+          if (!withinBudget()) break
           const fv = await functionalVerify(resolvedUrl, request, skill)
           if (fv.ok || fv.issues.length === 0) break
           logRepair({ layer: 'runtime-check', action: `v2-functional-r${round}`, detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
@@ -901,6 +1026,13 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<void> {
         }
       } catch { /* non-fatal */ }
       writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: 'Playtest complete', args: [], status: 'done', exitCode: 0 } })
+
+      // 11-min deadline: hand off to another stepVerify2 if QA would exceed budget
+      if (!withinBudget()) {
+        console.warn('[stepVerify2] 11-min deadline reached after functional verify — chaining another stepVerify2')
+        await flushAndRelease()
+        return { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError, revealed: false, rtStatus: null }
+      }
 
       // W6 QA
       try {
@@ -955,7 +1087,8 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<void> {
     }
   } finally {
     await flushAndRelease()
-    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
+    if (runId && revealed) await updateRun(runId, { status: 'done' }).catch(() => {})
   }
+  return null
 }
 
