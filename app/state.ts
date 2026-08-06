@@ -13,6 +13,10 @@ interface SandboxStore {
   addGeneratedFiles: (files: string[]) => void
   addLog: (data: { sandboxId: string; cmdId: string; log: CommandLog }) => void
   addPaths: (paths: string[]) => void
+  activeRunId: string | null
+  lastRunEventCursor: number
+  setActiveRun: (runId: string, cursor?: number) => void
+  advanceRunCursor: (seq: number) => void
   authEnabled?: boolean
   authWorkerUrl?: string
   authAppId?: string
@@ -148,6 +152,10 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
   deployedUrl: undefined,
   deployError: undefined,
   deployProjectName: undefined,
+  activeRunId: null,
+  lastRunEventCursor: 0,
+  setActiveRun: (runId, cursor = 0) => set(() => ({ activeRunId: runId, lastRunEventCursor: cursor })),
+  advanceRunCursor: (seq) => set((s) => seq > s.lastRunEventCursor ? { lastRunEventCursor: seq } : s),
   deployStatus: 'idle',
   generatedFiles: new Set<string>(),
   lastFilesUploadedAt: undefined,
@@ -227,12 +235,17 @@ export function useDataStateMapper() {
   const setLastFilesUploadedAt = useSandboxStore((s) => s.setLastFilesUploadedAt)
   const setDatabaseState = useSandboxStore((s) => s.setDatabaseState)
   const setAuthState = useSandboxStore((s) => s.setAuthState)
+  const setActiveRun = useSandboxStore((s) => s.setActiveRun)
   // setCursor is an action — stable, never triggers re-render
   const setCursor = useMonitorState((s) => s.setCursor)
 
   return useCallback(
     (data: DataUIPart<DataPart>) => {
       switch (data.type) {
+        case 'data-run':
+          // Store runId so chat-context can reconnect if the 800s polling stream dies.
+          if (data.data.runId) setActiveRun(data.data.runId, 0)
+          break
         case 'data-create-sandbox':
           if (data.data.sandboxId) setSandboxId(data.data.sandboxId)
           if (data.data.projectId) setProjectId(data.data.projectId)
@@ -297,6 +310,6 @@ export function useDataStateMapper() {
           break
       }
     },
-    [addGeneratedFiles, addPaths, setCursor, setSandboxId, setProjectId, setLastFilesUploadedAt, setUrl, upsertCommand, setDatabaseState, setAuthState]
+    [addGeneratedFiles, addPaths, setCursor, setSandboxId, setProjectId, setLastFilesUploadedAt, setUrl, upsertCommand, setDatabaseState, setAuthState, setActiveRun]
   )
 }

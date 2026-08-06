@@ -1,21 +1,34 @@
 import Prism from 'react-syntax-highlighter'
 import grayscale from 'react-syntax-highlighter/dist/esm/styles/hljs/grayscale'
+import atomOneDark from 'react-syntax-highlighter/dist/esm/styles/hljs/atom-one-dark'
+import { useEffect, useState } from 'react'
+
+function useDarkMode() {
+  const [dark, setDark] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const check = () => setDark(document.documentElement.classList.contains('dark') || mq.matches)
+    check()
+    const mo = new MutationObserver(check)
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => mo.disconnect()
+  }, [])
+  return dark
+}
 
 export function SyntaxHighlighter(props: { path: string; code: string }) {
   const lang = detectLanguageFromFilename(props.path)
-  // Read-only viewer — code is not copyable/selectable (no copy, cut, or right-click).
+  const dark = useDarkMode()
   return (
     <div
-      // Dark mode: the grayscale theme's dark tokens are unreadable on the dark panel, so
-      // force a terminal-green for all code text (light mode keeps the grayscale theme).
-      className="select-none dark:[&_code]:!text-emerald-300 dark:[&_span]:!text-emerald-300 dark:[&_code_*]:!text-emerald-300"
+      className="select-none"
       onCopy={(e) => e.preventDefault()}
       onCut={(e) => e.preventDefault()}
       onContextMenu={(e) => e.preventDefault()}
     >
       <Prism
         language={lang ?? 'javascript'}
-        style={grayscale}
+        style={dark ? atomOneDark : grayscale}
         showLineNumbers
         showInlineLineNumbers
         customStyle={{
