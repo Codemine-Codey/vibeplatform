@@ -50,7 +50,7 @@ import {
   sanitizeTsx,
   type PipelineWriter,
 } from '@/lib/pipeline-helpers'
-import { appendRunEvent, updateRun } from '@/lib/runs'
+import { appendRunEventBatch, updateRun } from '@/lib/runs'
 import {
   updateProjectRow,
   snapshotProject,
@@ -112,19 +112,42 @@ function makeStepWriter(runId: string | null): {
   const gWriter = writable.getWriter()
   const pending: Promise<void>[] = []
 
+  // Ordered batch Supabase writes — fixes garbled chat and tool-input-delta errors.
+  // Concurrent fire-and-forget inserts race for seq values so a text-delta emitted
+  // 2nd can land with a lower seq than the one emitted 1st, corrupting the stream
+  // the client assembles. We accumulate events in call order and flush as a single
+  // multi-row INSERT; PostgreSQL assigns seq in VALUES order, preserving ordering.
+  // Flushes are chained so concurrent batches never interleave.
+  const batchQueue: Array<{ type: string; payload: unknown }> = []
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
+  let flushChain: Promise<void> = Promise.resolve()
+
+  function flushBatch() {
+    flushTimer = null
+    if (!runId || batchQueue.length === 0) return
+    const batch = batchQueue.splice(0)
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    flushChain = flushChain.then(() => appendRunEventBatch(runId!, batch)).catch(() => {})
+  }
+
   const writer: PipelineWriter = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     write(part: { id?: string; type: string; data?: any }) {
-      // Write to the live stream (run.readable on client)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       pending.push(gWriter.write(part as Record<string, any>).catch(() => {}))
-      // Dual-write to Supabase run_events for reconnect endpoint
-      if (runId) appendRunEvent(runId, part.type, part)
+      if (runId) {
+        batchQueue.push({ type: part.type, payload: part })
+        if (flushTimer === null) flushTimer = setTimeout(flushBatch, 0)
+      }
     },
   }
 
   async function flushAndRelease() {
+    // Drain remaining queued events before releasing
+    if (flushTimer !== null) { clearTimeout(flushTimer); flushTimer = null }
+    flushBatch()
     await Promise.all(pending).catch(() => {})
+    await flushChain.catch(() => {})
     gWriter.releaseLock()
   }
 
@@ -200,8 +223,8 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { error: { message }, status: 'error' } })
-    if (params.runId) await updateRun(params.runId, { status: 'error' }).catch(() => {})
     await flushAndRelease()
+    if (params.runId) await updateRun(params.runId, { status: 'error' }).catch(() => {})
     return {
       sandboxId: params.sandboxId ?? '',
       resolvedUrl: '',
@@ -573,8 +596,8 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
   const { sandboxId, resolvedUrl: initialUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, invocationStart, firstUserText, lastUserText } = genResult
 
   if (!sandboxId) {
-    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
     await flushAndRelease()
+    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
     return
   }
 
@@ -583,8 +606,8 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
     sandbox = await Sandbox.get({ sandboxId })
   } catch (err) {
     console.warn('[stepVerify] sandbox reconnect failed:', err instanceof Error ? err.message : err)
-    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
     await flushAndRelease()
+    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
     return
   }
 
@@ -799,8 +822,10 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
     }
   } finally {
-    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
+    // Flush all events BEFORE marking done — the poller closes on 'done' status,
+    // so events (including the preview URL) must land in Supabase first.
     await flushAndRelease()
+    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
   }
 }
 

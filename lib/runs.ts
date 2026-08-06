@@ -94,6 +94,26 @@ export function appendRunEvent(
   }
 }
 
+// Batch-append multiple events in a single INSERT, preserving call order.
+// PostgreSQL assigns seq (SERIAL) values in the order rows appear in the VALUES
+// clause, so a multi-row INSERT guarantees the seq ordering matches the call order
+// — avoiding the race condition that concurrent individual inserts create.
+export async function appendRunEventBatch(
+  runId: string,
+  events: Array<{ type: string; payload: unknown }>
+): Promise<void> {
+  if (!runId || events.length === 0) return
+  try {
+    const sb = getAdminSupabase()
+    const { error } = await sb
+      .from('run_events')
+      .insert(events.map(ev => ({ run_id: runId, type: ev.type, payload: ev.payload ?? null })))
+    if (error) console.warn('[runs] appendRunEventBatch failed:', error.message)
+  } catch (e) {
+    console.warn('[runs] appendRunEventBatch threw:', e instanceof Error ? e.message : e)
+  }
+}
+
 // Patch a run row (status, phase_cursor, manifest, brief, sandbox_id, snapshot_path,
 // tokens_used, …). Non-throwing; keeps updated_at fresh.
 export async function updateRun(
