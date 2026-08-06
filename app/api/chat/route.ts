@@ -22,6 +22,7 @@ import { planProject, type NormalizedManifest } from '@/ai/tools/plan-project'
 import { lookupReference, tavilySearch } from '@/ai/tools/lookup-reference'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
+import { generatePRD } from '@/ai/prd'
 import { formatBrief, type PageSpec } from '@/ai/types/project-brief'
 import { lockPaletteInCss, buildFullIndexCss } from '@/lib/design-tokens'
 import type { ColorTokens } from '@/ai/types/project-brief'
@@ -1615,10 +1616,12 @@ export async function POST(req: Request) {
     ? `"${userText}": what core features, data fields/model, views, and user actions does a good version of this app include? Give concrete real-world specifics.`
     : `${brief.brandName || userText}: what sections, services/offerings, and specific content does this kind of business's website typically include? Give concrete real-world specifics.`
 
-  // Run Tavily research + await sandbox in parallel (they overlap: sandbox ~35s, research ~5s)
-  const [researchRaw, sandbox] = await Promise.all([
+  // Run Tavily research + PRD generation + await sandbox in parallel.
+  // Sandbox takes ~35s; research ~5s; PRD ~8s — all overlap, adding zero wall-clock time.
+  const [researchRaw, sandbox, prdContext] = await Promise.all([
     tavilySearch(researchQ).catch(() => ''),
     sandboxPromise.catch(() => null),
+    generatePRD(brief, userText).catch(() => ''),
   ])
 
   const sandboxId = sandbox?.sandboxId ?? null
@@ -1669,6 +1672,7 @@ export async function POST(req: Request) {
     lastUserText: getLastUserText(messages),
     invocationStart,
     userText,
+    prdContext: prdContext || null,
   }])
   void run // start() fires workflow; run.readable is NOT used — we poll Supabase instead
 

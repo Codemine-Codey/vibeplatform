@@ -13,25 +13,19 @@
 // NOTE (2026-07): switched from the OpenRouter route (`deepseek/…`) to DeepSeek-DIRECT
 // (`deepseek-…`, no slash → deepseekProvider in gateway.ts → api.deepseek.com). The
 // OpenRouter key was revoked/depleted (401 "User not found" on inference), which stalled
-// every build. DeepSeek-direct serves the SAME models (deepseek-v4-pro / -flash) with no
+// every build. DeepSeek-direct serves the SAME models (deepseek-v4-flash) with no
 // hard rate limit. Keep IDs slashless so getModelOptions routes them to the direct provider.
-export const DEFAULT_MODEL = 'deepseek-v4-pro'
-export const FILE_GENERATION_MODEL = 'deepseek-v4-pro'
-// Edits (changing copy, tweaking a component, fixing one thing) must be FAST — a
-// small targeted change, not a full build. DeepSeek V4 Flash handles edits in seconds
-// (Pro took minutes for a one-line copy change). Initial generation stays on Pro.
+//
+// NOTE (2026-08-06): switched ALL build models from deepseek-v4-pro → deepseek-v4-flash.
+// DeepSeek's July 31 changelog confirms: the `deepseek-v4-flash` ID now automatically
+// serves DeepSeek-V4-Flash-0731, which outperforms v4-pro on all 9 coding benchmarks
+// (Intelligence Index: 50 vs 44) at 3x lower cost ($0.07/$0.28 vs $0.27/$1.10 per M).
+export const DEFAULT_MODEL = 'deepseek-v4-flash'
+export const FILE_GENERATION_MODEL = 'deepseek-v4-flash'
 export const EDIT_MODEL = 'deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek-v4-flash'
-// Orchestration — CLASSIFY (skill + clarify). Part of the BUILD path, so on Pro too:
-// Flash is reserved for edits + chat + error-fix triage ONLY, never initial build steps.
-export const ORCHESTRATION_MODEL = 'deepseek-v4-pro'
-// The BRIEF (expand prompt → archetype, palette, multi-page pageMap, signature moves,
-// the whole design direction) is the DESIGN DNA of the build. It MUST be produced by the
-// strong model — a weak model picks bland archetypes, skips the pageMap (→ single-page,
-// basic), or fails the richer tool call and falls back to the generic default brief,
-// which is exactly what makes results look "eh" no matter how good the design law is.
-// Quality > speed: the extra ~20-30s on the brief is negligible at the full build budget.
-export const BRIEF_MODEL = 'deepseek-v4-pro'
+export const ORCHESTRATION_MODEL = 'deepseek-v4-flash'
+export const BRIEF_MODEL = 'deepseek-v4-flash'
 // Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
 // gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
 // and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),

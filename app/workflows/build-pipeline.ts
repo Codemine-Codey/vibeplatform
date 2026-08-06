@@ -80,6 +80,8 @@ export interface BuildPipelineParams {
   lastUserText: string
   invocationStart: number
   userText: string
+  /** Technical PRD generated from the design brief — injected into the generation prompt */
+  prdContext: string | null
 }
 
 // ── Internal step-to-step handoff (serializable) ─────────────────────────────
@@ -374,7 +376,10 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
       : skill === 'webapp' ? 'Look up correct formulas/values if computing real things.'
       : 'Look up factual CONTENT for specific real businesses.')
 
-  const fullSystem = params.systemPrompt + pipelineAddendum + referenceGuidance + `\n\n${fileCountGuidance}`
+  const prdSection = params.prdContext
+    ? `\n\n## TECHNICAL IMPLEMENTATION PRD (follow this exactly)\n${params.prdContext}`
+    : ''
+  const fullSystem = params.systemPrompt + pipelineAddendum + referenceGuidance + prdSection + `\n\n${fileCountGuidance}`
 
   // ── Tool setup ────────────────────────────────────────────────────────────
   const planBox: { manifest: NormalizedManifest | null } = { manifest: null }
