@@ -10,6 +10,8 @@
 export type RepairLayer =
   | 'css-sanity'        // Step 4.5 CSS fix before dev server
   | 'build-verify'      // Step 4.7 vite build + repair rounds
+  | 'tsc-repair'        // Phase 1 fast tsc lint repair rounds (pre-vite-build)
+  | 'vite-repair'       // Phase 2 final vite build repair (CSS / module errors)
   | 'type-check'        // Step 4.8 filtered tsc contract-error gate
   | 'auto-install'      // missing-module install (any checkpoint)
   | 'dev-500'           // dev server returning 500 after start
