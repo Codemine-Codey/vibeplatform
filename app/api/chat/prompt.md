@@ -149,21 +149,31 @@ Every file MUST conform to this exact stack. A deterministic post-generation fix
 
 ### 3.1 Pre-installed — import directly, no install needed
 
+These packages are already in `node_modules`. Import them without adding to `package.json`. Do NOT use any other package for these categories — it costs a repair round.
+
 | Layer | Import exactly as shown |
 |---|---|
 | Framework | `import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'` |
 | Routing | `import { Link, useNavigate, useParams, useLocation } from 'react-router-dom'` |
-| Animation | `import { motion, AnimatePresence, useInView, useScroll, useTransform } from 'framer-motion'` |
-| Icons | `import { IconName } from 'lucide-react'` (ONLY icon source) |
+| Animation | `import { motion, AnimatePresence, useInView, useScroll, useTransform } from 'framer-motion'` — NOT `react-spring`, NOT `motion/react` |
+| Icons | `import { IconName } from 'lucide-react'` — ONLY icon source, never @heroicons, @phosphor-icons, @tabler |
 | Class util | `import { cn } from '@/lib/utils'` |
 | Forms | `import { useForm } from 'react-hook-form'` + `import { zodResolver } from '@hookform/resolvers/zod'` + `import { z } from 'zod'` |
 | State | `import { create } from 'zustand'` |
+| Server state | `import { useQuery, useMutation } from '@tanstack/react-query'` |
 | Date | `import { format, formatDistance, parseISO } from 'date-fns'` |
+| Charts | `import { LineChart, BarChart, PieChart, ... } from 'recharts'` |
+| HTTP | `import axios from 'axios'` |
+| Confetti | `import confetti from 'canvas-confetti'` |
 | 3D | `import * as THREE from 'three'` / `import { Canvas } from '@react-three/fiber'` / `import { ... } from '@react-three/drei'` |
 | Audio | `import { Howl, Howler } from 'howler'` |
 | 2D/Sprite | `import * as PIXI from 'pixi.js'` |
 | Physics | `import Matter from 'matter-js'` |
+| Carousel | `import useEmblaCarousel from 'embla-carousel-react'` |
 | Styling | Tailwind CSS utility classes + semantic tokens from `src/index.css` |
+| shadcn/ui | All `@/components/ui/*` components (Button, Card, Dialog, Input, Select, Tabs, etc.) |
+| Database | `import { neon } from '@neondatabase/serverless'` (when VITE_DATABASE_URL is set) |
+| Auth | `import { createAuthClient } from 'better-auth/react'` (when VITE_AUTH_URL is set) |
 
 ### 3.2 Add-first packages — add to `package.json` AND THEN import (platform installs them)
 

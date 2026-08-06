@@ -287,7 +287,117 @@ export async function typeCheckGate({ sandbox, sandboxId, deadline }: {
   }
 }
 
-// Build oracle + LLM repair loop (up to 5 rounds). Uses PipelineWriter.
+// Packages to auto-inject when the AI uses them but they're not in the scaffold.
+// These are the most common packages the AI reaches for by muscle memory that are NOT
+// already baked into node_modules — recharts/axios/uuid etc. are now pre-bundled in the
+// scaffold, so this map acts as the second safety net for anything the scaffold misses.
+const PRE_BUILD_AUTO_INJECT: Record<string, { version: string; isDev?: boolean }> = {
+  uuid:              { version: '^9.0.1' },
+  '@types/uuid':     { version: '^9.0.8', isDev: true },
+  nanoid:            { version: '^5.0.6' },
+  lodash:            { version: '^4.17.21' },
+  '@types/lodash':   { version: '^4.17.0', isDev: true },
+  'date-fns':        { version: '^4.4.0' }, // already in scaffold but guard it
+  'react-spring':    { version: null as unknown as string }, // blocked — rewrite only
+}
+// Hallucinated imports the AI writes by training-data muscle memory — rewrite to the
+// correct pre-installed package so vite build never sees an unknown specifier.
+const PRE_BUILD_REWRITE: Record<string, string> = {
+  'motion/react':              'framer-motion',
+  'motion/dist/react':         'framer-motion',
+  'react-spring':              'framer-motion',
+  '@phosphor-icons/react':     'lucide-react',
+  '@tabler/icons-react':       'lucide-react',
+  '@heroicons/react':          'lucide-react',
+  '@heroicons/react/24/solid': 'lucide-react',
+  '@heroicons/react/24/outline':'lucide-react',
+}
+
+async function preBuildScan(sandbox: Sandbox): Promise<void> {
+  try {
+    // List all generated source files (AI-written only — src/ tree)
+    const listCmd = await sandbox.runCommand({
+      detached: true,
+      cmd: 'bash',
+      args: ['-c', "find src -type f \\( -name '*.tsx' -o -name '*.ts' -o -name '*.jsx' -o -name '*.js' \\) 2>/dev/null | head -80"],
+    })
+    const listing = ((await (await listCmd.wait()).stdout()) ?? '').trim()
+    if (!listing) return
+    const paths = listing.split('\n').map(p => p.trim()).filter(Boolean)
+
+    const importedPkgs = new Set<string>()
+    const filesToRewrite: Array<{ path: string; content: Buffer }> = []
+
+    for (const p of paths) {
+      const content = await readSandboxFile(sandbox, p)
+      if (!content) continue
+
+      // Extract all package imports (skip relative paths)
+      for (const m of content.matchAll(/from\s+['"]([^.'"@/][^'"]*|@[^'"]+)['"]/g)) {
+        const spec = m[1]
+        const pkg = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0]
+        if (pkg) importedPkgs.add(pkg)
+      }
+
+      // Rewrite hallucinated import specifiers in-place
+      let fixed = content
+      for (const [bad, good] of Object.entries(PRE_BUILD_REWRITE)) {
+        if (fixed.includes(`'${bad}'`) || fixed.includes(`"${bad}"`)) {
+          fixed = fixed.replaceAll(`'${bad}'`, `'${good}'`).replaceAll(`"${bad}"`, `"${good}"`)
+        }
+      }
+      if (fixed !== content) filesToRewrite.push({ path: p, content: Buffer.from(fixed, 'utf8') })
+    }
+
+    // Flush rewritten files to sandbox
+    if (filesToRewrite.length > 0) {
+      await sandbox.writeFiles(filesToRewrite)
+      console.log(`[pre-build] rewrote ${filesToRewrite.length} files (bad import specifiers)`)
+    }
+
+    // Patch package.json with any missing injected packages
+    const pkgRaw = await readSandboxFile(sandbox, 'package.json')
+    if (!pkgRaw) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pkg = JSON.parse(pkgRaw) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string>; [k: string]: any }
+    const deps = pkg.dependencies ?? {}
+    const devDeps = pkg.devDependencies ?? {}
+    const allInstalled = new Set([...Object.keys(deps), ...Object.keys(devDeps)])
+
+    const toInject: string[] = []
+    for (const [name, cfg] of Object.entries(PRE_BUILD_AUTO_INJECT)) {
+      if (!cfg.version) continue // rewrite-only entries (react-spring)
+      const base = name.replace(/^@types\//, '')
+      if ((importedPkgs.has(base) || importedPkgs.has(name)) && !allInstalled.has(name)) {
+        if (cfg.isDev) devDeps[name] = cfg.version
+        else deps[name] = cfg.version
+        toInject.push(`${name}@${cfg.version}`)
+      }
+    }
+
+    if (toInject.length > 0) {
+      pkg.dependencies = deps
+      pkg.devDependencies = devDeps
+      await sandbox.writeFiles([{ path: 'package.json', content: Buffer.from(JSON.stringify(pkg, null, 2), 'utf8') }])
+      // Install the new packages (frozen fails if lockfile changed, so fall back to regular install)
+      const installCmd = await sandbox.runCommand({
+        detached: true,
+        cmd: 'bash',
+        args: ['-c', 'bun install --frozen-lockfile 2>/dev/null || bun install 2>/dev/null || true'],
+      })
+      await Promise.race([
+        installCmd.wait(),
+        new Promise<void>((_, rej) => setTimeout(() => rej(new Error('pre-build install timeout')), 90_000)),
+      ])
+      console.log('[pre-build] injected + installed:', toInject.join(', '))
+    }
+  } catch (e) {
+    // Never block the build — pre-build scan is an optimistic acceleration, not a gate.
+    console.warn('[pre-build] scan error (non-fatal):', e instanceof Error ? e.message : e)
+  }
+}
+
+// Build oracle + LLM repair loop (up to 3 rounds with batch repair). Uses PipelineWriter.
 export async function verifyAndRepair({
   sandbox,
   sandboxId,
@@ -302,12 +412,17 @@ export async function verifyAndRepair({
     type: 'data-run-command',
     data: { sandboxId, command: 'Getting your project ready', args: [], status: 'executing' },
   })
-  // Budget: 600s (10 min). The step gets 800s total; leaving ~200s for headless
-  // check + functional verify + snapshot. No artificial cap — if repair finishes
-  // in 30s it moves on immediately. Only hits 600s if all 7 rounds are needed.
-  const repairDeadline = Date.now() + 600_000
+  // PRE-BUILD: scan generated files for missing imports and rewrite bad ones BEFORE the
+  // first vite build. This catches missing packages (recharts, uuid, etc.) and rewrites
+  // muscle-memory imports (react-spring → framer-motion) in a single pass — avoiding the
+  // entire first "build fails → install → rebuild" round in the common case.
+  await preBuildScan(sandbox)
+
+  // Budget: 300s (5 min). With batch repair, 3 rounds is enough for the vast majority
+  // of builds. Saves time vs the old 7-round loop.
+  const repairDeadline = Date.now() + 300_000
   try {
-    for (let attempt = 1; attempt <= 7; attempt++) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
       if (Date.now() > repairDeadline) {
         console.warn('[verify] repair budget (600s) exhausted — proceeding with current build')
         break
