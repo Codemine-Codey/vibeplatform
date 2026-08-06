@@ -107,6 +107,55 @@ export async function installMissingModules(sandbox: Sandbox, log: string): Prom
   }
 }
 
+// Ask Flash to repair ALL error files in a SINGLE AI call — much faster than sequential
+// one-at-a-time repair. Returns an array of { path, content } for files that were fixed,
+// or null if the call failed entirely. Files that didn't need changes are omitted.
+export async function repairAllFiles(
+  files: Array<{ path: string; content: string }>,
+  error: string
+): Promise<Array<{ path: string; content: string }> | null> {
+  if (files.length === 0) return null
+  const filesText = files
+    .map(f => `<<<FILE ${f.path}>>>\n${f.content}\n<<<END>>>`)
+    .join('\n\n')
+  try {
+    const res = await generateText({
+      ...getModelOptions(FILE_GENERATION_MODEL),
+      maxOutputTokens: getMaxOutputTokens(FILE_GENERATION_MODEL),
+      abortSignal: AbortSignal.timeout(90_000),
+      system:
+        'You are a build-error repair tool. You receive MULTIPLE files and the exact build error they cause. ' +
+        'Fix ALL files needed to resolve the error in ONE response. ' +
+        'Return each fixed file in this EXACT format (only include files you actually changed):\n' +
+        '<<<FILE path/to/file>>>\n[full corrected file content]\n<<<END>>>\n\n' +
+        'Hard rules: NEVER use @apply in CSS. NEVER use invented Tailwind color classes — ' +
+        'use only standard Tailwind palette or scaffold CSS variables. NEVER use <svg>. ' +
+        'Fix ONLY what causes the error; keep the rest identical. Output ONLY file blocks, nothing else.',
+      messages: [
+        {
+          role: 'user',
+          content:
+            `Build error:\n${error}\n\nFiles to inspect and fix:\n\n${filesText}\n\n` +
+            'Return only the corrected file blocks for any files that need changes.',
+        },
+      ],
+    })
+    const text = res.text
+    const fixes: Array<{ path: string; content: string }> = []
+    for (const f of files) {
+      const escaped = f.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const re = new RegExp(`<<<FILE ${escaped}>>>\\n([\\s\\S]*?)\\n<<<END>>>`)
+      const m = text.match(re)
+      if (m && m[1] && m[1].trim().length > 5) {
+        fixes.push({ path: f.path, content: m[1].trim() })
+      }
+    }
+    return fixes.length > 0 ? fixes : null
+  } catch {
+    return null
+  }
+}
+
 // Ask Flash to repair ONE file given the exact build error. Returns corrected
 // full-file content, or null if it couldn't help.
 export async function repairFile(path: string, content: string, error: string): Promise<string | null> {

@@ -36,7 +36,7 @@ import { getWarmEntry } from '@/ai/warm-pool'
 import { restoreBakedDeps } from '@/lib/baked-deps'
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
-import { createRun, appendRunEvent, updateRun, getRun, getRunEventsSince, isTerminalRunStatus } from '@/lib/runs'
+import { createRun, appendRunEvent, appendRunEventBatch, updateRun, getRun, getRunEventsSince, isTerminalRunStatus } from '@/lib/runs'
 import { stampShell, navTargetPageFiles } from '@/lib/shell-template'
 import { reviewGeneratedCode } from '@/lib/code-review-gate'
 import {
@@ -56,19 +56,33 @@ export const maxDuration = 800
 
 type Writer = UIMessageStreamWriter<UIMessage<never, DataPart>>
 
-// ── Durable-runs STEP 1: log-writer wrapper (pass-through + shadow log) ────────
+// ── Durable-runs STEP 1: log-writer wrapper (pass-through + ordered shadow log) ──
 // Wraps a Writer so EVERY writer.write(part) ALSO appends the part to the canonical
-// run_events log. The live SSE stream is byte-for-byte unchanged — the original
-// write happens first and identically; the log append is fire-and-forget and can
-// never throw into or slow the pipeline (see lib/runs.appendRunEvent). merge() and
-// onError delegate straight through untouched (merged AI-token parts bypass write(),
-// so they are intentionally NOT logged in step 1 — the server pipeline parts are).
-function wrapWriterWithLog(writer: Writer, runId: string): Writer {
-  return {
+// run_events log. Events are queued in call order and flushed as a single multi-row
+// INSERT (same batch approach as makeStepWriter in build-pipeline.ts) — this prevents
+// the race condition where concurrent fire-and-forget inserts land out of seq order
+// on Supabase, causing AI_UIMessageStreamError on the client.
+// Call flush() in the execute() finally block to drain remaining events before done.
+function wrapWriterWithLog(
+  writer: Writer,
+  runId: string
+): { writer: Writer; flush: () => Promise<void> } {
+  const batchQueue: Array<{ type: string; payload: unknown }> = []
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
+  let flushChain: Promise<void> = Promise.resolve()
+
+  function drainBatch() {
+    flushTimer = null
+    if (batchQueue.length === 0) return
+    const batch = batchQueue.splice(0)
+    flushChain = flushChain.then(() => appendRunEventBatch(runId, batch)).catch(() => {})
+  }
+
+  const writerObj: Writer = {
     write(part) {
       writer.write(part)
-      const type = (part as { type?: string }).type ?? 'unknown'
-      appendRunEvent(runId, type, part)
+      batchQueue.push({ type: (part as { type?: string }).type ?? 'unknown', payload: part })
+      if (flushTimer === null) flushTimer = setTimeout(drainBatch, 0)
     },
     merge(stream) {
       writer.merge(stream)
@@ -80,6 +94,14 @@ function wrapWriterWithLog(writer: Writer, runId: string): Writer {
       writer.onError = handler
     },
   }
+
+  async function flush() {
+    if (flushTimer !== null) { clearTimeout(flushTimer); flushTimer = null }
+    drainBatch()
+    await flushChain.catch(() => {})
+  }
+
+  return { writer: writerObj, flush }
 }
 
 interface BodyData {
@@ -1457,13 +1479,14 @@ export async function POST(req: Request) {
         execute: async ({ writer: rawWriter }) => {
           const runId = await createRun({ userId: authedUser.id })
           if (runId) rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
-          const writer = runId ? wrapWriterWithLog(rawWriter, runId) : rawWriter
+          const { writer, flush } = runId ? wrapWriterWithLog(rawWriter, runId) : { writer: rawWriter, flush: async () => {} }
           let terminalStatus = 'done'
           try {
             return await runAgenticLoop({ writer, messages, systemPrompt: prompt + buildProjectConstraints(messages) })
           } catch (err) {
             terminalStatus = 'error'; throw err
           } finally {
+            await flush()
             if (runId) await updateRun(runId, { status: terminalStatus }).catch(() => {})
           }
         },
@@ -1479,13 +1502,14 @@ export async function POST(req: Request) {
         execute: async ({ writer: rawWriter }) => {
           const runId = await createRun({ userId: authedUser.id })
           if (runId) rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
-          const writer = runId ? wrapWriterWithLog(rawWriter, runId) : rawWriter
+          const { writer, flush } = runId ? wrapWriterWithLog(rawWriter, runId) : { writer: rawWriter, flush: async () => {} }
           let terminalStatus = 'done'
           try {
             return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
           } catch (err) {
             terminalStatus = 'error'; throw err
           } finally {
+            await flush()
             if (runId) await updateRun(runId, { status: terminalStatus }).catch(() => {})
           }
         },
@@ -1509,13 +1533,14 @@ export async function POST(req: Request) {
         execute: async ({ writer: rawWriter }) => {
           const runId = await createRun({ userId: authedUser.id })
           if (runId) rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
-          const writer = runId ? wrapWriterWithLog(rawWriter, runId) : rawWriter
+          const { writer, flush } = runId ? wrapWriterWithLog(rawWriter, runId) : { writer: rawWriter, flush: async () => {} }
           let terminalStatus = 'done'
           try {
             return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
           } catch (err) {
             terminalStatus = 'error'; throw err
           } finally {
+            await flush()
             if (runId) await updateRun(runId, { status: terminalStatus }).catch(() => {})
           }
         },
@@ -1533,13 +1558,14 @@ export async function POST(req: Request) {
         execute: async ({ writer: rawWriter }) => {
           const runId = await createRun({ userId: authedUser.id })
           if (runId) rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
-          const writer = runId ? wrapWriterWithLog(rawWriter, runId) : rawWriter
+          const { writer, flush } = runId ? wrapWriterWithLog(rawWriter, runId) : { writer: rawWriter, flush: async () => {} }
           let terminalStatus = 'done'
           try {
             return await runAgenticLoop({ writer, messages, systemPrompt: prompt })
           } catch (err) {
             terminalStatus = 'error'; throw err
           } finally {
+            await flush()
             if (runId) await updateRun(runId, { status: terminalStatus }).catch(() => {})
           }
         },

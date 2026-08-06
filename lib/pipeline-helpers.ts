@@ -12,6 +12,7 @@ import {
   extractErrorFiles,
   installMissingModules,
   repairFile,
+  repairAllFiles,
 } from '@/lib/sandbox-util'
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { ensureValidCss } from '@/lib/css-guard'
@@ -359,16 +360,43 @@ export async function verifyAndRepair({
         return
       }
 
-      let repairedAny = false
-      for (const path of files.slice(0, 3)) {
-        if (Date.now() > repairDeadline) break
+      // Batch repair: read all error files, then fix them ALL in one AI call instead of
+      // sequential one-at-a-time calls. Saves 1-2 rounds of AI+build time per error group.
+      const toRead = files.slice(0, 5).filter(p => !SCAFFOLD_PATH_SET.has(p))
+      const fileContents: Array<{ path: string; content: string }> = []
+      for (const path of toRead) {
         const content = await readSandboxFile(sandbox, path)
-        if (!content) continue
-        const fixed = await repairFile(path, content, errorBlock)
-        if (fixed && fixed !== content) {
-          const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : sanitizeTsx(path, fixed)
-          await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
-          repairedAny = true
+        if (content) fileContents.push({ path, content })
+      }
+      let repairedAny = false
+      if (fileContents.length > 0 && Date.now() < repairDeadline) {
+        const fixes = await repairAllFiles(fileContents, errorBlock)
+        if (fixes && fixes.length > 0) {
+          const writeOps = fixes
+            .filter(fix => fix.content !== fileContents.find(f => f.path === fix.path)?.content)
+            .map(fix => ({
+              path: fix.path,
+              content: Buffer.from(
+                fix.path.endsWith('.css') ? sanitizeCss(fix.content) : sanitizeTsx(fix.path, fix.content),
+                'utf8'
+              ),
+            }))
+          if (writeOps.length > 0) {
+            await sandbox.writeFiles(writeOps)
+            repairedAny = true
+          }
+        }
+        // Fall back to sequential repair if batch returned nothing
+        if (!repairedAny) {
+          for (const { path, content } of fileContents) {
+            if (Date.now() > repairDeadline) break
+            const fixed = await repairFile(path, content, errorBlock)
+            if (fixed && fixed !== content) {
+              const finalContent = path.endsWith('.css') ? sanitizeCss(fixed) : sanitizeTsx(path, fixed)
+              await sandbox.writeFiles([{ path, content: Buffer.from(finalContent, 'utf8') }])
+              repairedAny = true
+            }
+          }
         }
       }
       if (!repairedAny) return

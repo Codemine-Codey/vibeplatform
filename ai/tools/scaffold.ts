@@ -83,11 +83,18 @@ function makePackageJson(): string {
         postgres: '^3.4.5',
         // Auth — Better Auth client for user-facing login/signup flows
         'better-auth': '^1.6.23',
+        // Charts — frequently requested, pre-bundled so AI never has to npm install
+        recharts: '^2.15.3',
+        // HTTP client — axios used by many API-heavy webapps
+        axios: '^1.9.0',
+        // Confetti — canvas-confetti for celebrations / game win screens
+        'canvas-confetti': '^1.9.3',
       },
       devDependencies: {
         '@types/node': '^22.0.0',
         '@types/react': '^18.3.12',
         '@types/react-dom': '^18.3.1',
+        '@types/canvas-confetti': '^1.9.0',
         '@vitejs/plugin-react': '^4.3.4',
         autoprefixer: '^10.4.20',
         postcss: '^8.4.49',
