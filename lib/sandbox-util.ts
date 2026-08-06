@@ -156,6 +156,45 @@ export async function repairAllFiles(
   }
 }
 
+// Generate a brand-new file that is missing from the sandbox (Vite "Failed to resolve import").
+// Called when the headless check detects a module that was never created.
+// `importerContent` is the body of the file that imports this module — used as context
+// so the AI can infer the exact exports/props the missing module needs to provide.
+export async function generateMissingFile(
+  path: string,
+  spec: string,
+  importerContent: string,
+): Promise<string | null> {
+  try {
+    const res = await generateText({
+      ...getModelOptions(FILE_GENERATION_MODEL),
+      maxOutputTokens: getMaxOutputTokens(FILE_GENERATION_MODEL),
+      abortSignal: AbortSignal.timeout(45_000),
+      system:
+        'You are a React/TypeScript module generator. A Vite build failed because the file shown below does not exist. ' +
+        'Create it with REAL, production-quality React/TypeScript code based on how it is used in the importing file shown. ' +
+        'Infer the exact exports, types, component props, and API from the importer context. ' +
+        'Match the import style (default vs named) exactly. ' +
+        'Return ONLY the complete file content — no markdown fences, no explanation, no commentary. ' +
+        'Hard rules: use only standard Tailwind palette + scaffold tokens (bg-primary, text-foreground etc.), ' +
+        'no <svg>, no @apply in CSS, no invented Tailwind colors. Export real working code.',
+      messages: [{
+        role: 'user',
+        content:
+          `Missing file to create: ${path}\n` +
+          `Import spec: ${spec}\n\n` +
+          `Importing file (how this module is used):\n${importerContent.slice(0, 3000)}\n\n` +
+          'Generate the complete, working file content now.',
+      }],
+    })
+    let out = res.text.trim()
+    out = out.replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '').trim()
+    return out.length > 10 ? out : null
+  } catch {
+    return null
+  }
+}
+
 // Ask Flash to repair ONE file given the exact build error. Returns corrected
 // full-file content, or null if it couldn't help.
 export async function repairFile(path: string, content: string, error: string): Promise<string | null> {

@@ -35,7 +35,7 @@ import { loadSkill } from '@/ai/tools/load-skill'
 import { getSkillCatalog, loadSkillBody, designSkillFor } from '@/ai/skills'
 import { generateSuggestions } from '@/ai/suggestions'
 import { reviewGeneratedCode } from '@/lib/code-review-gate'
-import { readSandboxFile, repairFile, installMissingModules } from '@/lib/sandbox-util'
+import { readSandboxFile, repairFile, generateMissingFile, installMissingModules } from '@/lib/sandbox-util'
 import { logRepair } from '@/lib/telemetry'
 import {
   checkAndStampMissingFiles,
@@ -857,31 +857,54 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
         writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'executing' } })
         let rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
         for (let attempt = 1; attempt <= 5 && rt.status === 'broken'; attempt++) {
-          // Extract the actual offending file from the error detail instead of always
-          // targeting Home.tsx. Errors like "ReservationsSections is not defined at
-          // ReservationsSections.tsx:979" tell us exactly which file to fix.
-          const errFileMatch = rt.detail.match(/([A-Za-z0-9_.-]+\.tsx?):\d+/g)
-          const errFileNames = errFileMatch
-            ? [...new Set(errFileMatch.map(m => m.replace(/:\d+$/, '')))]
-            : []
-          // Build candidate list: erroring files first, then Home.tsx as fallback
-          const candidates: string[] = []
-          for (const fname of errFileNames) {
-            const candidate = manifestFilePaths.find(p => p.endsWith('/' + fname) || p === fname || p.endsWith(fname))
-              ?? ['src/pages', 'src/components', 'src'].map(dir => `${dir}/${fname}`).find(() => true)
-              ?? `src/pages/${fname}`
-            if (!candidates.includes(candidate)) candidates.push(candidate)
-          }
-          if (!candidates.includes('src/pages/Home.tsx')) candidates.push('src/pages/Home.tsx')
           let repairedAny = false
-          for (const filePath of candidates.slice(0, 4)) {
-            const content = await readSandboxFile(sandbox, filePath)
-            if (!content) continue
-            const fixed = await repairFile(filePath, content, rt.detail).catch(() => null)
-            if (!fixed || fixed === content) continue
-            await sandbox.writeFiles([{ path: filePath, content: Buffer.from(sanitizeTsx(filePath, fixed), 'utf8') }])
-            repairedAny = true
+
+          // ── Priority 1: Missing module errors (Vite overlay) ──────────────────
+          // Pattern: `Failed to resolve import "@/components/blocks/Section" from "src/pages/About.tsx"`
+          // The errFileMatch regex below targets stack-trace patterns (File.tsx:line) which
+          // don't appear here. Detect and CREATE the missing file instead of repairing the importer.
+          const missingModuleMatches = [...rt.detail.matchAll(/Failed to resolve import\s+["']([^"']+)['"]\s+from\s+["']([^"']+)['"]/g)]
+          if (missingModuleMatches.length > 0) {
+            const seen = new Set<string>()
+            for (const [, spec, importerRaw] of missingModuleMatches.slice(0, 4)) {
+              const rawPath = spec.startsWith('@/') ? `src/${spec.slice(2)}` : spec.replace(/^\.\//, 'src/')
+              const missingPath = /\.(tsx?|jsx?|css|json)$/.test(rawPath) ? rawPath : `${rawPath}.tsx`
+              if (seen.has(missingPath)) continue
+              seen.add(missingPath)
+              const importerPath = importerRaw.replace(/^\/+/, '')
+              const importerContent = await readSandboxFile(sandbox, importerPath).catch(() => null) ?? ''
+              const generated = await generateMissingFile(missingPath, spec, importerContent).catch(() => null)
+              if (generated) {
+                await sandbox.writeFiles([{ path: missingPath, content: Buffer.from(sanitizeTsx(missingPath, generated), 'utf8') }])
+                repairedAny = true
+              }
+            }
           }
+
+          // ── Priority 2: Stack-trace errors (e.g. "ReservationsSections.tsx:979") ──
+          if (!repairedAny) {
+            const errFileMatch = rt.detail.match(/([A-Za-z0-9_.-]+\.tsx?):\d+/g)
+            const errFileNames = errFileMatch
+              ? [...new Set(errFileMatch.map(m => m.replace(/:\d+$/, '')))]
+              : []
+            const candidates: string[] = []
+            for (const fname of errFileNames) {
+              const candidate = manifestFilePaths.find(p => p.endsWith('/' + fname) || p === fname || p.endsWith(fname))
+                ?? ['src/pages', 'src/components', 'src'].map(dir => `${dir}/${fname}`).find(() => true)
+                ?? `src/pages/${fname}`
+              if (!candidates.includes(candidate)) candidates.push(candidate)
+            }
+            if (!candidates.includes('src/pages/Home.tsx')) candidates.push('src/pages/Home.tsx')
+            for (const filePath of candidates.slice(0, 4)) {
+              const content = await readSandboxFile(sandbox, filePath)
+              if (!content) continue
+              const fixed = await repairFile(filePath, content, rt.detail).catch(() => null)
+              if (!fixed || fixed === content) continue
+              await sandbox.writeFiles([{ path: filePath, content: Buffer.from(sanitizeTsx(filePath, fixed), 'utf8') }])
+              repairedAny = true
+            }
+          }
+
           if (!repairedAny) break
           await new Promise(r => setTimeout(r, 2500))
           rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
@@ -1055,24 +1078,48 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
         writer.write({ id: 'srv-preview-starting', type: 'data-narration', data: { text: 'Checking your preview renders correctly — almost there.' } })
         let rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
         for (let attempt = 1; attempt <= 5 && rt.status === 'broken'; attempt++) {
-          const errFileMatch = rt.detail.match(/([A-Za-z0-9_.-]+\.tsx?):\d+/g)
-          const errFileNames = errFileMatch ? [...new Set(errFileMatch.map(m => m.replace(/:\d+$/, '')))] : []
-          const candidates: string[] = []
-          for (const fname of errFileNames) {
-            const candidate = manifestFilePaths.find(p => p.endsWith('/' + fname) || p === fname || p.endsWith(fname))
-              ?? `src/pages/${fname}`
-            if (!candidates.includes(candidate)) candidates.push(candidate)
-          }
-          if (!candidates.includes('src/pages/Home.tsx')) candidates.push('src/pages/Home.tsx')
           let repairedAny = false
-          for (const filePath of candidates.slice(0, 4)) {
-            const content = await readSandboxFile(sandbox, filePath)
-            if (!content) continue
-            const fixed = await repairFile(filePath, content, rt.detail).catch(() => null)
-            if (!fixed || fixed === content) continue
-            await sandbox.writeFiles([{ path: filePath, content: Buffer.from(sanitizeTsx(filePath, fixed), 'utf8') }])
-            repairedAny = true
+
+          // Priority 1: Missing module (Vite overlay) — create the missing file
+          const missingModuleMatches = [...rt.detail.matchAll(/Failed to resolve import\s+["']([^"']+)['"]\s+from\s+["']([^"']+)['"]/g)]
+          if (missingModuleMatches.length > 0) {
+            const seen = new Set<string>()
+            for (const [, spec, importerRaw] of missingModuleMatches.slice(0, 4)) {
+              const rawPath = spec.startsWith('@/') ? `src/${spec.slice(2)}` : spec.replace(/^\.\//, 'src/')
+              const missingPath = /\.(tsx?|jsx?|css|json)$/.test(rawPath) ? rawPath : `${rawPath}.tsx`
+              if (seen.has(missingPath)) continue
+              seen.add(missingPath)
+              const importerPath = importerRaw.replace(/^\/+/, '')
+              const importerContent = await readSandboxFile(sandbox, importerPath).catch(() => null) ?? ''
+              const generated = await generateMissingFile(missingPath, spec, importerContent).catch(() => null)
+              if (generated) {
+                await sandbox.writeFiles([{ path: missingPath, content: Buffer.from(sanitizeTsx(missingPath, generated), 'utf8') }])
+                repairedAny = true
+              }
+            }
           }
+
+          // Priority 2: Stack-trace errors — repair the offending file
+          if (!repairedAny) {
+            const errFileMatch = rt.detail.match(/([A-Za-z0-9_.-]+\.tsx?):\d+/g)
+            const errFileNames = errFileMatch ? [...new Set(errFileMatch.map(m => m.replace(/:\d+$/, '')))] : []
+            const candidates: string[] = []
+            for (const fname of errFileNames) {
+              const candidate = manifestFilePaths.find(p => p.endsWith('/' + fname) || p === fname || p.endsWith(fname))
+                ?? `src/pages/${fname}`
+              if (!candidates.includes(candidate)) candidates.push(candidate)
+            }
+            if (!candidates.includes('src/pages/Home.tsx')) candidates.push('src/pages/Home.tsx')
+            for (const filePath of candidates.slice(0, 4)) {
+              const content = await readSandboxFile(sandbox, filePath)
+              if (!content) continue
+              const fixed = await repairFile(filePath, content, rt.detail).catch(() => null)
+              if (!fixed || fixed === content) continue
+              await sandbox.writeFiles([{ path: filePath, content: Buffer.from(sanitizeTsx(filePath, fixed), 'utf8') }])
+              repairedAny = true
+            }
+          }
+
           if (!repairedAny) break
           await new Promise(r => setTimeout(r, 2500))
           rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
