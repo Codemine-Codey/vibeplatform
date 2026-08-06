@@ -100,6 +100,24 @@ interface GenerateResult {
   userText: string
 }
 
+// Checkpoint passed from stepVerify → stepVerify2 when the 11-min deadline fires.
+// All fields are JSON-serializable (no class instances, no Promises).
+interface VerifyCheckpoint {
+  sandboxId: string
+  resolvedUrl: string
+  manifestFilePaths: string[]
+  skill: Skill
+  brandName: string | null
+  projectId: string | null
+  userId: string | null
+  runId: string | null
+  firstUserText: string
+  lastUserText: string
+  devError: string | null       // null = server healthy, string = error text
+  revealed: boolean             // true if URL was already emitted to the client
+  rtStatus: 'ok' | 'broken' | 'skipped' | null  // headless check result
+}
+
 // ── Helper: make a PipelineWriter backed by getWritable() + run_events ───────
 // getWritable() MUST be called inside a 'use step' function.
 // Returns { writer, flushAndRelease } — call flushAndRelease() at step end.
@@ -196,7 +214,10 @@ export async function buildProject(params: BuildPipelineParams): Promise<void> {
   'use workflow'
 
   const genResult = await stepGenerate(params)
-  await stepVerify(params, genResult)
+  const checkpoint = await stepVerify(params, genResult)
+  // If stepVerify hit its 11-min deadline before revealing the URL, hand off to
+  // stepVerify2 which gets a fresh 800s budget to finish the job.
+  if (checkpoint) await stepVerify2(checkpoint)
 }
 
 // ── Step 1: Scaffold + AI generation ────────────────────────────────────────
@@ -595,17 +616,22 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
 }
 
 // ── Step 2: Install + verify + reveal preview URL ────────────────────────────
+// Returns null when fully done, or a VerifyCheckpoint when the 11-min deadline
+// fires mid-verify. buildProject then chains to stepVerify2 for a fresh 800s budget.
 
-async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult): Promise<void> {
+async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult): Promise<VerifyCheckpoint | null> {
   'use step'
 
+  const stepStart = Date.now() // stepVerify's OWN invocation start — independent of invocationStart
+  const STEP_DEADLINE_MS = 660_000 // 11 min — leave 2 min for flush + handoff before Vercel kills at 13 min
+
   const { writer, flushAndRelease } = makeStepWriter(genResult.runId)
-  const { sandboxId, resolvedUrl: initialUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, invocationStart, firstUserText, lastUserText } = genResult
+  const { sandboxId, resolvedUrl: initialUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText } = genResult
 
   if (!sandboxId) {
     await flushAndRelease()
     if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
-    return
+    return null
   }
 
   let sandbox: Sandbox
@@ -615,7 +641,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
     console.warn('[stepVerify] sandbox reconnect failed:', err instanceof Error ? err.message : err)
     await flushAndRelease()
     if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
-    return
+    return null
   }
 
   // Install
@@ -641,18 +667,21 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
   try { resolvedUrl = sandbox.domain(3000) } catch { /* keep initialUrl */ }
 
   let revealed = false
+  let devError: string | null = null
+  let rtStatus: VerifyCheckpoint['rtStatus'] = null
+
+  // Helper: returns true if we're inside 11 minutes of THIS step's own budget
+  const withinBudget = () => Date.now() - stepStart < STEP_DEADLINE_MS
 
   try {
     if (skill === 'website') {
       try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
     }
 
-    // MUST await — not fire-and-forget. verifyAndRepair can restart the dev server
-    // mid-repair; if we proceed to headless check concurrently the server may 502.
     await verifyAndRepair({ sandbox, sandboxId, writer })
 
     writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
-    let devError = await waitForDevServer(resolvedUrl)
+    devError = await waitForDevServer(resolvedUrl)
 
     if (devError && (await installMissingModules(sandbox, devError))) {
       logRepair({ layer: 'dev-500', action: 'auto-installed-and-restarted', detail: devError.slice(0, 200), sandboxId })
@@ -687,19 +716,18 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
     }
 
-    // Deadline gate: each step gets 800s. Skip headless if < 130s remain.
-    if (!devError) {
-      const stepElapsed = Date.now() - invocationStart
-      if (stepElapsed > 660_000) {
-        console.warn(`[verify-step] ${Math.round(stepElapsed / 1000)}s elapsed — skipping verify`)
-        writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
-        revealed = true
-      }
+    // ── 11-min deadline check: if we're already close, hand off to stepVerify2 ─
+    // This fires BEFORE headless check / functional verify / QA so stepVerify2
+    // gets a full fresh 800s to run them. No URL revealed yet — stepVerify2 does it.
+    if (!devError && !withinBudget()) {
+      console.warn(`[stepVerify] 11-min deadline reached after install+build+repair — handing off to stepVerify2`)
+      await flushAndRelease()
+      return { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError, revealed: false, rtStatus: null }
     }
 
     // Headless render check
     let rtResult: { status: 'ok' | 'broken' | 'skipped'; detail: string } | null = null
-    if (!devError && !revealed) {
+    if (!devError) {
       try {
         writer.write({ id: 'srv-preview-starting', type: 'data-narration', data: { text: 'Starting preview — this may take up to 30 seconds, please wait.' } })
         writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'executing' } })
@@ -712,6 +740,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
           rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
         }
         rtResult = rt
+        rtStatus = rt.status
         writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'done', exitCode: 0 } })
       } catch (e) {
         console.warn('[verify] headless check failed:', e instanceof Error ? e.message : e)
@@ -723,88 +752,78 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
         await applyFallbackTerminalState(sandbox, 'force-app-level', { skill, brand: brandName || 'This project' })
         await new Promise(r => setTimeout(r, 3500))
         const finalCheck = await headlessRuntimeCheck(resolvedUrl, sandboxId).catch(() => null)
-        if (finalCheck) rtResult = finalCheck
+        if (finalCheck) rtStatus = finalCheck.status
       } catch { /* non-fatal */ }
     }
 
-    // Functional verify (skip if < 220s remain in this step)
-    if (!devError && !revealed) {
-      const stepElapsed = Date.now() - invocationStart
-      if (stepElapsed < 580_000) {
-        writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: skill === 'game' ? 'Playtesting your game and polishing it' : 'Testing every feature and polishing it', args: [], status: 'executing' } })
-        try {
-          const request = firstUserText || lastUserText || ''
-          for (let round = 1; round <= 3; round++) {
-            const fv = await functionalVerify(resolvedUrl, request, skill)
-            if (fv.ok || fv.issues.length === 0) break
-            logRepair({ layer: 'runtime-check', action: `functional-issues-r${round}`, detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
-            const issueText = `Fix these SPECIFIC problems:\n- ${fv.issues.join('\n- ')}`
-            let changedAny = false
-            for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 8)) {
-              const content = await readSandboxFile(sandbox, path)
-              if (!content) continue
-              const fixed = await repairFile(path, content, issueText)
-              if (fixed && fixed !== content) {
-                await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
-                changedAny = true
-              }
-            }
-            if (!changedAny) break
-            await new Promise(r => setTimeout(r, 2500))
-          }
-        } catch { /* non-fatal */ }
-        writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: 'Playtest complete', args: [], status: 'done', exitCode: 0 } })
-      }
+    // ── 11-min deadline check again: hand off functional verify + QA to stepVerify2 ─
+    if (!devError && !withinBudget()) {
+      console.warn(`[stepVerify] 11-min deadline reached after headless — handing off functional verify to stepVerify2`)
+      await flushAndRelease()
+      return { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError, revealed: false, rtStatus }
     }
 
-    // W6: AI-vision-directed QA — runs after functional verify if time allows
-    if (!devError && !revealed) {
-      const stepElapsed = Date.now() - invocationStart
-      if (stepElapsed < 640_000) {
-        try {
-          const request = firstUserText || lastUserText || ''
-          const w6 = await aiDrivenQA(resolvedUrl, request, skill)
-          if (!w6.ok && w6.issues.length > 0) {
-            logRepair({ layer: 'runtime-check', action: 'w6-ai-qa', detail: w6.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
-            const issueText = `Fix these SPECIFIC UX/visual problems found during AI-directed QA:\n- ${w6.issues.join('\n- ')}`
-            for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 6)) {
-              const content = await readSandboxFile(sandbox, path)
-              if (!content) continue
-              const fixed = await repairFile(path, content, issueText)
-              if (fixed && fixed !== content) {
-                await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
-              }
+    // Functional verify
+    if (!devError) {
+      writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: skill === 'game' ? 'Playtesting your game and polishing it' : 'Testing every feature and polishing it', args: [], status: 'executing' } })
+      try {
+        const request = firstUserText || lastUserText || ''
+        for (let round = 1; round <= 3; round++) {
+          if (!withinBudget()) break
+          const fv = await functionalVerify(resolvedUrl, request, skill)
+          if (fv.ok || fv.issues.length === 0) break
+          logRepair({ layer: 'runtime-check', action: `functional-issues-r${round}`, detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
+          const issueText = `Fix these SPECIFIC problems:\n- ${fv.issues.join('\n- ')}`
+          let changedAny = false
+          for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 8)) {
+            const content = await readSandboxFile(sandbox, path)
+            if (!content) continue
+            const fixed = await repairFile(path, content, issueText)
+            if (fixed && fixed !== content) {
+              await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
+              changedAny = true
             }
           }
-        } catch { /* W6 is best-effort — never blocks reveal */ }
-      }
+          if (!changedAny) break
+          await new Promise(r => setTimeout(r, 2500))
+        }
+      } catch { /* non-fatal */ }
+      writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: 'Playtest complete', args: [], status: 'done', exitCode: 0 } })
     }
 
-    // Final warmup check before reveal — repair loops and W6 QA can restart the dev
-    // server mid-cycle. Re-confirm it's responding before revealing the URL so the
-    // user's browser doesn't hit a blank/502 iframe the moment the preview appears.
-    // waitForDevServer returns null=OK, string=error.
+    // W6: AI QA — runs only if there's still budget
+    if (!devError && withinBudget()) {
+      try {
+        const request = firstUserText || lastUserText || ''
+        const w6 = await aiDrivenQA(resolvedUrl, request, skill)
+        if (!w6.ok && w6.issues.length > 0) {
+          logRepair({ layer: 'runtime-check', action: 'w6-ai-qa', detail: w6.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
+          const issueText = `Fix these SPECIFIC UX/visual problems found during AI-directed QA:\n- ${w6.issues.join('\n- ')}`
+          for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 6)) {
+            const content = await readSandboxFile(sandbox, path)
+            if (!content) continue
+            const fixed = await repairFile(path, content, issueText)
+            if (fixed && fixed !== content) {
+              await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
+            }
+          }
+        }
+      } catch { /* W6 is best-effort — never blocks reveal */ }
+    }
+
+    // Reveal
     if (!revealed) {
       const finalDevError = await waitForDevServer(resolvedUrl, 20_000, sandbox).catch(() => null)
       if (finalDevError) {
-        // Server has an error — one restart attempt before reveal
         try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
       }
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
       revealed = true
     }
-    // Programmatic closing narration — replaces the AI's text (which is suppressed by
-    // the silence filter). Written after reveal so the user only sees it once the
-    // preview is genuinely live and the verify pass has completed.
     const brand = brandName ?? 'your project'
-    writer.write({
-      id: 'srv-ready-narration',
-      type: 'data-narration',
-      data: { text: `${brand.charAt(0).toUpperCase() + brand.slice(1)} is ready — open the Preview tab to see it live.` },
-    })
+    writer.write({ id: 'srv-ready-narration', type: 'data-narration', data: { text: `${brand.charAt(0).toUpperCase() + brand.slice(1)} is ready — open the Preview tab to see it live.` } })
     if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
 
-    // Suggestions
     void (async () => {
       try {
         const items = await generateSuggestions({ request: lastUserText, skill, filePaths: manifestFilePaths })
@@ -816,9 +835,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
     if (projectId && userId) {
       let snapshotPath: string | null = null
       for (let attempt = 0; attempt < 2 && !snapshotPath; attempt++) {
-        try {
-          snapshotPath = await Promise.race([snapshotProject(sandbox, userId, projectId), new Promise<null>(resolve => setTimeout(() => resolve(null), 60_000))])
-        } catch { /* retry */ }
+        try { snapshotPath = await Promise.race([snapshotProject(sandbox, userId, projectId), new Promise<null>(r => setTimeout(() => r(null), 60_000))]) } catch { /* retry */ }
       }
       await updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl, ...(snapshotPath ? { snapshot_path: snapshotPath } : {}) }).catch(() => {})
     }
@@ -829,8 +846,114 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
     }
   } finally {
-    // Flush all events BEFORE marking done — the poller closes on 'done' status,
-    // so events (including the preview URL) must land in Supabase first.
+    await flushAndRelease()
+    if (runId && revealed) await updateRun(runId, { status: 'done' }).catch(() => {})
+    // If not revealed we return a checkpoint — don't mark done yet (stepVerify2 will)
+  }
+  return null // fully done — stepVerify2 not needed
+}
+
+// ── Step 3: Continuation verify (runs only when stepVerify hit its 11-min deadline) ──
+// Gets a fresh 800s budget to finish functional verify, QA, and reveal the preview URL.
+
+async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<void> {
+  'use step'
+
+  const { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError } = checkpoint
+  const { writer, flushAndRelease } = makeStepWriter(runId)
+
+  let sandbox: Sandbox
+  try {
+    sandbox = await Sandbox.get({ sandboxId })
+  } catch (err) {
+    console.warn('[stepVerify2] sandbox reconnect failed:', err instanceof Error ? err.message : err)
+    // Sandbox gone — emit whatever URL we have so user isn't left with nothing
+    if (resolvedUrl) writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
+    await flushAndRelease()
+    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
+    return
+  }
+
+  let revealed = false
+  try {
+    // Functional verify (already had headless check in stepVerify)
+    if (!devError) {
+      writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: skill === 'game' ? 'Playtesting your game and polishing it' : 'Testing every feature and polishing it', args: [], status: 'executing' } })
+      try {
+        const request = firstUserText || lastUserText || ''
+        for (let round = 1; round <= 3; round++) {
+          const fv = await functionalVerify(resolvedUrl, request, skill)
+          if (fv.ok || fv.issues.length === 0) break
+          logRepair({ layer: 'runtime-check', action: `v2-functional-r${round}`, detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
+          const issueText = `Fix these SPECIFIC problems:\n- ${fv.issues.join('\n- ')}`
+          let changedAny = false
+          for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 8)) {
+            const content = await readSandboxFile(sandbox, path)
+            if (!content) continue
+            const fixed = await repairFile(path, content, issueText)
+            if (fixed && fixed !== content) {
+              await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
+              changedAny = true
+            }
+          }
+          if (!changedAny) break
+          await new Promise(r => setTimeout(r, 2500))
+        }
+      } catch { /* non-fatal */ }
+      writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: 'Playtest complete', args: [], status: 'done', exitCode: 0 } })
+
+      // W6 QA
+      try {
+        const request = firstUserText || lastUserText || ''
+        const w6 = await aiDrivenQA(resolvedUrl, request, skill)
+        if (!w6.ok && w6.issues.length > 0) {
+          const issueText = `Fix these SPECIFIC UX/visual problems:\n- ${w6.issues.join('\n- ')}`
+          for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 6)) {
+            const content = await readSandboxFile(sandbox, path)
+            if (!content) continue
+            const fixed = await repairFile(path, content, issueText)
+            if (fixed && fixed !== content) {
+              await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
+            }
+          }
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    // Reveal URL
+    const finalDevError = await waitForDevServer(resolvedUrl, 20_000, sandbox).catch(() => null)
+    if (finalDevError) {
+      try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
+    }
+    writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
+    revealed = true
+
+    const brand = brandName ?? 'your project'
+    writer.write({ id: 'srv-ready-narration', type: 'data-narration', data: { text: `${brand.charAt(0).toUpperCase() + brand.slice(1)} is ready — open the Preview tab to see it live.` } })
+    if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
+
+    void (async () => {
+      try {
+        const items = await generateSuggestions({ request: lastUserText, skill, filePaths: manifestFilePaths })
+        if (items.length) writer.write({ id: 'srv-suggestions', type: 'data-suggestions', data: { items } })
+      } catch { /* non-fatal */ }
+    })()
+
+    if (!devError) saveCheckpoint(sandbox).catch(() => {})
+    if (projectId && userId) {
+      let snapshotPath: string | null = null
+      for (let attempt = 0; attempt < 2 && !snapshotPath; attempt++) {
+        try { snapshotPath = await Promise.race([snapshotProject(sandbox, userId, projectId), new Promise<null>(r => setTimeout(() => r(null), 60_000))]) } catch { /* retry */ }
+      }
+      await updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl, ...(snapshotPath ? { snapshot_path: snapshotPath } : {}) }).catch(() => {})
+    }
+
+  } catch (err) {
+    console.error('[stepVerify2] error:', err instanceof Error ? err.message : err)
+    if (!revealed && resolvedUrl) {
+      writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
+    }
+  } finally {
     await flushAndRelease()
     if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
   }
