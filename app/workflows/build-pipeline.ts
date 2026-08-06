@@ -556,14 +556,21 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     }
   } catch { /* non-fatal */ }
 
-  // Early snapshot
-  if (params.projectId && params.userId) {
-    snapshotProject(sandbox, params.userId, params.projectId)
-      .then(p => p ? updateProjectRow(params.projectId!, { sandbox_id: sandboxId, snapshot_path: p }) : undefined)
-      .catch(() => {})
+  // Snapshot + code review run in parallel. The snapshot MUST be awaited (not
+  // fire-and-forget) — if the step exits before the upload completes, snapshot_path
+  // stays null in the DB forever and every resume attempt fails with "couldn't restore".
+  const [snapshotPath] = await Promise.all([
+    params.projectId && params.userId
+      ? Promise.race([
+          snapshotProject(sandbox, params.userId, params.projectId).catch(() => null),
+          new Promise<null>(r => setTimeout(() => r(null), 55_000)),
+        ])
+      : Promise.resolve(null),
+    reviewGeneratedCode(sandbox, skill).catch(() => {}),
+  ])
+  if (snapshotPath && params.projectId) {
+    updateProjectRow(params.projectId, { sandbox_id: sandboxId, snapshot_path: snapshotPath }).catch(() => {})
   }
-
-  await reviewGeneratedCode(sandbox, skill).catch(() => {})
 
   let sandboxUrl = ''
   try { sandboxUrl = sandbox.domain(3000) } catch { sandboxUrl = `https://${sandboxId}-3000.sandbox.vercel.app` }

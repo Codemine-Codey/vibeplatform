@@ -114,7 +114,7 @@ export function SandboxState() {
               <p className="text-sm font-medium">Your workspace went to sleep due to inactivity</p>
               <p className="text-sm text-muted-foreground">
                 {phase === 'failed'
-                  ? "We couldn't restore this project automatically. Start a new project to keep building."
+                  ? "We couldn't wake this workspace automatically. Open it from your dashboard to try again, or start something new."
                   : "Just hit resume, and we'll bring your project right back!"}
               </p>
               <div className="flex gap-2 flex-wrap">
@@ -130,8 +130,13 @@ export function SandboxState() {
                     )}
                   </Button>
                 )}
+                {phase === 'failed' && (
+                  <Button onClick={() => window.location.href = '/dashboard'}>
+                    Go to Dashboard
+                  </Button>
+                )}
                 <Button
-                  variant={phase === 'failed' ? 'default' : 'outline'}
+                  variant={phase === 'failed' ? 'outline' : 'outline'}
                   onClick={() => window.location.reload()}
                 >
                   Start New Project
