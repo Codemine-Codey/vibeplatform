@@ -620,10 +620,14 @@ export async function visualVerdict(
               text:
                 'You are a senior design reviewer for a freshly generated web preview (website, web app, or game). ' +
                 'First decide if it is BROKEN or FINE.\n' +
-                'BROKEN = a blank or solid-color page with no real content; raw unstyled HTML; an error/stack-trace screen; ' +
-                'text invisible because it matches the background; or content so overlapping/cut-off it is unusable.\n' +
-                'FINE = any legitimately rendered UI, including minimal/clean designs, hero sections, dashboards, forms, ' +
-                'game start screens, or game canvases.\n\n' +
+                'BROKEN = any of these: a blank/cream/white page with no meaningful content below the nav bar; ' +
+                'a page with ONLY a navigation bar or header and nothing else rendered below it; ' +
+                'a solid-color background with no sections, cards, text, images, or UI elements; ' +
+                'raw unstyled HTML or text dump; an error or stack-trace screen; ' +
+                'text invisible because it matches the background; content so overlapping/cut-off it is unusable.\n' +
+                'FINE = any legitimately rendered UI with real content: hero section, product cards, dashboard panels, forms, ' +
+                'game canvas, chat UI, or ANY page where content appears BELOW the navigation bar.\n' +
+                'A nav-only page (header/nav visible but nothing beneath it) is ALWAYS BROKEN regardless of how polished the nav looks.\n\n' +
                 'If BROKEN, answer EXACTLY: "BROKEN: <short reason>".\n' +
                 'If FINE, rate the DESIGN 1-10 (10 = looks like a top studio shipped it; consider distinctiveness vs templated, ' +
                 'visual hierarchy, spacing/alignment consistency, contrast/readability, and overall polish) and answer EXACTLY: ' +
@@ -737,11 +741,14 @@ export async function headlessRuntimeCheck(
       }
     }
 
-    const meaningfulPaint = paint.children >= 1 && paint.elCount >= 1 && (paint.htmlLen >= 40 || paint.hasCanvas)
+    // Require real content: at least 5 elements AND meaningful text length.
+    // A nav-only cream page has 5+ elements (nav, links) and 100+ htmlLen — but textLen < 100.
+    // Full pages have textLen 200+. Canvas-only games have no text but hasCanvas.
+    const meaningfulPaint = paint.children >= 1 && paint.elCount >= 5 && (paint.hasCanvas || (paint.htmlLen >= 200 && paint.textLen >= 80))
     if (!meaningfulPaint) {
       return {
         status: 'broken',
-        detail: `Blank or near-empty render: #root has no meaningful content (children=${paint.children}, htmlLen=${paint.htmlLen}, elements=${paint.elCount}).\n` + errors.slice(0, 6).join('\n'),
+        detail: `Blank or near-empty render: page lacks meaningful content below the nav (children=${paint.children}, elements=${paint.elCount}, htmlLen=${paint.htmlLen}, textLen=${paint.textLen}).\n` + errors.slice(0, 6).join('\n'),
       }
     }
     if (errors.length > 0) {

@@ -504,6 +504,22 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
   // (2) the completion line at stream end. All repair narration between tool calls
   // is silently discarded.
   const silenced = (aiResult.toUIMessageStream({ sendReasoning: false, sendStart: false }) as ReadableStream<unknown>).pipeThrough(makeSilenceFilter())
+
+  // Heartbeat: emit progress messages every 60s so users don't see 8+ minutes of silence
+  const HEARTBEAT_MSGS = [
+    'Building your components...',
+    'Crafting the pages and styles...',
+    'Wiring up the interactions...',
+    'Polishing the design...',
+    'Connecting everything together...',
+    'Almost ready — finalizing the details...',
+  ]
+  let heartbeatIdx = 0
+  const heartbeatTimer = setInterval(() => {
+    writer.write({ id: `srv-heartbeat-${heartbeatIdx}`, type: 'data-narration', data: { text: HEARTBEAT_MSGS[heartbeatIdx % HEARTBEAT_MSGS.length] } })
+    heartbeatIdx++
+  }, 60_000)
+
   try {
     const reader = silenced.getReader()
     while (true) {
@@ -518,6 +534,8 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     if (!/abort|timeout|cancel/i.test(msg)) {
       console.error('[workflow-gen] stream drain error:', msg)
     }
+  } finally {
+    clearInterval(heartbeatTimer)
   }
 
   // Synthetic manifest for website when AI skipped planProject
@@ -953,8 +971,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
 
     if (!devError && rtResult && rtResult.status === 'broken') {
       try {
-        await applyFallbackTerminalState(sandbox, 'force-app-level', { skill, brand: brandName || 'This project' })
-        await new Promise(r => setTimeout(r, 3500))
+        // Re-check after HMR may have applied a previous repair
         const finalCheck = await headlessRuntimeCheck(resolvedUrl, sandboxId).catch(() => null)
         if (finalCheck) rtStatus = finalCheck.status
       } catch { /* non-fatal */ }
@@ -1023,26 +1040,20 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       if (finalDevError) {
         try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
       }
-      // Final confirmatory check — if still broken, attempt one last targeted repair
+      // One final confirmatory headless check before reveal (catches HMR-applied repairs)
       if (rtStatus === 'broken') {
         try {
           const confirmCheck = await headlessRuntimeCheck(resolvedUrl, sandboxId)
-          rtStatus = confirmCheck.status
-          if (confirmCheck.status === 'broken') {
-            // One last attempt: re-apply fallback to guarantee something renders
-            await applyFallbackTerminalState(sandbox, 'force-app-level', { skill, brand: brandName || 'This project' })
-            await new Promise(r => setTimeout(r, 3000))
-            const lastCheck = await headlessRuntimeCheck(resolvedUrl, sandboxId).catch(() => null)
-            if (lastCheck) rtStatus = lastCheck.status
-          }
+          if (confirmCheck) rtStatus = confirmCheck.status
         } catch { /* best-effort */ }
       }
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
       revealed = true
     }
     const brand = brandName ?? 'your project'
-    const readyText = rtStatus === 'broken'
-      ? `${brand.charAt(0).toUpperCase() + brand.slice(1)} is available — we hit a rendering issue that we couldn't fully resolve automatically. Open the Preview tab and describe what looks off so we can fix it.`
+    const isHavingIssues = !!devError || rtStatus === 'broken'
+    const readyText = isHavingIssues
+      ? `${brand.charAt(0).toUpperCase() + brand.slice(1)} is available — we're still polishing a few things. If the preview looks off, describe what you'd like changed and we'll fix it right away.`
       : `${brand.charAt(0).toUpperCase() + brand.slice(1)} is ready — open the Preview tab to see it live.`
     writer.write({ id: 'srv-ready-narration', type: 'data-narration', data: { text: readyText } })
     if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
@@ -1178,8 +1189,7 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
         }
         rtStatus = rt.status
         if (rt.status === 'broken') {
-          await applyFallbackTerminalState(sandbox, 'force-app-level', { skill, brand: brandName || 'This project' })
-          await new Promise(r => setTimeout(r, 3500))
+          // Re-check — HMR may have applied previous repairs
           const fc = await headlessRuntimeCheck(resolvedUrl, sandboxId).catch(() => null)
           if (fc) rtStatus = fc.status
         }
@@ -1246,21 +1256,16 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
     if (rtStatus === 'broken') {
       try {
         const confirmCheck = await headlessRuntimeCheck(resolvedUrl, sandboxId)
-        rtStatus = confirmCheck.status
-        if (confirmCheck.status === 'broken') {
-          await applyFallbackTerminalState(sandbox, 'force-app-level', { skill, brand: brandName || 'This project' })
-          await new Promise(r => setTimeout(r, 3000))
-          const lastCheck = await headlessRuntimeCheck(resolvedUrl, sandboxId).catch(() => null)
-          if (lastCheck) rtStatus = lastCheck.status
-        }
+        if (confirmCheck) rtStatus = confirmCheck.status
       } catch { /* best-effort */ }
     }
     writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
     revealed = true
 
     const brand = brandName ?? 'your project'
-    const readyText = rtStatus === 'broken'
-      ? `${brand.charAt(0).toUpperCase() + brand.slice(1)} is available — we hit a rendering issue that we couldn't fully resolve automatically. Open the Preview tab and describe what looks off so we can fix it.`
+    const isHavingIssues = !!devError || rtStatus === 'broken'
+    const readyText = isHavingIssues
+      ? `${brand.charAt(0).toUpperCase() + brand.slice(1)} is available — we're still polishing a few things. If the preview looks off, describe what you'd like changed and we'll fix it right away.`
       : `${brand.charAt(0).toUpperCase() + brand.slice(1)} is ready — open the Preview tab to see it live.`
     writer.write({ id: 'srv-ready-narration', type: 'data-narration', data: { text: readyText } })
     if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
