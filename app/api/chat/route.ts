@@ -23,6 +23,7 @@ import { lookupReference, tavilySearch } from '@/ai/tools/lookup-reference'
 import { classifyPrompt } from '@/ai/classifier'
 import { expandPrompt } from '@/ai/expander'
 import { generatePRD } from '@/ai/prd'
+import { selectRelevantApis, buildApiCatalogPrompt } from '@/ai/api-catalog'
 import { formatBrief, type PageSpec } from '@/ai/types/project-brief'
 import { lockPaletteInCss, buildFullIndexCss } from '@/lib/design-tokens'
 import type { ColorTokens } from '@/ai/types/project-brief'
@@ -1644,7 +1645,17 @@ export async function POST(req: Request) {
         ? `\n\n## REAL-WORLD GAME PARAMETERS (use these PROVEN values — do NOT guess sizes/speeds; a sprite is a small % of the play field, never a fraction of the full window)\n${researchRaw}`
         : `\n\n## REAL-WORLD RESEARCH (ground the ${skill === 'webapp' ? 'features + data model' : 'sections + copy'} in these facts — no generic filler)\n${researchRaw}`)
     : ''
-  const designContext = `${formatBrief(brief)}${researchContext}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
+  // Inject free public APIs for webapp builds so generated apps use real data.
+  // Runs synchronously — catalog is in-memory, no async cost.
+  const apiCatalogSection = skill === 'webapp'
+    ? (() => {
+        const apis = selectRelevantApis(userText, brief.features ?? [])
+        const section = buildApiCatalogPrompt(apis)
+        return section ? `\n\n${section}` : ''
+      })()
+    : ''
+
+  const designContext = `${formatBrief(brief)}${researchContext}${apiCatalogSection}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
 
   // Create run row so the client can reconnect via /api/runs/[id]/stream if needed.
   const runId = await createRun({ userId: authedUser.id }).catch(() => null)
