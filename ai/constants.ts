@@ -26,8 +26,9 @@
 export const DEFAULT_MODEL = 'deepseek-v4-flash'
 // Claude Sonnet 5 via OpenRouter — frontier-class, cross-file consistent code generation.
 // Thinking disabled via gateway.ts. Caching via cache_control on system message.
-export const FILE_GENERATION_MODEL = 'anthropic/claude-sonnet-5'
-// Edits and errors use direct DeepSeek (fast, cheap, used only post-generation)
+// Reverted from anthropic/claude-sonnet-5 — OpenRouter promotional credits do not
+// cover Anthropic models. Direct DeepSeek bypasses OpenRouter entirely (api.deepseek.com).
+export const FILE_GENERATION_MODEL = 'deepseek-v4-flash'
 export const EDIT_MODEL = 'deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek-v4-flash'
 // Orchestration + brief via direct DeepSeek ($2 balance, confirmed working).
