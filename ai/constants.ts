@@ -31,10 +31,10 @@ export const FILE_GENERATION_MODEL = 'openai/gpt-5.6-terra'
 // Edits and errors use direct DeepSeek (fast, cheap, used only post-generation)
 export const EDIT_MODEL = 'deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek-v4-flash'
-// Orchestration + brief via OpenRouter DeepSeek — uses the $9 OpenRouter balance
-// (direct DeepSeek key exhausted). The slash routes them through openrouterProvider.
-export const ORCHESTRATION_MODEL = 'deepseek/deepseek-v4-flash-0731'
-export const BRIEF_MODEL = 'deepseek/deepseek-v4-flash-0731'
+// Orchestration + brief via direct DeepSeek ($2 balance, confirmed working).
+// No slash = routes through deepseekProvider (api.deepseek.com directly).
+export const ORCHESTRATION_MODEL = 'deepseek-v4-flash'
+export const BRIEF_MODEL = 'deepseek-v4-flash'
 // Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
 // gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
 // and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),
