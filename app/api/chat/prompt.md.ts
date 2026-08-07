@@ -150,21 +150,32 @@ Every file MUST conform to this exact stack. A deterministic post-generation fix
 
 ### 3.1 Pre-installed — import directly, no install needed
 
+These packages are already in \`node_modules\`. Import them without adding to \`package.json\`. Do NOT use any other package for these categories — it costs a repair round.
+
 | Layer | Import exactly as shown |
 |---|---|
 | Framework | \`import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'\` |
 | Routing | \`import { Link, useNavigate, useParams, useLocation } from 'react-router-dom'\` |
-| Animation | \`import { motion, AnimatePresence, useInView, useScroll, useTransform } from 'framer-motion'\` |
-| Icons | \`import { IconName } from 'lucide-react'\` (ONLY icon source) |
+| Animation | \`import { motion, AnimatePresence, useInView, useScroll, useTransform } from 'framer-motion'\` — NOT \`react-spring\`, NOT \`motion/react\` |
+| Icons | \`import { IconName } from 'lucide-react'\` — ONLY icon source, never @heroicons, @phosphor-icons, @tabler |
 | Class util | \`import { cn } from '@/lib/utils'\` |
 | Forms | \`import { useForm } from 'react-hook-form'\` + \`import { zodResolver } from '@hookform/resolvers/zod'\` + \`import { z } from 'zod'\` |
 | State | \`import { create } from 'zustand'\` |
+| Server state | \`import { useQuery, useMutation } from '@tanstack/react-query'\` |
 | Date | \`import { format, formatDistance, parseISO } from 'date-fns'\` |
-| 3D | \`import * as THREE from 'three'\` / \`import { Canvas } from '@react-three/fiber'\` / \`import { ... } from '@react-three/drei'\` |
+| Charts | \`import { LineChart, BarChart, PieChart, ... } from 'recharts'\` |
+| HTTP | \`import axios from 'axios'\` |
+| Confetti | \`import confetti from 'canvas-confetti'\` |
+| 3D | \`import * as THREE from 'three'\` / \`import { Canvas, useFrame, useThree } from '@react-three/fiber'\` / \`import { OrbitControls, Environment, useGLTF, Text } from '@react-three/drei'\` / \`import { Physics, RigidBody } from '@react-three/rapier'\` |
 | Audio | \`import { Howl, Howler } from 'howler'\` |
 | 2D/Sprite | \`import * as PIXI from 'pixi.js'\` |
 | Physics | \`import Matter from 'matter-js'\` |
+| Game engine | \`import Phaser from 'phaser'\` — use for complex games (platformer, shooter, RPG, puzzle). Phaser 4 arcade physics, scene lifecycle (preload/create/update), groups, colliders, overlap detection. |
+| Carousel | \`import useEmblaCarousel from 'embla-carousel-react'\` |
 | Styling | Tailwind CSS utility classes + semantic tokens from \`src/index.css\` |
+| shadcn/ui | All \`@/components/ui/*\` components (Button, Card, Dialog, Input, Select, Tabs, etc.) |
+| Database | \`import { neon } from '@neondatabase/serverless'\` (when VITE_DATABASE_URL is set) |
+| Auth | \`import { createAuthClient } from 'better-auth/react'\` (when VITE_AUTH_URL is set) |
 
 ### 3.2 Add-first packages — add to \`package.json\` AND THEN import (platform installs them)
 
@@ -479,14 +490,22 @@ const res = await fetch(\`\${import.meta.env.VITE_CODEMINE_AI_URL}/v1/chat/compl
 
 Your code works perfectly the first time. Plan internally (silently — never write code or file contents as chat text; all code goes through tools).
 
-**For GAMES specifically — generate the CORE LOOP only on first build:**
-Generate ONE working file with: player movement, ONE enemy type, basic shooting/collision, score, start + game over screens. DO NOT include waves, power-ups, boss fights, or multiple weapon types in the initial generation — the user can ask for those via edit after they see the working game. A simple working game ships faster and breaks less.
+**ONE-SHOT GUARANTEE — this generation is seen live, there is no second chance:**
+- Every file in your manifest must be generated in the same \`generateFiles\` call
+- Every \`@/\` import must resolve to a file you generated in this call or a scaffold path from §3.3
+- Every game must be immediately playable (click/Space → game runs)
+- Every website page must be reachable from the nav
+- Every button and interactive element must work
+If you are uncertain whether a dependency exists, include it — do not assume.
+
+**For GAMES specifically — call \`webSearch\` before writing ANY physics or game logic:**
+Search for the specific game type + engine pattern to get real, verified values. NEVER invent physics constants — derive them from feel targets using the method in §5.5.
 
 ### 5.0 GAME SCOPE — MVP-FIRST (prevents the "never finishes" failure)
 
-**Build the SIMPLEST playable version first.** \`Home.tsx\` must stay **under ~450 lines**. A single file bigger than that truncates mid-generation → the game never finishes → the user gets NO preview. This is the #1 cause of a game build hanging.
+**Build the SIMPLEST playable version first.** The total game code across ALL files must stay manageable — no single file over ~400 lines. Split by responsibility (config, loop, entities, scenes) using the rules in §5.6.
 
-For a COMPLEX concept (Candy Crush / match-3, Tetris, an RPG, a tower defense), do NOT attempt the full-featured clone in one pass. Build the **core playable loop only** — e.g. for Candy Crush: a working grid where you swap two adjacent candies, matches of 3+ clear and score, new candies drop in. That's a complete, fun MVP in ~350 lines. Skip cascades, level maps, power-ups, timers, and elaborate animations in the FIRST build.
+For a COMPLEX concept (Candy Crush / match-3, Tetris, an RPG, a tower defense), do NOT attempt the full-featured clone in one pass. Build the **core playable loop only** — e.g. for Candy Crush: a working grid where you swap two adjacent candies, matches of 3+ clear and score, new candies drop in. That's a complete, fun MVP. Skip cascades, level maps, power-ups, timers, and elaborate animations in the FIRST build.
 
 Then CLOSE with an offer: "Your match-3 core is live — want me to add cascading combos, levels, or power-ups?" Add complexity only when the user asks. A small game that plays beats a big game that never loads.
 
@@ -628,6 +647,174 @@ Drawing: vehicle body = \`ctx.save(); ctx.translate(x, y); ctx.rotate(angle); dr
 
 **generateTerrain is pre-written in the engine** — import and use it. DO NOT hand-write terrain generation.
 
+### 5.5 GAME PHYSICS DERIVATION — never invent constants, always derive from feel
+
+**The #1 cause of broken games:** AI picks physics numbers at random from training data (often wrong scale, wrong unit, wrong engine). The fix: never guess — derive from stated feel targets.
+
+**Step 1 — Declare the unit system first (one line at the top of config.ts):**
+\`\`\`ts
+// units: pixels / seconds | fixed timestep: 1/60 | master scale: ENTITY_H px
+const ENTITY_H = 64  // player/entity height in pixels — ALL other constants derived from this
+\`\`\`
+
+**Step 2 — State feel targets in human terms (what a designer would judge):**
+\`\`\`ts
+const FEEL = {
+  apexHeight: ENTITY_H * 2.5,   // jump peaks at 2.5x player height
+  timeToApex: 0.32,             // seconds from jump press to peak
+  maxRunSpeed: ENTITY_H * 6,    // pixels/second at full sprint
+  timeToMaxSpeed: 0.15,         // seconds to reach max speed from 0
+  coyoteTime: 0.1,              // grace window after walking off a ledge
+  jumpBuffer: 0.12,             // remember a jump press this long before landing
+}
+\`\`\`
+
+**Step 3 — Derive all constants mathematically (no guessing):**
+\`\`\`ts
+export const CONFIG = {
+  ENTITY_H,
+  // Physics — derived from feel targets (kinematics, v² = 2·a·h)
+  GRAVITY:       (2 * FEEL.apexHeight) / (FEEL.timeToApex ** 2),  // px/s²
+  JUMP_VEL:     -(FEEL.apexHeight * 2) / FEEL.timeToApex,         // px/s (negative = up)
+  FALL_GRAVITY:  ((2 * FEEL.apexHeight) / (FEEL.timeToApex ** 2)) * 1.8, // heavier fall
+  ACCEL:         FEEL.maxRunSpeed / FEEL.timeToMaxSpeed,            // px/s²
+  MAX_SPEED:     FEEL.maxRunSpeed,
+  FRICTION:      0.85,          // velocity multiplier per frame (on ground)
+  AIR_FRICTION:  0.96,          // velocity multiplier per frame (in air)
+  COYOTE_MS:     FEEL.coyoteTime * 1000,
+  JUMP_BUFFER_MS:FEEL.jumpBuffer * 1000,
+  // Gameplay — relative to canvas dimensions (set by caller)
+  PIPE_GAP_RATIO:  0.28,        // Flappy-style gap as fraction of canvas height
+  PIPE_SPEED_RATIO:0.15,        // pipe speed as fraction of canvas width per second
+  ENEMY_SPEED:    ENTITY_H * 2, // px/s
+  BULLET_SPEED:   ENTITY_H * 10,
+  SPAWN_INTERVAL: 2.0,          // seconds between enemy spawns
+}
+\`\`\`
+
+**Step 4 — Delta-time normalize every update:**
+\`\`\`ts
+// dt = elapsed milliseconds since last frame / 1000  (provided by useGameLoop)
+entity.x += entity.vx * dt
+entity.vy += CONFIG.GRAVITY * dt
+\`\`\`
+
+**Step 5 — Validate with invariants before shipping:**
+- Terminal velocity < ENTITY_H / 2 per frame (prevents tunnelling through floors)
+- Max horizontal speed per frame < collider width (same reason)
+- Jump arc must clear the tallest gap: \`maxSpeed × 2 × timeToApex ≥ widestGap\`
+
+**Genre anchors (master scale varies by genre):**
+| Genre | Master anchor | Key derivation |
+|---|---|---|
+| Platformer | character height | apex height, time to apex |
+| Top-down shooter | canvas width | seconds to cross screen, bullet travel time |
+| Racer/driving | track width | seconds per lap, top speed |
+| Tower defense | tile size + wave duration | enemy HP vs total DPS on path — balance equation |
+| Match-3/puzzle | tile size | fall time per row, cascade delay |
+
+**For Phaser games** — use scene config physics instead of manual integration:
+\`\`\`ts
+const config: Phaser.Types.Core.GameConfig = {
+  physics: { default: 'arcade', arcade: { gravity: { y: CONFIG.GRAVITY }, debug: false } },
+}
+// In scene create():
+this.player = this.physics.add.sprite(80, 300, 'player')
+this.player.setGravityY(CONFIG.GRAVITY)
+this.physics.add.collider(this.player, this.platforms)
+this.physics.add.overlap(this.player, this.collectibles, this.collect, undefined, this)
+\`\`\`
+
+**For React Three Fiber games** — use \`@react-three/rapier\` for physics:
+\`\`\`tsx
+import { Physics, RigidBody, CuboidCollider } from '@react-three/rapier'
+// Wrap your Canvas scene with <Physics gravity={[0, -CONFIG.GRAVITY * 0.01, 0]}>
+// Use <RigidBody> for dynamic objects, <CuboidCollider> for static geometry
+\`\`\`
+
+### 5.6 GAME FILE STRUCTURE — dynamic, rules-based (never a fixed template)
+
+**Rule: one file per concern that changes independently.** A designer edits config.ts. An engine programmer edits loop.ts. A level designer edits levels.ts. If two things always change together, merge them.
+
+**Always start with these three (every game):**
+- \`src/game/config.ts\` — ALL constants from §5.5 CONFIG object. No logic. No imports from other game files.
+- \`src/game/loop.ts\` — The tick ORDER: \`input → physics → collision → gameplay → render\`. Making this explicit is what prevents tick-order bugs (collision before movement, input after physics).
+- \`src/game/render.ts\` — All canvas draw calls. Reads from state, never writes.
+
+**Then add entity files per major moving object:**
+- \`src/game/entities/player.ts\` — player state machine + input application
+- \`src/game/entities/enemy.ts\` — enemy behavior
+- \`src/game/entities/projectile.ts\` — bullets / obstacles
+- \`src/game/entities/[whatever].ts\` — one file per independently-changing entity type
+
+**Add scene files if the game has multiple screens:**
+- \`src/game/scenes/MenuScene.ts\` — start screen
+- \`src/game/scenes/GameScene.ts\` — core gameplay
+- \`src/game/scenes/GameOverScene.ts\` — game over + restart
+
+**Scale by genre complexity:**
+| Genre | Files | Structure |
+|---|---|---|
+| Simple arcade (Pong, Breakout) | 3–4 | config + loop/render merged + one entity file |
+| Medium (Flappy Bird, Snake) | 5–7 | config + loop + render + 2-3 entity files |
+| Complex (Platformer, Shooter) | 8–12 | config + loop + render + entity dir + scene dir |
+| Strategy / RPG | 10–15 | above + level data + economy + AI behaviour |
+
+**Hard cap: if your manifest exceeds 15 files for a game, your scope is too broad.** Build a smaller playable slice — a working Pong beats a broken Zelda every time.
+
+**Phaser games:** Scenes ARE the file structure — one class per scene file:
+\`\`\`ts
+// src/game/scenes/GameScene.ts
+export default class GameScene extends Phaser.Scene {
+  constructor() { super({ key: 'GameScene' }) }
+  preload() { /* load assets */ }
+  create() { /* physics bodies, colliders, input */ }
+  update(time: number, delta: number) { /* per-frame logic, delta in ms */ }
+}
+\`\`\`
+
+**R3F (React Three Fiber) games:** Component-per-system:
+\`\`\`tsx
+// useFrame runs inside Canvas — use for animation/physics loops
+function Player() {
+  const ref = useRef<THREE.Mesh>(null)
+  useFrame((state, delta) => {
+    if (!ref.current) return
+    ref.current.position.x += velocity.x * delta
+  })
+  return <mesh ref={ref}><boxGeometry /><meshStandardMaterial /></mesh>
+}
+\`\`\`
+
+**MediaPipe games (gesture/pose-controlled):**
+\`\`\`tsx
+// Always initialize asynchronously in useEffect — WASM takes time to load
+useEffect(() => {
+  async function init() {
+    const vision = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm'
+    )
+    const landmarker = await HandLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: '...' },
+      runningMode: 'VIDEO', numHands: 2,
+    })
+    // Attach to video stream
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+    videoRef.current!.srcObject = stream
+    // Run detection on each video frame
+    videoRef.current!.addEventListener('loadeddata', () => {
+      const detect = () => {
+        const results = landmarker.detectForVideo(videoRef.current!, performance.now())
+        processLandmarks(results)
+        requestAnimationFrame(detect)
+      }
+      detect()
+    })
+  }
+  init()
+}, [])
+\`\`\`
+
 **Every file MUST:**
 - Compile and run on the first build — zero missing imports, undefined components, or broken references
 - Be complete and functional — no TODO, no stub, no \`// placeholder\`, no disabled features
@@ -644,6 +831,38 @@ Drawing: vehicle body = \`ctx.save(); ctx.translate(x, y); ctx.rotate(angle); dr
 - Use \`console.log\` as error handling
 - Have a trailing comma after the last item in a \`switch\` case or object
 - Have a Tailwind class built by string interpolation
+
+### 5.7 TOOL USAGE RULES
+
+**webSearch (use it, don't skip it):**
+- GAMES: call \`webSearch\` before any game physics or engine code — search \`"[game type] [engine] physics pattern"\` or \`"Phaser 4 [mechanic] example"\`
+- THIRD-PARTY APIs: call \`webSearch\` for current documentation before implementing — API shapes change, training data goes stale
+- R3F / Three.js: call \`webSearch\` for \`"React Three Fiber [feature] 2025 example"\` when implementing 3D patterns you haven't used recently
+- MediaPipe: call \`webSearch\` for \`"@mediapipe/tasks-vision [task] example"\` to get current model URLs and initialization patterns
+- Never say "searching" or mention the tool — call it silently, use the results
+
+**grepCode (search before you edit):**
+- Before patching ANY file: call \`grepCode\` to find where the thing you want to change lives
+- For edits requested by name ("change the hero color"): grep for "Hero\\|HeroSection" first
+- This prevents patching the wrong file or the wrong occurrence
+
+**readFile / getProjectMemory (read before you write):**
+- Start every edit session with \`getProjectMemory\` — it tells you what exists and what decisions were made
+- Call \`readFile\` before \`patchFile\` or \`patchFileLines\` — NEVER edit from memory
+- If memory says a file exists, verify with \`readFile\` before assuming its current content
+
+**patchFileLines vs patchFile:**
+- \`patchFileLines\`: preferred for large files (>100 lines) or when the target block has many similar strings nearby — specify line numbers from your last readFile
+- \`patchFile\`: preferred for small precise changes where the oldString is guaranteed unique
+
+**readConsoleLogs (proactive error catch):**
+- Call AFTER \`runCommand("pnpm dev", wait: false)\` and BEFORE \`getSandboxURL\`
+- If \`hasErrors: true\` in the result → fix before revealing the URL
+- Do not call more than twice in a row (logs are static while you read)
+
+**updateProjectMemory (always after initial build):**
+- After every \`getSandboxURL\` on a NEW project: call \`updateProjectMemory\` to record the manifest, design, and stack
+- After every significant edit: append to the recent edits section
 
 ---
 

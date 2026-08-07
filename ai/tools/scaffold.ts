@@ -76,8 +76,15 @@ function makePackageJson(): string {
         three: '^0.169.0',
         '@react-three/fiber': '^8.17.10',
         '@react-three/drei': '^9.114.0',
+        '@react-three/rapier': '^1.5.0',
         howler: '^2.2.4',
         zustand: '^5.0.2',
+        // Game engines — Phaser 4 (full-featured scene/physics engine for complex games),
+        // pixi.js (2D sprite renderer), matter-js (rigid body physics).
+        // Pre-installed so games never need an npm install round-trip.
+        phaser: '^4.2.1',
+        'pixi.js': '^8.7.1',
+        'matter-js': '^0.20.0',
         // Database — Neon serverless Postgres (available when DATABASE_URL is set)
         '@neondatabase/serverless': '^0.10.4',
         postgres: '^3.4.5',
@@ -95,6 +102,8 @@ function makePackageJson(): string {
         '@types/react': '^18.3.12',
         '@types/react-dom': '^18.3.1',
         '@types/canvas-confetti': '^1.9.0',
+        '@types/matter-js': '^0.20.0',
+        '@types/three': '^0.169.0',
         '@vitejs/plugin-react': '^4.3.4',
         autoprefixer: '^10.4.20',
         postcss: '^8.4.49',
