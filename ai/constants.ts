@@ -25,8 +25,8 @@
 // phase. Caching: system message gets cache_control:{type:'ephemeral'} injected in gateway.ts
 // → Anthropic's infra activates prompt caching for large system prompts.
 export const DEFAULT_MODEL = 'deepseek-v4-flash'
-// Claude Sonnet 5 via OpenRouter — thinking disabled, cross-file consistent code generation.
-// Frontier-class Sonnet with 1M context and tool use. Thinking disabled via gateway.ts.
+// Claude Sonnet 5 via OpenRouter — frontier-class, cross-file consistent code generation.
+// Thinking disabled via gateway.ts. Caching via cache_control on system message.
 export const FILE_GENERATION_MODEL = 'anthropic/claude-sonnet-5'
 // Edits and errors use direct DeepSeek (fast, cheap, used only post-generation)
 export const EDIT_MODEL = 'deepseek-v4-flash'
