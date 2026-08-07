@@ -2251,7 +2251,13 @@ Phase 1 must stream in under 90 seconds — 2 small files only.
 Phase 2 = all remaining files (components, hooks, utilities, extra pages) in the SECOND generateFiles call.
 NEVER put all files into one generateFiles call for webapps — server enforces the split.`
     : skill === 'game'
-    ? `TARGET FILE COUNT: 2 files ONLY — src/index.css + src/pages/Home.tsx. ALL game logic goes in Home.tsx. NO src/components/game/ subfolder. The server enforces this and will reject any other layout. A complete game fits in one file.`
+    ? `GAME FILE STRUCTURE (see §5.6 for full rules):
+Simple canvas games (Snake, Pong, Breakout, Asteroids, Tetris) → 2-3 files: src/index.css + src/pages/Home.tsx (+ one config file if game loop is complex).
+Phaser games (platformer, shooter, RPG, flappy bird, top-down) → 4-8 files: src/index.css + src/pages/Home.tsx (mounts Phaser) + src/game/config.ts + one file per scene + one file per major entity (player, enemy, obstacle). Max 15 files total.
+R3F/3D games → 3-6 files: src/index.css + src/pages/Home.tsx (Canvas wrapper) + src/game/config.ts + component files for major 3D objects.
+ALL game logic for simple canvas games goes in Home.tsx — no subfolders needed.
+DO NOT create a src/components/game/ subfolder for simple games. DO create src/game/ for Phaser/R3F games with multiple scenes or entities.
+The server does NOT enforce a 2-file limit — you decide the correct structure based on the game type.`
     : `TARGET FILE COUNT: 6-8 files maximum. Combine views and utilities where possible.`
 
   // Per-type reference-lookup guidance — when (and only when) to call lookupReference.
