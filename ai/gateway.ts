@@ -28,10 +28,10 @@ const openrouterProvider = createOpenAI({
         const body = JSON.parse(init.body as string)
         const m: string = typeof body.model === 'string' ? body.model : ''
         // Some models REQUIRE reasoning and reject any attempt to disable it
-        // (Gemini, GPT-5, o-series). Leave those at the provider default; only
-        // force-disable where reasoning is optional and just adds latency/cost
-        // (DeepSeek, GLM, Kimi).
-        if (!/gemini|gpt-5|openai\/o\d/i.test(m)) {
+        // (Gemini, o-series like o1/o3/o4). Leave those at the provider default.
+        // GPT-5.6 Terra is NOT o-series — it supports reasoning:{enabled:false}
+        // and we must disable it to avoid 3-8 minute silent think phases.
+        if (!/gemini|openai\/o\d/i.test(m)) {
           body.reasoning = { enabled: false }
           body.include_reasoning = false
           body.thinking = { type: 'disabled' }
