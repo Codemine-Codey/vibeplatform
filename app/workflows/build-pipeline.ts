@@ -765,7 +765,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
   'use step'
 
   const stepStart = Date.now() // stepVerify's OWN invocation start — independent of invocationStart
-  const STEP_DEADLINE_MS = 350_000 // 5.8 min — leave 450s buffer so flushAndRelease + checkpoint return clears the 800s Vercel hard kill
+  const STEP_DEADLINE_MS = 700_000 // 11.6 min — leaves 100s for flushAndRelease + return before Vercel's 800s hard kill; stepVerify2 gets fresh 800s
 
   const { writer, flushAndRelease } = makeStepWriter(genResult.runId)
   const { sandboxId, resolvedUrl: initialUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText } = genResult
@@ -1100,7 +1100,7 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
   'use step'
 
   const stepStart = Date.now()
-  const STEP_DEADLINE_MS = 350_000 // same 5.8-min soft deadline as stepVerify
+  const STEP_DEADLINE_MS = 700_000 // same 11.6-min soft deadline as stepVerify
   const withinBudget = () => Date.now() - stepStart < STEP_DEADLINE_MS
 
   const { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError } = checkpoint

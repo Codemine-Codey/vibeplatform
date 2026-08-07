@@ -24,10 +24,11 @@
 // is ONE call per project vs dozens of repair rounds. All edits/chat/errors stay on Flash.
 // OpenRouter is used (not direct OpenAI) to capture the 50% sale + automatic prefix caching.
 export const DEFAULT_MODEL = 'deepseek-v4-flash'
-// GPT-5.6 Terra via OpenRouter — RLHF-tuned cross-file consistency.
-// The Workflow SDK gives stepGenerate its own 800s budget (Terra uses ~330s of it)
-// and stepVerify gets a separate fresh 800s for compile+repair+headless.
-export const FILE_GENERATION_MODEL = 'openai/gpt-5.6-terra'
+// DeepSeek V4 Pro direct — stronger than Flash for cross-file consistency.
+// OpenRouter key has no verified balance; direct DeepSeek ($2) is the only
+// working path right now. Switch back to openai/gpt-5.6-terra when OpenRouter
+// balance is confirmed working.
+export const FILE_GENERATION_MODEL = 'deepseek-v4-pro'
 // Edits and errors use direct DeepSeek (fast, cheap, used only post-generation)
 export const EDIT_MODEL = 'deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek-v4-flash'
