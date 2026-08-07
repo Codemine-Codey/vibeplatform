@@ -87,21 +87,47 @@ export function extractMissingModules(log: string): string[] {
   return [...mods].slice(0, 8)
 }
 
-// Detect "Failed to resolve import '@/...'" errors and deterministically create
-// placeholder .tsx files for each missing local alias. This handles the case where
-// the AI imported a component in Home.tsx but forgot to generate the file — or the
-// file was in the plan but the AI skipped it. Creates a safe default export so
-// vite build passes without any LLM round-trip.
+// Resolve a relative import path (e.g., './Grain', '../utils/helpers')
+// against the directory of the importing file (e.g., 'src/components').
+function resolveRelativePath(fromDir: string, importPath: string): string {
+  const parts = fromDir ? fromDir.split('/') : []
+  for (const seg of importPath.split('/')) {
+    if (seg === '..') { parts.pop() }
+    else if (seg !== '.') { parts.push(seg) }
+  }
+  return parts.join('/')
+}
+
+// Detect "Failed to resolve import" errors and deterministically create placeholder
+// files for each missing local import — both @/ alias paths AND relative ./paths.
+// Handles the case where the AI imported a component but forgot to generate the file.
+// Creates a safe default export so vite build passes without any LLM round-trip.
 export async function stampMissingLocalAliases(sandbox: Sandbox, log: string): Promise<boolean> {
   const missingPaths = new Set<string>()
-  const re = /Failed to resolve import ['"](@\/[^'"]+)['"]/g
+
+  // 1. '@/' alias imports: Failed to resolve import '@/components/Foo'
+  const reAlias = /Failed to resolve import ['"](@\/[^'"]+)['"]/g
   let m: RegExpExecArray | null
-  while ((m = re.exec(log)) !== null) {
-    // '@/components/sections/Foo' → 'src/components/sections/Foo.tsx'
+  while ((m = reAlias.exec(log)) !== null) {
     const aliasPath = m[1].replace(/^@\//, 'src/')
-    const withExt = /\.(tsx?|jsx?|css)$/.test(aliasPath) ? aliasPath : aliasPath + '.tsx'
+    const withExt = /\.(tsx?|jsx?|css|scss|sass|less)$/.test(aliasPath) ? aliasPath : aliasPath + '.tsx'
     missingPaths.add(withExt)
   }
+
+  // 2. Relative imports: Failed to resolve import './Home.module.css' from 'src/pages/Home.tsx'
+  const reRelative = /Failed to resolve import ['"](\.[^'"]+)['"] from ['"]([^'"]+)['"]/g
+  let m2: RegExpExecArray | null
+  while ((m2 = reRelative.exec(log)) !== null) {
+    const importPath = m2[1]  // e.g., './Home.module.css' or '../utils/helpers'
+    const fromFile = m2[2]    // e.g., 'src/pages/Home.tsx'
+    const fromDir = fromFile.split('/').slice(0, -1).join('/')
+    const resolved = resolveRelativePath(fromDir, importPath)
+    const withExt = /\.(tsx?|jsx?|css|scss|sass|less|json)$/.test(resolved)
+      ? resolved
+      : resolved + '.tsx'
+    missingPaths.add(withExt)
+  }
+
   if (missingPaths.size === 0) return false
 
   const stamped: string[] = []

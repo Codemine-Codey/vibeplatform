@@ -2891,6 +2891,30 @@ The server does NOT enforce a 2-file limit — you decide the correct structure 
       devError = await waitForDevServer(url)
     }
 
+    // Repair Babel/TSX parse errors (Unexpected token) — the dev server uses Babel for JSX
+    // transformation but build uses esbuild, so some syntax errors only surface at runtime.
+    // LLM-repair the broken file(s) and restart before showing the user anything.
+    if (devError && /Unexpected token|SyntaxError|Unterminated/.test(devError)) {
+      const errorFiles = extractErrorFiles(devError)
+      let anyRepaired = false
+      for (const filePath of errorFiles.slice(0, 3)) {
+        try {
+          const content = await readSandboxFile(sandbox, filePath)
+          if (!content) continue
+          const fixed = await repairFile(filePath, content, devError.slice(0, 800))
+          if (fixed) {
+            await sandbox.writeFiles([{ path: filePath, content: Buffer.from(fixed, 'utf8') }])
+            logRepair({ layer: 'dev-500', action: 'syntax-repaired', detail: filePath, sandboxId })
+            anyRepaired = true
+          }
+        } catch { /* non-fatal */ }
+      }
+      if (anyRepaired) {
+        await restartDevServer(sandbox)
+        devError = await waitForDevServer(url)
+      }
+    }
+
     // Handle dev-500 silently before URL emit: apply a branded fallback page.
     if (devError) {
       logRepair({ layer: 'dev-500', action: 'silent-fallback', detail: devError.slice(0, 200), sandboxId })
