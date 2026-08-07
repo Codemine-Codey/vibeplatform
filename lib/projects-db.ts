@@ -29,6 +29,9 @@ export interface ProjectRow {
   // (dashboard / another device) restores the chat, not just the files.
   chat_messages: unknown | null
   chat_summary: string | null
+  // Cross-session project memory — mirrors .codey/memory.md in the sandbox so the
+  // AI remembers stack decisions, file manifest, and user preferences even after sandbox eviction.
+  memory_md: string | null
   tokens_used: number
   created_at: string
   updated_at: string
@@ -124,7 +127,7 @@ export async function createProjectRow(input: {
 // IDs are unguessable UUIDs created for this user, so updating by id is safe.
 export async function updateProjectRow(
   projectId: string,
-  patch: Partial<Pick<ProjectRow, 'name' | 'sandbox_id' | 'preview_url' | 'deploy_url' | 'snapshot_path' | 'tokens_used' | 'database_id' | 'database_name' | 'auth_enabled' | 'auth_worker_url'>>
+  patch: Partial<Pick<ProjectRow, 'name' | 'sandbox_id' | 'preview_url' | 'deploy_url' | 'snapshot_path' | 'tokens_used' | 'database_id' | 'database_name' | 'auth_enabled' | 'auth_worker_url' | 'memory_md'>>
 ): Promise<void> {
   try {
     const sb = getAdminSupabase()

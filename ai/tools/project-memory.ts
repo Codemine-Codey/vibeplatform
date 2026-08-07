@@ -1,52 +1,64 @@
 import { Sandbox } from '@vercel/sandbox'
 import { tool } from 'ai'
 import z from 'zod/v3'
+import { getAdminSupabase } from '@/lib/supabase/server'
 
 const MEMORY_PATH = '.codey/memory.md'
 
-// Project memory — persists across edit sessions.
-// Codey writes to this file after every initial build and reads it at the start
-// of every edit session so it knows the project structure without re-reading files.
+// Project memory — persists across edit sessions in two layers:
+//   1. .codey/memory.md in the sandbox (fast, in-session access)
+//   2. projects.memory_md in Supabase (survives sandbox eviction)
 export const getProjectMemory = () =>
   tool({
     description:
-      'Read the project memory file (.codey/memory.md) at the start of an edit session. ' +
-      'The memory contains: all generated files and their purpose, design decisions (colors/fonts/tone), ' +
+      'Read the project memory at the start of an edit session. ' +
+      'Memory contains: all generated files and their purpose, design decisions (colors/fonts/tone), ' +
       'user preferences from past edits, and recent fix history. ' +
-      'Always call this FIRST in an edit session before touching any files — it tells you what exists and what has been done.',
+      'Always call this FIRST in an edit session before touching any files.',
     inputSchema: z.object({
       sandboxId: z.string().describe('The workspace ID'),
+      projectId: z.string().optional().describe('The project ID for Supabase fallback when sandbox is cold'),
     }),
-    execute: async ({ sandboxId }) => {
+    execute: async ({ sandboxId, projectId }) => {
+      // Try sandbox first (warm path)
       try {
         const sandbox = await Sandbox.get({ sandboxId })
-        const cmd = await sandbox.runCommand({
-          cmd: 'cat',
-          args: [MEMORY_PATH],
-          detached: true,
-        })
+        const cmd = await sandbox.runCommand({ cmd: 'cat', args: [MEMORY_PATH], detached: true })
         const done = await cmd.wait()
 
-        if (done.exitCode !== 0) {
-          return {
-            exists: false,
-            memory: null,
-            note: 'No project memory found — this is a fresh project or memory was not yet written. Proceed by reading the relevant files.',
+        if (done.exitCode === 0) {
+          const memory = await done.stdout()
+          if (memory.trim()) {
+            return {
+              exists: true,
+              memory: memory.slice(0, 8000),
+              source: 'workspace',
+              note: 'Use this context to understand the project before making changes. Do not re-read files already described here.',
+            }
           }
         }
+      } catch { /* sandbox cold — fall through to Supabase */ }
 
-        const memory = await done.stdout()
-        return {
-          exists: true,
-          memory: memory.slice(0, 8000),
-          note: 'Use this context to understand the project before making changes. Do not re-read files already described here.',
-        }
-      } catch (err) {
-        return {
-          exists: false,
-          memory: null,
-          error: `Could not read memory: ${err instanceof Error ? err.message : String(err)}`,
-        }
+      // Supabase fallback (cold sandbox, project re-opened from dashboard)
+      if (projectId) {
+        try {
+          const sb = getAdminSupabase()
+          const { data } = await sb.from('projects').select('memory_md').eq('id', projectId).single()
+          if (data?.memory_md) {
+            return {
+              exists: true,
+              memory: (data.memory_md as string).slice(0, 8000),
+              source: 'database',
+              note: 'Memory restored from database (workspace was restarted). Use this as your project context.',
+            }
+          }
+        } catch { /* non-fatal */ }
+      }
+
+      return {
+        exists: false,
+        memory: null,
+        note: 'No project memory found — fresh project or memory not yet written. Proceed by reading the relevant files.',
       }
     },
   })
@@ -54,12 +66,13 @@ export const getProjectMemory = () =>
 export const updateProjectMemory = () =>
   tool({
     description:
-      'Write or update the project memory file (.codey/memory.md). ' +
+      'Write or update the project memory file. ' +
       'Call this after every initial build (to record the full file manifest, design, and stack) ' +
       'and after every significant edit (to record what changed and why). ' +
-      'The memory file is how Codey knows the project state when a user returns for edits.',
+      'Memory persists even when the workspace is restarted.',
     inputSchema: z.object({
       sandboxId: z.string().describe('The workspace ID'),
+      projectId: z.string().optional().describe('The project ID for Supabase persistence'),
       content: z.string().describe(
         'Full markdown content for the memory file. Include:\n' +
         '# Project Memory\n' +
@@ -76,26 +89,34 @@ export const updateProjectMemory = () =>
         '- what changed and why'
       ),
     }),
-    execute: async ({ sandboxId, content }) => {
+    execute: async ({ sandboxId, projectId, content }) => {
+      const results: string[] = []
+
+      // Write to sandbox
       try {
         const sandbox = await Sandbox.get({ sandboxId })
-
-        // Ensure directory exists
         const mkdir = await sandbox.runCommand({ cmd: 'mkdir', args: ['-p', '.codey'], detached: true })
         await mkdir.wait()
-
         await sandbox.writeFiles([{ path: MEMORY_PATH, content: Buffer.from(content, 'utf8') }])
-
-        return {
-          success: true,
-          path: MEMORY_PATH,
-          message: 'Project memory updated.',
-        }
+        results.push('workspace')
       } catch (err) {
-        return {
-          success: false,
-          error: `Could not write memory: ${err instanceof Error ? err.message : String(err)}`,
-        }
+        results.push(`workspace-failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
+
+      // Persist to Supabase so memory survives sandbox eviction
+      if (projectId) {
+        try {
+          const sb = getAdminSupabase()
+          await sb.from('projects').update({ memory_md: content }).eq('id', projectId)
+          results.push('database')
+        } catch { /* non-fatal — sandbox copy is enough for this session */ }
+      }
+
+      return {
+        success: results.some(r => !r.includes('failed')),
+        persisted: results,
+        path: MEMORY_PATH,
+        message: 'Project memory updated.',
       }
     },
   })
