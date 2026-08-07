@@ -755,6 +755,60 @@ export async function headlessRuntimeCheck(
       return { status: 'broken', detail: 'Runtime errors detected:\n' + errors.slice(0, 8).join('\n') }
     }
 
+    // Canvas game-loop verification: if the page has a canvas, verify the game loop
+    // is actually running by checking that pixels change after injecting input.
+    // A static canvas (game loop frozen or Start button not wired) fails this check.
+    if (paint.hasCanvas) {
+      try {
+        const pixelsBefore = await page.evaluate(() => {
+          const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
+          if (!canvas) return null
+          try {
+            const ctx = canvas.getContext('2d')
+            if (!ctx) return null
+            const d = ctx.getImageData(0, 0, Math.min(canvas.width, 200), Math.min(canvas.height, 200))
+            return Array.from(d.data.slice(0, 80)).join(',')
+          } catch { return null }
+        }).catch(() => null)
+
+        if (pixelsBefore) {
+          // Inject Space key (starts game / triggers jump) and a pointer click at canvas center
+          await page.keyboard.press('Space')
+          await page.evaluate(() => {
+            const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
+            if (!canvas) return
+            const rect = canvas.getBoundingClientRect()
+            const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2
+            canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: cx, clientY: cy, bubbles: true }))
+            canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: cx, clientY: cy, bubbles: true }))
+            canvas.dispatchEvent(new MouseEvent('click', { clientX: cx, clientY: cy, bubbles: true }))
+          })
+          await new Promise(r => setTimeout(r, 500))
+
+          const pixelsAfter = await page.evaluate(() => {
+            const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
+            if (!canvas) return null
+            try {
+              const ctx = canvas.getContext('2d')
+              if (!ctx) return null
+              const d = ctx.getImageData(0, 0, Math.min(canvas.width, 200), Math.min(canvas.height, 200))
+              return Array.from(d.data.slice(0, 80)).join(',')
+            } catch { return null }
+          }).catch(() => null)
+
+          if (pixelsAfter && pixelsAfter === pixelsBefore) {
+            // Pixels unchanged after input — game loop is frozen or Start button not wired
+            return {
+              status: 'broken',
+              detail: 'Game canvas detected but pixel data did not change after Space key + click input. The game loop appears frozen or the Start/Play interaction is not wired. Check that the game loop starts on input and useGameLoop is running.',
+            }
+          }
+        }
+      } catch {
+        // Non-fatal — canvas read can fail for cross-origin or WebGL contexts
+      }
+    }
+
     const navCount = await page.evaluate(() => document.querySelectorAll('nav').length).catch(() => 1)
     if (navCount > 1) {
       return {
