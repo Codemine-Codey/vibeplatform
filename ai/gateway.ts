@@ -49,6 +49,19 @@ const openrouterProvider = createOpenAI({
             // Pin to OpenAI to guarantee cache hits rather than routing to an Azure
             // or third-party mirror that may not cache.
             body.provider = { order: ['OpenAI'], allow_fallbacks: true }
+          } else if (body.model.startsWith('anthropic/')) {
+            // Pin to Anthropic's own infra (not Azure or third-party mirrors).
+            // Also inject cache_control into the system message so Anthropic's prompt
+            // caching activates — OpenRouter passes cache_control through to Anthropic
+            // automatically when the message content is in structured array format.
+            body.provider = { order: ['Anthropic'], allow_fallbacks: false }
+            if (Array.isArray(body.messages)) {
+              for (const msg of body.messages) {
+                if (msg.role === 'system' && typeof msg.content === 'string') {
+                  msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }]
+                }
+              }
+            }
           }
         }
         init = { ...init, body: JSON.stringify(body) }

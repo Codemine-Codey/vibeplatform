@@ -16,19 +16,17 @@
 // every build. DeepSeek-direct serves the SAME models (deepseek-v4-flash) with no
 // hard rate limit. Keep IDs slashless so getModelOptions routes them to the direct provider.
 //
-// NOTE (2026-08-07): FILE_GENERATION_MODEL switched to GPT-5.6 Terra via OpenRouter.
-// DeepSeek Flash generates correct code ~70% per-file; (0.70)^12 ≈ 1% full-project
-// first-pass rate. Terra is RLHF-tuned for cross-file instruction consistency (named
-// vs default exports, import paths matching generated files) — the exact failure mode
-// Flash shows. Cost: $0.50/$3 per M (50% off promo) vs Flash $0.07/$0.28, but generation
-// is ONE call per project vs dozens of repair rounds. All edits/chat/errors stay on Flash.
-// OpenRouter is used (not direct OpenAI) to capture the 50% sale + automatic prefix caching.
+// NOTE (2026-08-08): FILE_GENERATION_MODEL switched to Claude Sonnet 4.6 via OpenRouter.
+// DeepSeek (Flash/Pro) generates correct code ~70% per-file; (0.70)^12 ≈ 1% full-project
+// first-pass rate. Root cause: cross-file export contract violations — named vs default
+// exports, import paths that don't match generated filenames. Claude Sonnet produces
+// cross-file consistent code by design (RLHF for instruction-following + repo coherence).
+// Thinking DISABLED via gateway.ts (reasoning:{enabled:false} + thinking:{type:'disabled'})
+// — no silent multi-minute think phase. OpenRouter routes to Anthropic's infra with caching.
+// Cost: $3/$15 per M — generation is one call per project, so absolute cost is ~$0.05/project.
 export const DEFAULT_MODEL = 'deepseek-v4-flash'
-// DeepSeek V4 Pro direct — stronger than Flash for cross-file consistency.
-// OpenRouter key has no verified balance; direct DeepSeek ($2) is the only
-// working path right now. Switch back to openai/gpt-5.6-terra when OpenRouter
-// balance is confirmed working.
-export const FILE_GENERATION_MODEL = 'deepseek-v4-pro'
+// Claude Sonnet 4.6 via OpenRouter — thinking disabled, cross-file consistent code generation.
+export const FILE_GENERATION_MODEL = 'anthropic/claude-sonnet-4-6'
 // Edits and errors use direct DeepSeek (fast, cheap, used only post-generation)
 export const EDIT_MODEL = 'deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek-v4-flash'
