@@ -166,7 +166,8 @@ These packages are already in \`node_modules\`. Import them without adding to \`
 | Charts | \`import { LineChart, BarChart, PieChart, ... } from 'recharts'\` |
 | HTTP | \`import axios from 'axios'\` |
 | Confetti | \`import confetti from 'canvas-confetti'\` |
-| 3D | \`import * as THREE from 'three'\` / \`import { Canvas, useFrame, useThree } from '@react-three/fiber'\` / \`import { OrbitControls, Environment, useGLTF, Text } from '@react-three/drei'\` / \`import { Physics, RigidBody } from '@react-three/rapier'\` |
+| 3D (standalone) | \`import * as THREE from 'three'\` — WebGLRenderer, Scene, PerspectiveCamera, Mesh, BoxGeometry, MeshStandardMaterial, DirectionalLight, AmbientLight, AnimationMixer. Mount to a \`<canvas ref={ref}>\`, create renderer in useEffect, requestAnimationFrame loop, dispose on cleanup. |
+| 3D (React) | \`import { Canvas, useFrame, useThree } from '@react-three/fiber'\` / \`import { OrbitControls, Environment, Text, useGLTF, Stars, MeshDistortMaterial } from '@react-three/drei'\` / \`import { Physics, RigidBody, RapierRigidBody } from '@react-three/rapier'\` — wrap in \`<Canvas camera={{ fov: 75, position: [0,0,5] }}>\`. \`useFrame((state, delta) => {...})\` for animation. \`useRef<THREE.Mesh>()\` for mesh handles. |
 | Audio | \`import { Howl, Howler } from 'howler'\` |
 | 2D/Sprite | \`import * as PIXI from 'pixi.js'\` |
 | Physics | \`import Matter from 'matter-js'\` |
@@ -394,11 +395,13 @@ When cloud features are requested or enabled, use these EXACT patterns. Never de
 
 ### 4.1 Database writes from the SPA
 
-The platform provides two env vars injected into every workspace:
+The platform provides env vars injected into every workspace after \`createDatabase\` is called:
 - \`import.meta.env.VITE_CODEMINE_API\` — platform API base URL (e.g. \`https://www.codemineapp.com\`)
 - \`import.meta.env.VITE_PROJECT_ID\` — this project's ID
+- \`import.meta.env.VITE_DATABASE_URL\` — Neon Postgres connection string (DO NOT expose to users, use only in server-side code)
+- \`import.meta.env.VITE_DB_SCHEMA\` — the database schema name for this project
 
-**For any form submission, contact form, or data storage from the SPA:**
+**For any form submission, contact form, or data storage from the SPA (client-side):**
 \`\`\`typescript
 async function saveData(table: string, data: Record<string, unknown>) {
   const res = await fetch(\`\${import.meta.env.VITE_CODEMINE_API}/api/db/write\`, {
@@ -406,7 +409,7 @@ async function saveData(table: string, data: Record<string, unknown>) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       projectId: import.meta.env.VITE_PROJECT_ID,
-      table,   // must match a table name from createDatabase
+      table,   // must match a table name you created
       data,    // must match the schema columns
     }),
   })
@@ -415,7 +418,7 @@ async function saveData(table: string, data: Record<string, unknown>) {
 }
 \`\`\`
 
-**NEVER** create an Express/Node server to proxy database writes. **NEVER** use \`fetch('http://localhost:...')\` — it will always be refused. **NEVER** put database credentials in client code.
+**NEVER** create an Express/Node server to proxy database writes. **NEVER** use \`fetch('http://localhost:...')\` — it will always be refused. **NEVER** put VITE_DATABASE_URL in client-rendered code — it contains credentials. Use it only in \`setup-db.js\` scripts run via \`runCommand\`.
 
 ### 4.2 Authentication (when auth is enabled)
 
