@@ -14,6 +14,7 @@ export type RepairLayer =
   | 'vite-repair'       // Phase 2 final vite build repair (CSS / module errors)
   | 'type-check'        // Step 4.8 filtered tsc contract-error gate
   | 'auto-install'      // missing-module install (any checkpoint)
+  | 'stamp-local-alias' // @/ path alias missing — placeholder .tsx created
   | 'dev-500'           // dev server returning 500 after start
   | 'dev-502'           // dev server never bound :3000 (persistent 502) → restart
   | 'runtime-check'     // headless browser DOM/console check

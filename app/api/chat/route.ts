@@ -46,6 +46,7 @@ import {
   extractBuildError,
   extractErrorFiles,
   installMissingModules,
+  stampMissingLocalAliases,
   repairFile,
 } from '@/lib/sandbox-util'
 import { createProjectRow, getProject, snapshotProject, updateProjectRow, getProjectBySandboxId, incrementProjectTokens, restoreSnapshotInto } from '@/lib/projects-db'
@@ -469,6 +470,10 @@ async function verifyAndRepair({
 
       // Missing package? Install it — deterministic, fixes the whole error class
       // (AI-referenced packages, config-required packages) without any LLM call.
+      // Stamp placeholder .tsx files for any '@/' alias that the AI imported but forgot
+      // to generate — deterministic, no LLM needed. Must run BEFORE installMissingModules
+      // so the alias is excluded from the npm-install pass (it would silently fail).
+      if (await stampMissingLocalAliases(sandbox, log)) continue
       if (await installMissingModules(sandbox, log)) continue
 
       const files = extractErrorFiles(log)
@@ -2873,6 +2878,12 @@ The server does NOT enforce a 2-file limit — you decide the correct structure 
     // a dep the AI's package.json dropped): install it, restart the dev server (the
     // running process caches the failed require), and re-check — all server-side,
     // before the user or the AI ever sees an error.
+    if (devError && (await stampMissingLocalAliases(sandbox, devError))) {
+      console.warn('[dev-check] stamped missing local alias — restarting dev server')
+      logRepair({ layer: 'dev-500', action: 'stamped-alias-restarted', detail: devError.slice(0, 200), sandboxId })
+      await restartDevServer(sandbox)
+      devError = await waitForDevServer(url)
+    }
     if (devError && (await installMissingModules(sandbox, devError))) {
       console.warn('[dev-check] installed missing modules — restarting dev server')
       logRepair({ layer: 'dev-500', action: 'auto-installed-and-restarted', detail: devError.slice(0, 200), sandboxId })

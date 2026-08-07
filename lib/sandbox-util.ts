@@ -75,6 +75,9 @@ export function extractMissingModules(log: string): string[] {
     while ((m = re.exec(log)) !== null) {
       const name = m[1]
       if (name.startsWith('.') || name.startsWith('/') || name.startsWith('node:')) continue
+      // '@/' is a local Vite path alias (src/) — never an npm package. Skip here;
+      // stampMissingLocalAliases handles these by creating placeholder files.
+      if (name.startsWith('@/')) continue
       if (NODE_BUILTINS.has(name)) continue
       const parts = name.split('/')
       const pkg = name.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
@@ -82,6 +85,57 @@ export function extractMissingModules(log: string): string[] {
     }
   }
   return [...mods].slice(0, 8)
+}
+
+// Detect "Failed to resolve import '@/...'" errors and deterministically create
+// placeholder .tsx files for each missing local alias. This handles the case where
+// the AI imported a component in Home.tsx but forgot to generate the file — or the
+// file was in the plan but the AI skipped it. Creates a safe default export so
+// vite build passes without any LLM round-trip.
+export async function stampMissingLocalAliases(sandbox: Sandbox, log: string): Promise<boolean> {
+  const missingPaths = new Set<string>()
+  const re = /Failed to resolve import ['"](@\/[^'"]+)['"]/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(log)) !== null) {
+    // '@/components/sections/Foo' → 'src/components/sections/Foo.tsx'
+    const aliasPath = m[1].replace(/^@\//, 'src/')
+    const withExt = /\.(tsx?|jsx?|css)$/.test(aliasPath) ? aliasPath : aliasPath + '.tsx'
+    missingPaths.add(withExt)
+  }
+  if (missingPaths.size === 0) return false
+
+  const stamped: string[] = []
+  for (const path of missingPaths) {
+    const existing = await readSandboxFile(sandbox, path)
+    if (existing && existing.trim().length > 10) continue // file already exists with content
+
+    // Derive a component name from the filename for the placeholder
+    const baseName = path.split('/').pop()?.replace(/\.(tsx?|jsx?)$/, '') ?? 'Placeholder'
+    const componentName = baseName.replace(/[^A-Za-z0-9]/g, '') || 'Placeholder'
+
+    let placeholder: string
+    if (path.endsWith('.css')) {
+      placeholder = '/* placeholder */\n'
+    } else {
+      placeholder = `export default function ${componentName}() {\n  return <div data-placeholder="${componentName}" />\n}\n`
+    }
+
+    try {
+      const mkdir = await sandbox.runCommand({ cmd: 'mkdir', args: ['-p', path.split('/').slice(0, -1).join('/')], detached: true })
+      await mkdir.wait()
+      await sandbox.writeFiles([{ path, content: Buffer.from(placeholder, 'utf8') }])
+      stamped.push(path)
+      logRepair({ layer: 'stamp-local-alias', action: 'created-placeholder', detail: path })
+    } catch (e) {
+      console.warn('[stamp-local-alias] failed for', path, e instanceof Error ? e.message : e)
+    }
+  }
+
+  if (stamped.length > 0) {
+    console.warn('[stamp-local-alias] created placeholders:', stamped.join(', '))
+    return true
+  }
+  return false
 }
 
 export async function installMissingModules(sandbox: Sandbox, log: string): Promise<boolean> {
