@@ -16,12 +16,15 @@
 // every build. DeepSeek-direct serves the SAME models (deepseek-v4-flash) with no
 // hard rate limit. Keep IDs slashless so getModelOptions routes them to the direct provider.
 //
-// NOTE (2026-08-06): switched ALL build models from deepseek-v4-pro → deepseek-v4-flash.
-// DeepSeek's July 31 changelog confirms: the `deepseek-v4-flash` ID now automatically
-// serves DeepSeek-V4-Flash-0731, which outperforms v4-pro on all 9 coding benchmarks
-// (Intelligence Index: 50 vs 44) at 3x lower cost ($0.07/$0.28 vs $0.27/$1.10 per M).
+// NOTE (2026-08-07): FILE_GENERATION_MODEL switched to GPT-5.6 Terra via OpenRouter.
+// DeepSeek Flash generates correct code ~70% per-file; (0.70)^12 ≈ 1% full-project
+// first-pass rate. Terra is RLHF-tuned for cross-file instruction consistency (named
+// vs default exports, import paths matching generated files) — the exact failure mode
+// Flash shows. Cost: $0.50/$3 per M (50% off promo) vs Flash $0.07/$0.28, but generation
+// is ONE call per project vs dozens of repair rounds. All edits/chat/errors stay on Flash.
+// OpenRouter is used (not direct OpenAI) to capture the 50% sale + automatic prefix caching.
 export const DEFAULT_MODEL = 'deepseek-v4-flash'
-export const FILE_GENERATION_MODEL = 'deepseek-v4-flash'
+export const FILE_GENERATION_MODEL = 'openai/gpt-5.6-terra'
 export const EDIT_MODEL = 'deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek-v4-flash'
 export const ORCHESTRATION_MODEL = 'deepseek-v4-flash'
@@ -42,12 +45,15 @@ export const VISION_MODEL = 'google/gemma-3-12b-it'
 //    single file or edit while keeping the credit reservation small.
 export function getMaxOutputTokens(modelId: string): number {
   if (modelId.startsWith('claude-opus') || modelId.startsWith('claude-fable')) return 128000
-  // DeepSeek V4 — MAX output is 384K (per DeepSeek platform spec for v4-pro). One-pass
-  // whole-project generation needs the full ceiling so even a large modular website/webapp/
-  // game fits in a SINGLE coherent response without truncating (per-file recovery only kicks
-  // in if it somehow still doesn't fit). 384000 tokens.
+  // DeepSeek V4 — MAX output is 384K (per DeepSeek platform spec). One-pass whole-project
+  // generation needs the full ceiling so large modular sites fit in one response.
   if (modelId.startsWith('deepseek')) return 384000
-  // claude sonnet/haiku and other OpenRouter models
+  // GPT-5.6 Terra via OpenRouter — 1M context, generous output window. OpenRouter
+  // reserves credits up-front for max_tokens, so cap at 64K to avoid over-reservation
+  // while still comfortably covering any full-project generation (15 files × 400 lines
+  // ≈ 45K tokens). The per-file recovery path refills anything truncated.
+  if (modelId.includes('gpt-5') || modelId.includes('openai/')) return 64000
+  // claude sonnet/haiku and remaining OpenRouter models
   return 64000
 }
 
