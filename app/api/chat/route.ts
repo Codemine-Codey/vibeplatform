@@ -47,6 +47,7 @@ import {
   extractErrorFiles,
   installMissingModules,
   stampMissingLocalAliases,
+  stampMissingNamedExports,
   repairFile,
 } from '@/lib/sandbox-util'
 import { createProjectRow, getProject, snapshotProject, updateProjectRow, getProjectBySandboxId, incrementProjectTokens, restoreSnapshotInto } from '@/lib/projects-db'
@@ -474,6 +475,7 @@ async function verifyAndRepair({
       // to generate — deterministic, no LLM needed. Must run BEFORE installMissingModules
       // so the alias is excluded from the npm-install pass (it would silently fail).
       if (await stampMissingLocalAliases(sandbox, log)) continue
+      if (await stampMissingNamedExports(sandbox, log)) continue
       if (await installMissingModules(sandbox, log)) continue
 
       const files = extractErrorFiles(log)
@@ -2884,6 +2886,12 @@ The server does NOT enforce a 2-file limit — you decide the correct structure 
       await restartDevServer(sandbox)
       devError = await waitForDevServer(url)
     }
+    if (devError && (await stampMissingNamedExports(sandbox, devError))) {
+      console.warn('[dev-check] added named export aliases — restarting dev server')
+      logRepair({ layer: 'dev-500', action: 'named-export-restarted', detail: devError.slice(0, 200), sandboxId })
+      await restartDevServer(sandbox)
+      devError = await waitForDevServer(url)
+    }
     if (devError && (await installMissingModules(sandbox, devError))) {
       console.warn('[dev-check] installed missing modules — restarting dev server')
       logRepair({ layer: 'dev-500', action: 'auto-installed-and-restarted', detail: devError.slice(0, 200), sandboxId })
@@ -3022,6 +3030,19 @@ The server does NOT enforce a 2-file limit — you decide the correct structure 
       if (rt.status === 'broken' && (await installMissingModules(sandbox, rt.detail))) {
         await restartDevServer(sandbox)
         await new Promise(r => setTimeout(r, 4000))
+        rt = await headlessRuntimeCheck(url, sandboxId)
+      }
+      // Named export mismatch — append re-export alias, no LLM needed.
+      // Fixes: AI used 'export default function X' but imported as '{ X }'.
+      if (rt.status === 'broken' && (await stampMissingNamedExports(sandbox, rt.detail))) {
+        logRepair({ layer: 'runtime-check', action: 'named-export-fixed', detail: rt.detail.slice(0, 160), sandboxId })
+        await new Promise(r => setTimeout(r, 3000))
+        rt = await headlessRuntimeCheck(url, sandboxId)
+      }
+      // Missing local alias — stamp placeholders, no LLM needed
+      if (rt.status === 'broken' && (await stampMissingLocalAliases(sandbox, rt.detail))) {
+        logRepair({ layer: 'runtime-check', action: 'alias-stamped', detail: rt.detail.slice(0, 160), sandboxId })
+        await new Promise(r => setTimeout(r, 3000))
         rt = await headlessRuntimeCheck(url, sandboxId)
       }
       // LLM repair rounds — up to 2 passes (any skill). Each pass targets the CURRENT

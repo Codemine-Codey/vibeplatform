@@ -143,7 +143,8 @@ export async function stampMissingLocalAliases(sandbox: Sandbox, log: string): P
     if (path.endsWith('.css')) {
       placeholder = '/* placeholder */\n'
     } else {
-      placeholder = `export default function ${componentName}() {\n  return <div data-placeholder="${componentName}" />\n}\n`
+      // Export both named AND default so import { X } and import X from '...' both work
+      placeholder = `export function ${componentName}() {\n  return <div data-placeholder="${componentName}" />\n}\nexport default ${componentName}\n`
     }
 
     try {
@@ -162,6 +163,42 @@ export async function stampMissingLocalAliases(sandbox: Sandbox, log: string): P
     return true
   }
   return false
+}
+
+// Detect "does not provide an export named 'X'" errors and append a re-export
+// alias to the file so both default and named import styles work. This fixes the
+// pattern where the AI uses `export default function Foo` but imports as `{ Foo }`.
+export async function stampMissingNamedExports(sandbox: Sandbox, log: string): Promise<boolean> {
+  // Matches: The requested module '/src/.../Foo.tsx' does not provide an export named 'Foo'
+  const re = /The requested module ['"]([^'"]+\.tsx?)['"] does not provide an export named ['"]([^'"]+)['"]/g
+  let m: RegExpExecArray | null
+  const patches: Array<{ path: string; name: string }> = []
+  while ((m = re.exec(log)) !== null) {
+    let p = m[1].replace(/^\/vercel\/sandbox\//, '')
+    if (!p.startsWith('src/')) {
+      const idx = p.indexOf('src/')
+      if (idx >= 0) p = p.slice(idx)
+    }
+    if (p.startsWith('src/')) patches.push({ path: p, name: m[2] })
+  }
+  if (patches.length === 0) return false
+
+  let anyPatched = false
+  for (const { path, name } of patches) {
+    try {
+      const content = await readSandboxFile(sandbox, path)
+      if (!content) continue
+      // Skip if a named export already exists
+      if (new RegExp(`export\\s+(function|const|class)\\s+${name}\\b`).test(content)) continue
+      // Append a re-export alias: export { default as Name }
+      const appended = content.trimEnd() + `\nexport { default as ${name} }\n`
+      await sandbox.writeFiles([{ path, content: Buffer.from(appended, 'utf8') }])
+      logRepair({ layer: 'stamp-local-alias', action: 'named-export-alias', detail: `${path}::${name}` })
+      anyPatched = true
+    } catch { /* non-fatal */ }
+  }
+  if (anyPatched) console.warn('[stamp-named-export] added named export aliases')
+  return anyPatched
 }
 
 export async function installMissingModules(sandbox: Sandbox, log: string): Promise<boolean> {
