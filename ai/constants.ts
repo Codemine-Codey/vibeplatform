@@ -23,18 +23,17 @@
 // class with 1M context and produces cross-file consistent code by design. Thinking DISABLED
 // via gateway.ts (reasoning:{enabled:false} + thinking:{type:'disabled'}) — no silent think
 // phase. Cost: $2/$10 per M (input/output). Caching: cache_control:{type:'ephemeral'} in gateway.ts.
-export const DEFAULT_MODEL = 'deepseek-v4-flash'
-// Claude Sonnet 5 via OpenRouter — frontier-class, cross-file consistent code generation.
+// All models route through OpenRouter (OPENROUTER_API_KEY).
+// Direct DeepSeek (api.deepseek.com) confirmed dead — 402 Insufficient Balance
+// via /api/diag 2026-08-08. Slash prefix = openrouterProvider in gateway.ts.
+export const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash'
+// Claude Sonnet 5 via OpenRouter: confirmed 200 OK in diag. Cross-file consistent.
 // Thinking disabled via gateway.ts. Caching via cache_control on system message.
-// Reverted from anthropic/claude-sonnet-5 — OpenRouter promotional credits do not
-// cover Anthropic models. Direct DeepSeek bypasses OpenRouter entirely (api.deepseek.com).
-export const FILE_GENERATION_MODEL = 'deepseek-v4-flash'
-export const EDIT_MODEL = 'deepseek-v4-flash'
-export const ERROR_MODEL = 'deepseek-v4-flash'
-// Orchestration + brief via direct DeepSeek ($2 balance, confirmed working).
-// No slash = routes through deepseekProvider (api.deepseek.com directly).
-export const ORCHESTRATION_MODEL = 'deepseek-v4-flash'
-export const BRIEF_MODEL = 'deepseek-v4-flash'
+export const FILE_GENERATION_MODEL = 'anthropic/claude-sonnet-5'
+export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
+export const ERROR_MODEL = 'deepseek/deepseek-v4-flash'
+export const ORCHESTRATION_MODEL = 'deepseek/deepseek-v4-flash'
+export const BRIEF_MODEL = 'deepseek/deepseek-v4-flash'
 // Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
 // gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
 // and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),
@@ -53,7 +52,8 @@ export function getMaxOutputTokens(modelId: string): number {
   if (modelId.startsWith('claude-opus') || modelId.startsWith('claude-fable')) return 128000
   // DeepSeek V4 — MAX output is 384K (per DeepSeek platform spec). One-pass whole-project
   // generation needs the full ceiling so large modular sites fit in one response.
-  if (modelId.startsWith('deepseek')) return 384000
+  // Match both direct ('deepseek-v4-flash') and OpenRouter ('deepseek/deepseek-v4-flash').
+  if (modelId.startsWith('deepseek') || modelId.includes('/deepseek')) return 384000
   // GPT-5.6 Terra via OpenRouter — 1M context, generous output window. OpenRouter
   // reserves credits up-front for max_tokens, so cap at 64K to avoid over-reservation
   // while still comfortably covering any full-project generation (15 files × 400 lines
