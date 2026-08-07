@@ -911,6 +911,8 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
         writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'executing' } })
         let rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
         for (let attempt = 1; attempt <= 5 && rt.status === 'broken'; attempt++) {
+          // Budget guard: if close to 11-min deadline, break and let stepVerify2 continue
+          if (!withinBudget()) break
           let repairedAny = false
 
           // ── Priority 1: Missing module errors (Vite overlay) ──────────────────
@@ -1143,6 +1145,7 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
         writer.write({ id: 'srv-preview-starting', type: 'data-narration', data: { text: 'Checking your preview renders correctly — almost there.' } })
         let rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
         for (let attempt = 1; attempt <= 5 && rt.status === 'broken'; attempt++) {
+          if (!withinBudget()) break
           let repairedAny = false
 
           // Priority 1: Missing module (Vite overlay) — create the missing file
