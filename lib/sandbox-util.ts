@@ -87,6 +87,112 @@ export function extractMissingModules(log: string): string[] {
   return [...mods].slice(0, 8)
 }
 
+// ── Option 2: Post-generation export contract resolver ────────────────────────
+// Runs immediately after all files are written, before the first vite build.
+// Scans every generated TS/TSX file for local named imports, compares against
+// the actual exports in the target file, and appends `export { default as X }`
+// aliases for any mismatch — deterministically, no LLM needed. This is the
+// structural prevention layer: catches the pattern where the AI writes
+// `import { ContactSection }` in one file and `export default function ContactSection`
+// in another within the same one-pass generation, before any build error fires.
+export async function resolveExportContracts(sandbox: Sandbox): Promise<number> {
+  try {
+    // 1. Discover all TS/TSX source files
+    const findCmd = await sandbox.runCommand({
+      cmd: 'bash', args: ['-c', "find src -name '*.tsx' -o -name '*.ts' | grep -v 'node_modules' | sort"],
+      detached: true,
+    })
+    await findCmd.wait()
+    const findOut = await readSandboxFile(sandbox, '/tmp/cm-findts.txt').catch(() => null)
+    // Use runCommand stdout directly via a temp file
+    const findCmd2 = await sandbox.runCommand({
+      cmd: 'bash',
+      args: ['-c', "find src -name '*.tsx' -o -name '*.ts' | grep -v 'node_modules' | sort > /tmp/cm-findts.txt"],
+      detached: true,
+    })
+    await findCmd2.wait()
+    const listRaw = await readSandboxFile(sandbox, '/tmp/cm-findts.txt')
+    const tsPaths = (listRaw ?? '').split('\n').map(p => p.trim()).filter(p => p.endsWith('.tsx') || p.endsWith('.ts'))
+    if (tsPaths.length === 0) return 0
+
+    // 2. Read all files and build stem → export info map
+    interface ExportInfo { path: string; hasDefault: boolean; defaultName: string | null; named: Set<string> }
+    const fileContents = new Map<string, string>()
+    const exportByStem = new Map<string, ExportInfo>()
+
+    for (const p of tsPaths) {
+      const content = await readSandboxFile(sandbox, p)
+      if (!content) continue
+      fileContents.set(p, content)
+
+      const stem = p.split('/').pop()!.replace(/\.(tsx?|jsx?)$/, '')
+      const info: ExportInfo = { path: p, hasDefault: false, defaultName: null, named: new Set() }
+
+      // Detect default export and its name
+      const dm = content.match(/export\s+default\s+(?:async\s+)?(?:function|class)\s+([A-Za-z0-9_$]+)/) ||
+                 content.match(/export\s+default\s+([A-Za-z0-9_$]+)\s*;?\s*$/m)
+      if (dm) { info.hasDefault = true; info.defaultName = dm[1] }
+      else if (/export\s+default\b/.test(content)) { info.hasDefault = true; info.defaultName = stem }
+
+      // Detect named exports
+      for (const m of content.matchAll(/export\s+(?:async\s+)?(?:function|const|let|var|class|type|interface|enum)\s+([A-Za-z0-9_$]+)/g)) {
+        if (!/export\s+default/.test(m[0])) info.named.add(m[1])
+      }
+      for (const m of content.matchAll(/export\s*\{([^}]*)\}/g)) {
+        for (const part of m[1].split(',')) {
+          const seg = part.trim()
+          const asM = seg.match(/\bas\s+([A-Za-z0-9_$]+)\s*$/)
+          const name = asM ? asM[1] : seg.split(/\s+/)[0]
+          if (name && name !== 'default') info.named.add(name)
+        }
+      }
+      exportByStem.set(stem, info)
+    }
+
+    // 3. Scan each file for named imports from local paths; fix mismatches
+    const pendingFixes = new Map<string, string>() // path → updated content
+    const namedImportRe = /import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g
+
+    for (const [filePath, content] of fileContents) {
+      namedImportRe.lastIndex = 0
+      let m: RegExpExecArray | null
+      while ((m = namedImportRe.exec(content)) !== null) {
+        const importSrc = m[2]
+        if (!importSrc.startsWith('.') && !importSrc.startsWith('@/')) continue
+        const stem = importSrc.split('/').pop()!.replace(/\.(tsx?|jsx?)$/, '')
+        const info = exportByStem.get(stem)
+        if (!info) continue
+
+        const names = m[1].split(',').map(s => s.trim().split(/\s+as\s+/)[0].trim()).filter(Boolean)
+        for (const name of names) {
+          if (info.named.has(name)) continue // already exported as named — fine
+          if (!info.hasDefault) continue       // no default to alias from
+          // Named import { X } but source only has default → append alias to source file
+          const currentSrc = pendingFixes.get(info.path) ?? (fileContents.get(info.path) ?? '')
+          const alreadyAliased = new RegExp(`export\\s*\\{[^}]*\\bdefault\\s+as\\s+${name}\\b`).test(currentSrc)
+          if (alreadyAliased) continue
+          pendingFixes.set(info.path, currentSrc.trimEnd() + `\nexport { default as ${name} }\n`)
+          info.named.add(name) // prevent double-add for same name
+        }
+      }
+    }
+
+    if (pendingFixes.size === 0) return 0
+
+    // 4. Write fixed files back to sandbox
+    await sandbox.writeFiles(
+      [...pendingFixes.entries()].map(([path, content]) => ({ path, content: Buffer.from(content, 'utf8') }))
+    )
+    const count = pendingFixes.size
+    console.warn(`[export-contract] pre-fixed ${count} file(s) with named-export aliases: ${[...pendingFixes.keys()].join(', ')}`)
+    logRepair({ layer: 'stamp-local-alias', action: 'export-contract-resolved', detail: `${count} files fixed proactively` })
+    return count
+  } catch (e) {
+    console.warn('[export-contract] non-fatal error:', e instanceof Error ? e.message : e)
+    return 0
+  }
+}
+
 // Resolve a relative import path (e.g., './Grain', '../utils/helpers')
 // against the directory of the importing file (e.g., 'src/components').
 function resolveRelativePath(fromDir: string, importPath: string): string {

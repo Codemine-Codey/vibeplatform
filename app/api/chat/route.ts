@@ -48,6 +48,7 @@ import {
   installMissingModules,
   stampMissingLocalAliases,
   stampMissingNamedExports,
+  resolveExportContracts,
   repairFile,
 } from '@/lib/sandbox-util'
 import { createProjectRow, getProject, snapshotProject, updateProjectRow, getProjectBySandboxId, incrementProjectTokens, restoreSnapshotInto } from '@/lib/projects-db'
@@ -2795,6 +2796,14 @@ The server does NOT enforce a 2-file limit — you decide the correct structure 
   } catch {
     // Non-fatal
   }
+
+  // ── Step 4.6: Export contract resolver — proactive import/export mismatch fix ──
+  // Scans ALL generated TS/TSX files and appends `export { default as X }` aliases
+  // for any named import { X } that only has a default export in the source file.
+  // Runs BEFORE the compile-oracle so these errors never reach the build stage.
+  // Deterministic, no LLM, ~0.5s overhead. The structural prevention layer for the
+  // "ContactSection / LEVELS" class of blank previews.
+  await resolveExportContracts(sandbox).catch(() => 0) // non-fatal but MUST complete before build
 
   // ── EARLY durable snapshot (fire-and-forget) ──────────────────────────────────
   // All files are written NOW, before the long verify → runtime-check → self-heal
