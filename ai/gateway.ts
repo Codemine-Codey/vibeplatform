@@ -200,7 +200,17 @@ export function getModelOptions(
       : openrouterKimiProvider.chat(`moonshotai/${modelId}`)
     return { model: instrument(base as LanguageModelV3, modelId) }
   }
-  // OpenRouter-hosted models (deepseek/, moonshotai/, meta-llama/, etc.)
+  // anthropic/ prefix — route through direct Anthropic API (confirmed working, native caching)
+  // We keep the anthropic/ prefix in constants.ts for tracking, but strip it here so the
+  // Anthropic SDK gets the raw model ID (e.g. claude-sonnet-5).
+  if (modelId.startsWith('anthropic/')) {
+    const rawId = modelId.replace('anthropic/', '')
+    return {
+      model: instrument(anthropicProvider(rawId) as LanguageModelV3, modelId),
+      providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
+    }
+  }
+  // Other OpenRouter-hosted models (deepseek/, moonshotai/, meta-llama/, google/, openai/, etc.)
   if (modelId.includes('/')) {
     // Reasoning-enabled path — only the design/planning step opts in
     const base = opts?.reasoning
