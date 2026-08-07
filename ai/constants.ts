@@ -33,8 +33,8 @@ export const EDIT_MODEL = 'deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek-v4-flash'
 // Orchestration + brief via OpenRouter DeepSeek — uses the $9 OpenRouter balance
 // (direct DeepSeek key exhausted). The slash routes them through openrouterProvider.
-export const ORCHESTRATION_MODEL = 'deepseek/deepseek-v4-flash'
-export const BRIEF_MODEL = 'deepseek/deepseek-v4-flash'
+export const ORCHESTRATION_MODEL = 'deepseek/deepseek-v4-flash-0731'
+export const BRIEF_MODEL = 'deepseek/deepseek-v4-flash-0731'
 // Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
 // gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
 // and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),
@@ -67,7 +67,7 @@ export const SUPPORTED_MODELS: string[] = [DEFAULT_MODEL]
 
 export const MODEL_NAMES: Record<string, string> = {
   'kimi-k2.6': 'Builder',
-  'deepseek/deepseek-v4-flash': 'Builder',
+  'deepseek/deepseek-v4-flash-0731': 'Builder',
   'claude-haiku-4-5-20251001': 'Builder',
 }
 
