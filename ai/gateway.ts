@@ -46,8 +46,13 @@ const openrouterProvider = createOpenAI({
         // is automatic. allow_fallbacks keeps availability high.
         if (typeof body.model === 'string') {
           if (body.model.startsWith('deepseek/')) {
-            // DeepSeek's own infra does automatic prefix caching
-            body.provider = { order: ['DeepSeek'], allow_fallbacks: true }
+            // Route DeepSeek by THROUGHPUT, not by a fixed provider pin. The old
+            // order:['DeepSeek'] pin fell back to Baidu at ~5 tok/s (confirmed via
+            // /api/diag 2026-08-08: 918 tokens in 170s), which stalled orchestration
+            // and tripped the step handoff. sort:'throughput' picks the fastest live
+            // provider so generation completes inside one 800s step. DeepSeek is cheap
+            // ($0.43/M) so losing its prefix-cache here costs pennies; speed matters more.
+            body.provider = { sort: 'throughput', allow_fallbacks: true }
           } else if (body.model.startsWith('openai/')) {
             // OpenAI's infra does automatic prompt caching for prompts ≥ 1024 tokens.
             // Pin to OpenAI to guarantee cache hits rather than routing to an Azure

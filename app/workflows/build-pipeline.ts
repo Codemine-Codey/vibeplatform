@@ -505,21 +505,9 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
   // is silently discarded.
   const silenced = (aiResult.toUIMessageStream({ sendReasoning: false, sendStart: false }) as ReadableStream<unknown>).pipeThrough(makeSilenceFilter())
 
-  // Heartbeat: emit progress messages every 60s so users don't see 8+ minutes of silence
-  const HEARTBEAT_MSGS = [
-    'Building your components...',
-    'Crafting the pages and styles...',
-    'Wiring up the interactions...',
-    'Polishing the design...',
-    'Connecting everything together...',
-    'Almost ready — finalizing the details...',
-  ]
-  let heartbeatIdx = 0
-  const heartbeatTimer = setInterval(() => {
-    writer.write({ id: `srv-heartbeat-${heartbeatIdx}`, type: 'data-narration', data: { text: HEARTBEAT_MSGS[heartbeatIdx % HEARTBEAT_MSGS.length] } })
-    heartbeatIdx++
-  }, 60_000)
-
+  // Heartbeat removed (user request 2026-08-08): the rotating "Building your
+  // components... / Polishing the design..." filler statements are gone. The
+  // real generateFiles tool narration + build-phase events carry progress.
   try {
     const reader = silenced.getReader()
     while (true) {
@@ -534,8 +522,6 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     if (!/abort|timeout|cancel/i.test(msg)) {
       console.error('[workflow-gen] stream drain error:', msg)
     }
-  } finally {
-    clearInterval(heartbeatTimer)
   }
 
   // Synthetic manifest for website when AI skipped planProject
