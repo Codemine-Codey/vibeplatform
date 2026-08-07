@@ -24,11 +24,15 @@
 // is ONE call per project vs dozens of repair rounds. All edits/chat/errors stay on Flash.
 // OpenRouter is used (not direct OpenAI) to capture the 50% sale + automatic prefix caching.
 export const DEFAULT_MODEL = 'deepseek-v4-flash'
-export const FILE_GENERATION_MODEL = 'deepseek-v4-flash'
+// Terra via OpenRouter for file generation — RLHF-tuned cross-file consistency
+export const FILE_GENERATION_MODEL = 'openai/gpt-5.6-terra'
+// Edits and errors use direct DeepSeek (fast, cheap, used only post-generation)
 export const EDIT_MODEL = 'deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek-v4-flash'
-export const ORCHESTRATION_MODEL = 'deepseek-v4-flash'
-export const BRIEF_MODEL = 'deepseek-v4-flash'
+// Orchestration + brief via OpenRouter DeepSeek — uses the $9 OpenRouter balance
+// (direct DeepSeek key exhausted). The slash routes them through openrouterProvider.
+export const ORCHESTRATION_MODEL = 'deepseek/deepseek-v4-flash'
+export const BRIEF_MODEL = 'deepseek/deepseek-v4-flash'
 // Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
 // gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
 // and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),
