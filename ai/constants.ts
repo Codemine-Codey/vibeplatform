@@ -24,7 +24,7 @@
 // is ONE call per project vs dozens of repair rounds. All edits/chat/errors stay on Flash.
 // OpenRouter is used (not direct OpenAI) to capture the 50% sale + automatic prefix caching.
 export const DEFAULT_MODEL = 'deepseek-v4-flash'
-export const FILE_GENERATION_MODEL = 'openai/gpt-5.6-terra'
+export const FILE_GENERATION_MODEL = 'deepseek-v4-flash'
 export const EDIT_MODEL = 'deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek-v4-flash'
 export const ORCHESTRATION_MODEL = 'deepseek-v4-flash'
