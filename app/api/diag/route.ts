@@ -78,9 +78,21 @@ export async function GET(req: Request) {
   const dsKey = process.env.DEEPSEEK_API_KEY || ''
   const orKey = process.env.CODEMINE_AI_KEY || ''
 
+  const orKeyMain = process.env.OPENROUTER_API_KEY || ''
+  // Key shape — proves whether Vercel stored the value with stray quotes/newlines
+  const orKeyDiag = {
+    len: orKeyMain.length,
+    first10: orKeyMain.slice(0, 10),
+    startsQuote: orKeyMain.startsWith('"'),
+    endsQuote: orKeyMain.endsWith('"'),
+    endsNewline: orKeyMain.endsWith('\n') || orKeyMain.endsWith('\r'),
+  }
+
   const results = []
   results.push(await measure('deepseek-direct', 'https://api.deepseek.com/chat/completions', dsKey, 'deepseek-v4-flash', { thinking: { type: 'disabled' } }))
   results.push(await measure('openrouter-codey', 'https://openrouter.ai/api/v1/chat/completions', orKey, 'deepseek/deepseek-v4-flash', { reasoning: { enabled: false } }))
+  // Test OPENROUTER_API_KEY (the key used by FILE_GENERATION_MODEL) with a tiny claude-sonnet-5 call
+  results.push(await measure('or-claude-sonnet5', 'https://openrouter.ai/api/v1/chat/completions', orKeyMain, 'anthropic/claude-sonnet-5', { max_tokens: 20, reasoning: { enabled: false }, thinking: { type: 'disabled' } }))
 
-  return NextResponse.json({ region, results })
+  return NextResponse.json({ region, orKeyDiag, results })
 }
