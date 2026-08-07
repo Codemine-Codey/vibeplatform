@@ -24,10 +24,10 @@
 // is ONE call per project vs dozens of repair rounds. All edits/chat/errors stay on Flash.
 // OpenRouter is used (not direct OpenAI) to capture the 50% sale + automatic prefix caching.
 export const DEFAULT_MODEL = 'deepseek-v4-flash'
-// DeepSeek Flash via OpenRouter for file generation. Terra was tried but takes
-// 300-400s to generate, exhausting the 800s Vercel budget before repair can run.
-// Flash generates in ~60s, leaving 700s for resolveExportContracts + compile-oracle.
-export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-flash'
+// DeepSeek V4 Pro via OpenRouter for file generation — stronger instruction
+// following than Flash for cross-file consistency. Terra was tried but takes
+// 300-400s, exhausting the 800s Vercel budget. Pro generates in ~90-120s.
+export const FILE_GENERATION_MODEL = 'deepseek/deepseek-v4-pro'
 // Edits and errors use direct DeepSeek (fast, cheap, used only post-generation)
 export const EDIT_MODEL = 'deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek-v4-flash'
