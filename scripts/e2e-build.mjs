@@ -180,10 +180,15 @@ try {
         return { textLen: txt.length, hasCanvas, nodes, sample: txt.slice(0, 80) }
       })
       await pv.screenshot({ path: 'scripts/e2e-preview.png' }).catch(() => {})
-      const rendered = info.hasCanvas || info.textLen > 20 || info.nodes > 15
+      // Real generated content: games have canvas, websites/apps have 50+ DOM nodes and 400+ chars.
+      // The branded fallback terminal state scores nodes≈7, text≈100 — exclude it explicitly.
+      const rendered = info.hasCanvas || (info.nodes >= 50 && info.textLen >= 400)
+      const isFallback = !info.hasCanvas && info.nodes < 30 && info.textLen < 300
       renderVerdict = rendered
         ? `RENDERED ✅ (canvas=${info.hasCanvas}, text=${info.textLen}, nodes=${info.nodes})`
-        : `BLANK ❌ (canvas=${info.hasCanvas}, text=${info.textLen}, nodes=${info.nodes})`
+        : isFallback
+          ? `FALLBACK ❌ terminal/loading page (canvas=${info.hasCanvas}, text=${info.textLen}, nodes=${info.nodes})`
+          : `BLANK ❌ (canvas=${info.hasCanvas}, text=${info.textLen}, nodes=${info.nodes})`
       await pv.close()
     } catch (e) { renderVerdict = 'check failed: ' + e.message }
   }
