@@ -22,8 +22,7 @@
 // exports, import paths that don't match generated filenames. Claude Sonnet 5 is frontier-
 // class with 1M context and produces cross-file consistent code by design. Thinking DISABLED
 // via gateway.ts (reasoning:{enabled:false} + thinking:{type:'disabled'}) — no silent think
-// phase. Caching: system message gets cache_control:{type:'ephemeral'} injected in gateway.ts
-// → Anthropic's infra activates prompt caching for large system prompts.
+// phase. Cost: $2/$10 per M (input/output). Caching: cache_control:{type:'ephemeral'} in gateway.ts.
 export const DEFAULT_MODEL = 'deepseek-v4-flash'
 // Claude Sonnet 5 via OpenRouter — frontier-class, cross-file consistent code generation.
 // Thinking disabled via gateway.ts. Caching via cache_control on system message.
@@ -59,6 +58,10 @@ export function getMaxOutputTokens(modelId: string): number {
   // while still comfortably covering any full-project generation (15 files × 400 lines
   // ≈ 45K tokens). The per-file recovery path refills anything truncated.
   if (modelId.includes('gpt-5') || modelId.includes('openai/')) return 64000
+  // anthropic/ via OpenRouter — OpenRouter reserves credits upfront for max_tokens.
+  // 32K is enough for any single project generation (15 files × ~300 lines ≈ 25K tokens)
+  // while keeping the upfront reservation at $0.32 instead of $0.64.
+  if (modelId.startsWith('anthropic/')) return 32000
   // claude sonnet/haiku and remaining OpenRouter models
   return 64000
 }

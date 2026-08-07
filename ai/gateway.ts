@@ -23,6 +23,10 @@ const openrouterProvider = createOpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
   apiKey: process.env.OPENROUTER_API_KEY ?? '',
   fetch: async (url, init) => {
+    // Diagnostic: log key shape so we can confirm no stray quotes/newlines in prod.
+    // Remove after confirming key is clean in Vercel.
+    const _k = process.env.OPENROUTER_API_KEY ?? ''
+    console.log(`[cm-keydiag] len=${_k.length} first10="${_k.slice(0,10)}" startsQuote=${_k.startsWith('"')} endsQuote=${_k.endsWith('"')} endsNewline=${_k.endsWith('\n')}`)
     if (init?.body) {
       try {
         const body = JSON.parse(init.body as string)
