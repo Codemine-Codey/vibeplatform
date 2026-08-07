@@ -16,17 +16,18 @@
 // every build. DeepSeek-direct serves the SAME models (deepseek-v4-flash) with no
 // hard rate limit. Keep IDs slashless so getModelOptions routes them to the direct provider.
 //
-// NOTE (2026-08-08): FILE_GENERATION_MODEL switched to Claude Sonnet 4.6 via OpenRouter.
+// NOTE (2026-08-08): FILE_GENERATION_MODEL switched to Claude Sonnet 5 via OpenRouter.
 // DeepSeek (Flash/Pro) generates correct code ~70% per-file; (0.70)^12 ≈ 1% full-project
 // first-pass rate. Root cause: cross-file export contract violations — named vs default
-// exports, import paths that don't match generated filenames. Claude Sonnet produces
-// cross-file consistent code by design (RLHF for instruction-following + repo coherence).
-// Thinking DISABLED via gateway.ts (reasoning:{enabled:false} + thinking:{type:'disabled'})
-// — no silent multi-minute think phase. OpenRouter routes to Anthropic's infra with caching.
-// Cost: $3/$15 per M — generation is one call per project, so absolute cost is ~$0.05/project.
+// exports, import paths that don't match generated filenames. Claude Sonnet 5 is frontier-
+// class with 1M context and produces cross-file consistent code by design. Thinking DISABLED
+// via gateway.ts (reasoning:{enabled:false} + thinking:{type:'disabled'}) — no silent think
+// phase. Caching: system message gets cache_control:{type:'ephemeral'} injected in gateway.ts
+// → Anthropic's infra activates prompt caching for large system prompts.
 export const DEFAULT_MODEL = 'deepseek-v4-flash'
-// Claude Sonnet 4.6 via OpenRouter — thinking disabled, cross-file consistent code generation.
-export const FILE_GENERATION_MODEL = 'anthropic/claude-sonnet-4-6'
+// Claude Sonnet 5 via OpenRouter — thinking disabled, cross-file consistent code generation.
+// Frontier-class Sonnet with 1M context and tool use. Thinking disabled via gateway.ts.
+export const FILE_GENERATION_MODEL = 'anthropic/claude-sonnet-5'
 // Edits and errors use direct DeepSeek (fast, cheap, used only post-generation)
 export const EDIT_MODEL = 'deepseek-v4-flash'
 export const ERROR_MODEL = 'deepseek-v4-flash'
