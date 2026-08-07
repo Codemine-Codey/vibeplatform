@@ -4,12 +4,10 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   DatabaseIcon,
   CheckCircle2Icon,
-  CopyIcon,
   RefreshCwIcon,
-  PlayIcon,
   TableIcon,
-  ServerIcon,
   AlertCircleIcon,
+  MessageSquareIcon,
 } from 'lucide-react'
 import { useSandboxStore } from '@/app/state'
 import { cn } from '@/lib/utils'
@@ -34,6 +32,9 @@ interface NeonStatus {
   databaseName: string | null
   neonProjectId: string | null
 }
+
+// Unused — kept for API compatibility
+type _CopyState = boolean
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 function StatusBadge({ provisioned }: { provisioned: boolean }) {
@@ -154,13 +155,6 @@ export function NeonPanel({ className }: Props) {
   const [tableLoading, setTableLoading] = useState(false)
   const [tableError, setTableError] = useState<string | null>(null)
 
-  const [customSql, setCustomSql] = useState('')
-  const [queryResult, setQueryResult] = useState<QueryResult | null>(null)
-  const [queryLoading, setQueryLoading] = useState(false)
-  const [queryError, setQueryError] = useState<string | null>(null)
-
-  const [copied, setCopied] = useState(false)
-  const copyTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── Load status on mount ────────────────────────────────────────────────────
   const loadStatus = useCallback(async () => {
@@ -285,45 +279,6 @@ export function NeonPanel({ className }: Props) {
     }
   }
 
-  // ── Run custom query ────────────────────────────────────────────────────────
-  async function handleRunQuery() {
-    if (!projectId || !customSql.trim()) return
-    if (!customSql.trim().toLowerCase().startsWith('select')) {
-      setQueryError('Only SELECT statements are allowed in the query browser.')
-      return
-    }
-    setQueryLoading(true)
-    setQueryError(null)
-    setQueryResult(null)
-    try {
-      const res = await fetch('/api/cloud/neon', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'query', projectId, sql: customSql }),
-      })
-      const data = (await res.json()) as QueryResult & { error?: string }
-      if (data.error) throw new Error(data.error)
-      setQueryResult({ columns: data.columns ?? [], rows: data.rows ?? [] })
-    } catch (err) {
-      setQueryError(err instanceof Error ? err.message : 'Query failed')
-    } finally {
-      setQueryLoading(false)
-    }
-  }
-
-  // ── Copy masked URL ─────────────────────────────────────────────────────────
-  async function handleCopyUrl() {
-    // Copy the masked placeholder — the real URL never leaves the server
-    try {
-      await navigator.clipboard.writeText('(connection string is stored securely — available as DATABASE_URL in your app)')
-      setCopied(true)
-      if (copyTimeout.current) clearTimeout(copyTimeout.current)
-      copyTimeout.current = setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Clipboard not available
-    }
-  }
-
   // ── Not yet scoped to a project ─────────────────────────────────────────────
   if (!projectId || !sandboxId) {
     return (
@@ -436,54 +391,19 @@ export function NeonPanel({ className }: Props) {
     )
   }
 
-  // ── State C — Provisioned ───────────────────────────────────────────────────
+  // ── State C — Provisioned (simplified view) ────────────────────────────────
   return (
     <div className={cn('flex flex-col h-full min-h-0 overflow-hidden', className)}>
-      {/* Connection info row */}
-      <div className="shrink-0 border-b border-primary/10 p-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          {/* Host card */}
-          <div className="rounded-lg border border-primary/12 bg-secondary/30 p-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ServerIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Host</span>
-              </div>
-              <StatusBadge provisioned={true} />
-            </div>
-            <p className="mt-1.5 truncate font-mono text-xs text-foreground">
-              {status?.host ?? '—'}
-            </p>
-          </div>
-
-          {/* Database name + copy */}
-          <div className="rounded-lg border border-primary/12 bg-secondary/30 p-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <DatabaseIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Database</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleCopyUrl}
-                title="Copy DATABASE_URL info"
-                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <CopyIcon className="h-3 w-3" />
-                {copied ? 'Copied' : 'Copy URL info'}
-              </button>
-            </div>
-            <p className="mt-1.5 font-mono text-xs text-foreground">
-              {status?.databaseName ?? 'neondb'}
-              <span className="ml-2 text-muted-foreground/50">
-                ••••••••••••
-              </span>
-            </p>
-          </div>
+      {/* Status bar */}
+      <div className="shrink-0 flex items-center justify-between border-b border-primary/10 px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <DatabaseIcon className="h-3.5 w-3.5 text-foreground" />
+          <span className="text-xs font-medium">Database</span>
         </div>
+        <StatusBadge provisioned={true} />
       </div>
 
-      {/* SQL Explorer */}
+      {/* Main area: table list + rows */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Table sidebar */}
         <div className="w-36 shrink-0 border-r border-primary/10 overflow-auto p-2 space-y-0.5">
@@ -513,8 +433,8 @@ export function NeonPanel({ className }: Props) {
           )}
 
           {!tablesLoading && tables.length === 0 && (
-            <p className="px-2 py-2 text-[10px] text-muted-foreground">
-              No tables yet — ask the AI to create some.
+            <p className="px-2 py-2 text-[10px] leading-relaxed text-muted-foreground">
+              No tables yet
             </p>
           )}
 
@@ -532,15 +452,17 @@ export function NeonPanel({ className }: Props) {
             >
               <TableIcon className="h-3 w-3 shrink-0" />
               <span className="truncate">{t.name}</span>
+              {t.rowCount !== null && (
+                <span className="ml-auto shrink-0 text-[10px] opacity-50">{t.rowCount}</span>
+              )}
             </button>
           ))}
         </div>
 
-        {/* Right pane: table view + query browser */}
+        {/* Right pane: rows spreadsheet */}
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
-          {/* Table data */}
-          {activeTable && (
-            <div className="flex flex-1 min-h-0 flex-col overflow-hidden border-b border-primary/10">
+          {activeTable ? (
+            <>
               <div className="flex shrink-0 items-center justify-between border-b border-primary/10 px-3 py-1.5">
                 <div className="flex items-center gap-2">
                   <TableIcon className="h-3.5 w-3.5 text-muted-foreground" />
@@ -569,62 +491,39 @@ export function NeonPanel({ className }: Props) {
                   </div>
                 )}
                 {tableError && (
-                  <div className="p-4 text-xs text-destructive">{tableError}</div>
+                  <div className="flex items-center gap-1.5 p-4 text-xs text-destructive">
+                    <AlertCircleIcon className="h-3.5 w-3.5 shrink-0" />
+                    {tableError}
+                  </div>
                 )}
                 {!tableLoading && tableResult && (
                   <DataTable columns={tableResult.columns} rows={tableResult.rows} />
                 )}
               </div>
+            </>
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+              <TableIcon className="h-7 w-7 text-muted-foreground/30" />
+              <p className="text-xs text-muted-foreground">
+                {tables.length === 0
+                  ? 'No tables yet'
+                  : 'Select a table to view its data'}
+              </p>
             </div>
           )}
+        </div>
+      </div>
 
-          {!activeTable && tables.length === 0 && !tablesLoading && (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
-              <TableIcon className="h-6 w-6 opacity-30" />
-              <p>No tables yet — ask the AI to create some.</p>
-            </div>
-          )}
-
-          {/* Custom query section */}
-          <div className="shrink-0 border-t border-primary/10 p-3 space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Query Browser
-            </p>
-            <textarea
-              value={customSql}
-              onChange={(e) => setCustomSql(e.target.value)}
-              placeholder="SELECT * FROM your_table WHERE ..."
-              rows={3}
-              className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            />
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleRunQuery}
-                disabled={queryLoading || !customSql.trim()}
-                className="flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {queryLoading ? (
-                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-background/30 border-t-background" />
-                ) : (
-                  <PlayIcon className="h-3.5 w-3.5" />
-                )}
-                Run Query
-              </button>
-              <p className="text-[10px] text-muted-foreground">SELECT only · max 100 rows</p>
-            </div>
-            {queryError && (
-              <div className="flex items-center gap-1.5 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                <AlertCircleIcon className="h-3.5 w-3.5 shrink-0" />
-                {queryError}
-              </div>
-            )}
-            {queryResult && (
-              <div className="rounded-md border border-primary/12 overflow-auto max-h-48">
-                <DataTable columns={queryResult.columns} rows={queryResult.rows} />
-              </div>
-            )}
-          </div>
+      {/* AI hint footer — replaces the raw SQL query browser */}
+      <div className="shrink-0 border-t border-primary/10 px-4 py-3">
+        <div className="flex items-start gap-2.5 rounded-lg bg-secondary/40 px-3 py-2.5">
+          <MessageSquareIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            Ask Codey to create tables, add columns, or make any changes —{' '}
+            <span className="font-medium text-foreground">
+              "Add a price column to orders"
+            </span>
+          </p>
         </div>
       </div>
     </div>

@@ -833,6 +833,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
 
     if (devError) {
       logRepair({ layer: 'dev-500', action: 'silent-fallback', detail: devError.slice(0, 200), sandboxId })
+      writer.write({ id: 'srv-quality-check', type: 'data-narration', data: { text: 'Running a few quality checks to ensure your project is working smoothly — please wait a moment.' } })
       try { await applyFallbackTerminalState(sandbox, devError, { skill, brand: brandName || 'This project' }) } catch { /* non-fatal */ }
     }
 
@@ -848,6 +849,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
           const recheck = await waitForDevServer(resolvedUrl, 30_000, sandbox)
           if (recheck) {
             devError = recheck
+            writer.write({ id: 'srv-quality-check-2', type: 'data-narration', data: { text: 'Running a few quality checks to ensure your project is working smoothly — please wait a moment.' } })
             try { await applyFallbackTerminalState(sandbox, recheck, { skill, brand: brandName || 'This project' }) } catch { /* non-fatal */ }
           }
         }
