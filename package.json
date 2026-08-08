@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "prebuild": "node scripts/gen-md-strings.mjs",
+    "prebuild": "node scripts/gen-md-strings.mjs && node scripts/gen-build-info.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

@@ -4,8 +4,12 @@
 //
 // Run: node scripts/e2e-build.mjs [website|webapp|game]
 import { chromium } from 'playwright'
+import { execSync } from 'node:child_process'
 
 const BASE = process.env.CM_TEST_BASE || 'https://codemineapp.com'
+// Real browser UA — codemineapp.com serves stubs/404s to bot/curl clients (bot-diff
+// layer). Every non-Playwright fetch here MUST use this or it gets lied to.
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 // Credentials come from env only — never hardcode the test account in the repo.
 //   CM_TEST_EMAIL=... CM_TEST_PASSWORD=... node scripts/e2e-build.mjs website
 const EMAIL = process.env.CM_TEST_EMAIL
@@ -38,6 +42,27 @@ const log = (...a) => console.log(`[${secs()}s]`, ...a)
 const consoleErrors = []
 const failedRequests = []
 const leakHits = new Set()
+
+// ── VERSION PREFLIGHT — refuse to run against stale code (no false results) ────
+// Fetch the deployed commit and compare to local git HEAD. Uses a browser UA because
+// the domain serves stubs to bot clients. Any mismatch / missing route → hard exit.
+{
+  let localCommit = ''
+  try { localCommit = execSync('git rev-parse HEAD').toString().trim() } catch { /* no git */ }
+  let deployed = null
+  try {
+    deployed = await fetch(`${BASE}/api/version`, { headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json' } }).then(r => r.json())
+  } catch { /* handled below */ }
+  if (!deployed || !deployed.commit || deployed.commit === 'unknown') {
+    console.error(`PREFLIGHT FAIL: could not read ${BASE}/api/version (got ${JSON.stringify(deployed)}). Deploy /api/version first — refusing to test.`)
+    process.exit(2)
+  }
+  if (localCommit && deployed.commit !== localCommit) {
+    console.error(`VERSION MISMATCH — deployed ${deployed.commit.slice(0, 8)} != local ${localCommit.slice(0, 8)}. Refusing to test STALE code; deploy latest first.`)
+    process.exit(2)
+  }
+  log(`version preflight OK — ${BASE} serving commit ${deployed.commit.slice(0, 8)} (matches local) ✅`)
+}
 
 const browser = await chromium.launch({ headless: process.env.PWHEADLESS !== 'false', slowMo: process.env.PWHEADLESS === 'false' ? 100 : 0 })
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } })
