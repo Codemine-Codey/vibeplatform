@@ -63,6 +63,14 @@ const [gameState, setGameState] = useState<GameState>('start')
 ```
 All rendering and logic branches off this. Never use boolean flags like `isPlaying`, `isDead`.
 
+## Runtime Safety — NO MODULE-SCOPE EXECUTION (Required)
+NEVER run code at the top level (module scope) of a file: no `new SomeClass()`, no
+`document.`/`window.`/`canvas` access, no side-effecting function calls outside a
+component or hook. Create game objects, read the canvas, and start the loop ONLY inside
+`useEffect` (after mount). A throw at module scope happens BEFORE React mounts, so the
+error boundary cannot catch it — it blanks the entire page. Top-level is for imports,
+`type`/`interface`, and pure `const` values only.
+
 ## Game Loop Pattern (Canvas Games)
 ```ts
 const canvasRef = useRef<HTMLCanvasElement>(null)

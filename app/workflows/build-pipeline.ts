@@ -1083,12 +1083,31 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       if (finalDevError) {
         try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
       }
-      // One final confirmatory headless check before reveal (catches HMR-applied repairs)
-      if (rtStatus === 'broken') {
-        try {
-          const confirmCheck = await headlessRuntimeCheck(resolvedUrl, sandboxId)
-          if (confirmCheck) rtStatus = confirmCheck.status
-        } catch { /* best-effort */ }
+      // ── PHASE 5: gate the reveal on a FRESH render-check PASS ─────────────────
+      // Reveal only after a fresh headless check passes. rtStatus 'broken' OR null both
+      // demand a fresh check — a stale 'fine' can hide a killing write that landed after
+      // the last check (tonight's class). Bounded repair between checks; a write needs a
+      // dev-server restart (Vite stale-resolve won't clear otherwise — tonight's lesson).
+      // SAFETY NET (monotonic): on budget-exhaust OR an unavailable check we reveal ANYWAY
+      // (today's behavior) so the gate can NEVER hold previews hostage on a false-negative.
+      let gateAttempts = 0
+      while (withinBudget() && gateAttempts < 2 && (rtStatus === 'broken' || rtStatus === null)) {
+        let fresh: Awaited<ReturnType<typeof headlessRuntimeCheck>> | null = null
+        try { fresh = await headlessRuntimeCheck(resolvedUrl, sandboxId) } catch { fresh = null }
+        if (!fresh) break // check unavailable → don't block reveal (it logs loudly elsewhere)
+        rtStatus = fresh.status
+        if (fresh.status !== 'broken') break // fresh PASS → reveal
+        logRepair({ layer: 'runtime-check', action: `reveal-gate-r${gateAttempts + 1}`, detail: (fresh.detail || '').slice(0, 180), sandboxId })
+        let wrote = false
+        for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 6)) {
+          const content = await readSandboxFile(sandbox, path)
+          if (!content) continue
+          const fixed = await repairFile(path, content, `The rendered page is broken/blank before reveal. Fix this so it renders:\n${fresh.detail || 'runtime error / blank render'}`)
+          if (fixed && fixed !== content) { await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }]); wrote = true }
+        }
+        if (!wrote) break // nothing to change → reveal (avoid spinning)
+        try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
+        gateAttempts++
       }
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
       revealed = true
@@ -1292,16 +1311,30 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
       } catch { /* non-fatal */ }
     }
 
-    // Reveal URL — confirmatory final check before telling user it's ready
+    // Reveal URL — PHASE 5 gate: reveal only on a FRESH render-check pass (same as
+    // stepVerify). Budget-exhaust / unavailable-check reveals anyway (monotonic safety net).
     const finalDevError = await waitForDevServer(resolvedUrl, 20_000, sandbox).catch(() => null)
     if (finalDevError) {
       try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
     }
-    if (rtStatus === 'broken') {
-      try {
-        const confirmCheck = await headlessRuntimeCheck(resolvedUrl, sandboxId)
-        if (confirmCheck) rtStatus = confirmCheck.status
-      } catch { /* best-effort */ }
+    let gateAttempts = 0
+    while (withinBudget() && gateAttempts < 2 && (rtStatus === 'broken' || rtStatus === null)) {
+      let fresh: Awaited<ReturnType<typeof headlessRuntimeCheck>> | null = null
+      try { fresh = await headlessRuntimeCheck(resolvedUrl, sandboxId) } catch { fresh = null }
+      if (!fresh) break
+      rtStatus = fresh.status
+      if (fresh.status !== 'broken') break
+      logRepair({ layer: 'runtime-check', action: `reveal-gate2-r${gateAttempts + 1}`, detail: (fresh.detail || '').slice(0, 180), sandboxId })
+      let wrote = false
+      for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 6)) {
+        const content = await readSandboxFile(sandbox, path)
+        if (!content) continue
+        const fixed = await repairFile(path, content, `The rendered page is broken/blank before reveal. Fix this so it renders:\n${fresh.detail || 'runtime error / blank render'}`)
+        if (fixed && fixed !== content) { await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }]); wrote = true }
+      }
+      if (!wrote) break
+      try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
+      gateAttempts++
     }
     writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
     revealed = true
