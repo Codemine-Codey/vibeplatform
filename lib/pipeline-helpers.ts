@@ -459,6 +459,7 @@ export async function verifyAndRepair({
     if (Date.now() > deadline || !tscAvailable) break
 
     let tscLog = ''
+    let tscTimedOut = false
     try {
       const cmd = await sandbox.runCommand({
         detached: true,
@@ -469,12 +470,25 @@ export async function verifyAndRepair({
         cmd.wait(),
         new Promise<void>((_, rej) => setTimeout(() => rej(new Error('tsc timeout')), 35_000)),
       ])
-    } catch { /* timeout — skip to vite */ }
+    } catch { tscTimedOut = true }
 
     tscLog = (await readSandboxFile(sandbox, '/tmp/cm-tsc-repair.log')) ?? ''
-    if (!tscLog.includes('##DONE')) { tscAvailable = false; break }
+    // LOUD SIGNAL: type-checking is the guarantee that catches new Game()/wrong-shape
+    // bugs. If tsc can't run (timeout, missing binary, incomplete install), it MUST NOT
+    // silently no-op — that's how a broken build ships. Surface it in telemetry so a
+    // skipped type-check is visible in the logs, never invisible.
+    if (!tscLog.includes('##DONE')) {
+      logRepair({ layer: 'tsc-unavailable', action: tscTimedOut ? 'timeout' : 'no-output', detail: 'TYPE-CHECK SKIPPED — tsc produced no result (bugs like new Game() will not be caught here)', sandboxId })
+      tscAvailable = false
+      break
+    }
 
     const exitCode = tscLog.match(/##DONE:(\d+)/)?.[1]
+    if (exitCode === '127' || /command not found|: not found|Cannot find module 'typescript'/i.test(tscLog)) {
+      logRepair({ layer: 'tsc-unavailable', action: 'binary-missing', detail: 'TYPE-CHECK SKIPPED — tsc binary not found (typescript not installed / node_modules incomplete)', sandboxId })
+      tscAvailable = false
+      break
+    }
     if (exitCode === '0') break // tsc clean — proceed to vite build
 
     const errorBlock = extractBuildError(tscLog)
