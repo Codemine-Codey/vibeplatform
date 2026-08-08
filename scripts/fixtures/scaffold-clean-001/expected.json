@@ -1,0 +1,5 @@
+{
+  "expect": "pass",
+  "mustNotFlag": ["@/components/ui/button", "@/lib/utils", "react", "react-router-dom"],
+  "note": "Scaffold @/ imports + bare packages must never be flagged. Gates must PASS."
+}

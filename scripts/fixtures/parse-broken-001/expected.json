@@ -1,0 +1,11 @@
+{
+  "expect": "fail",
+  "mustCatch": [
+    { "rung": "parse", "file": "src/pages/Broken.tsx" }
+  ],
+  "writeGate": {
+    "mustBlock": ["src/pages/Broken.tsx"],
+    "mustWrite": ["src/App.tsx", "src/pages/Home.tsx"]
+  },
+  "note": "Parse rung blocks only the broken file; the two clean files still land."
+}

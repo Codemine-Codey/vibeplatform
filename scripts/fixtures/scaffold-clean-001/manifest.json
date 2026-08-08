@@ -1,0 +1,8 @@
+{
+  "note": "False-positive guard. Real generated code imports scaffold files (@/components/ui/button, @/lib/utils) that live on the sandbox but are in neither the written-set nor the manifest. The resolve rung MUST NOT flag these — if it does, it cries wolf on 100% of builds and gets ripped out.",
+  "skill": "webapp",
+  "files": [
+    { "path": "src/App.tsx", "exports": ["default"] },
+    { "path": "src/pages/Home.tsx", "exports": ["default"] }
+  ]
+}

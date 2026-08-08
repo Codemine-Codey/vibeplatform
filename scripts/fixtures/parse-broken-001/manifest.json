@@ -1,0 +1,9 @@
+{
+  "note": "A truncated/syntactically-broken file. The PARSE rung must block exactly that one file (toWrite keeps the rest); the caller then stubs+repairs it.",
+  "skill": "webapp",
+  "files": [
+    { "path": "src/App.tsx", "exports": ["default"] },
+    { "path": "src/pages/Home.tsx", "exports": ["default"] },
+    { "path": "src/pages/Broken.tsx", "exports": ["default"] }
+  ]
+}

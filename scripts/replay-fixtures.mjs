@@ -11,7 +11,7 @@
 import { readdirSync, readFileSync, statSync, existsSync } from 'fs'
 import { join, relative, sep } from 'path'
 import { fileURLToPath } from 'url'
-import { runInMemoryGates } from '../lib/gates/checker.mjs'
+import { runInMemoryGates, prepareWriteGate } from '../lib/gates/checker.mjs'
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 const FIXTURES_DIR = join(HERE, 'fixtures')
@@ -42,7 +42,7 @@ function loadFixture(dir) {
   return { files, manifestPaths, expected }
 }
 
-function checkExpectation(name, expected, result) {
+function checkExpectation(expected, result) {
   const problems = []
   const gotPass = result.pass
   const wantPass = expected.expect === 'pass'
@@ -57,6 +57,26 @@ function checkExpectation(name, expected, result) {
       (!mc.specifier || f.specifier === mc.specifier))
     if (!hit) problems.push(`mustCatch not satisfied: ${JSON.stringify(mc)}`)
   }
+  // mustNotFlag: these specifiers must NEVER appear as a failure (false-positive guard).
+  for (const spec of expected.mustNotFlag || []) {
+    if (result.failures.some(f => f.specifier === spec)) {
+      problems.push(`FALSE POSITIVE: "${spec}" was flagged but must not be`)
+    }
+  }
+  return problems
+}
+
+// Check the write-gate stage (parse=block, resolve=observe) against expected.writeGate.
+function checkWriteGate(expected, wg) {
+  const problems = []
+  const wgSpec = expected.writeGate
+  if (!wgSpec) return problems
+  for (const f of wgSpec.mustBlock || []) {
+    if (!wg.blocked.some(b => b.file === f)) problems.push(`writeGate: expected "${f}" to be BLOCKED (parse) but it was not`)
+  }
+  for (const f of wgSpec.mustWrite || []) {
+    if (!wg.toWrite.some(w => w.path === f)) problems.push(`writeGate: expected "${f}" to be in toWrite but it was not`)
+  }
   return problems
 }
 
@@ -68,11 +88,12 @@ console.log(`\n=== Replaying ${dirs.length} fixture(s) — in-memory gate ladder
 for (const name of dirs) {
   const { files, manifestPaths, expected } = loadFixture(join(FIXTURES_DIR, name))
   const result = await runInMemoryGates(files, manifestPaths)
-  const problems = checkExpectation(name, expected, result)
+  const wg = await prepareWriteGate(files, { manifestPaths, generatedPaths: manifestPaths })
+  const problems = [...checkExpectation(expected, result), ...checkWriteGate(expected, wg)]
   const ok = problems.length === 0
   allOk = allOk && ok
   const verdict = ok ? 'OK ✅' : 'REGRESSION ❌'
-  console.log(`${verdict}  ${name}  (${files.length} files, gates ${result.pass ? 'pass' : 'fail'}, expected ${expected.expect})`)
+  console.log(`${verdict}  ${name}  (${files.length} files, gates ${result.pass ? 'pass' : 'fail'}, expected ${expected.expect}; write-gate: ${wg.toWrite.length} write / ${wg.blocked.length} blocked / ${wg.unresolved.length} unresolved)`)
   for (const f of result.failures) console.log(`      ↳ [${f.rung}] ${f.file}${f.specifier ? ` :: ${f.specifier}` : ''} — ${f.detail}`)
   for (const p of problems) console.log(`      ⚠️  ${p}`)
 }
