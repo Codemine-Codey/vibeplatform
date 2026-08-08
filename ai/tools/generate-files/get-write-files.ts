@@ -5,6 +5,7 @@ import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import { getRichError } from '../get-rich-error'
 import { mergePackageJson, SCAFFOLD_PATH_SET } from '../scaffold'
 import { ensureValidCss } from '@/lib/css-guard'
+import { parseFile } from '@/lib/gates/checker.mjs'
 
 // Scaffold files the model must NEVER overwrite — the verified, error-prone infrastructure
 // (entry, router glue, configs, NotFound/blocks/utils fallbacks). Letting the model rewrite
@@ -155,9 +156,23 @@ export function getWriteFiles({ sandbox, toolCallId, writer }: Params) {
       return { ...file, content: stripSvgs(file.content, file.path) }
     })
 
+    // ── PARSE RUNG (Phase 2) ─────────────────────────────────────────────────
+    // esbuild-parse each file on its FINAL patched content (downstream of stripSvgs/
+    // CSS/vite patches, per Fable — gate what actually lands). A file that doesn't
+    // parse is WITHHELD, never written: a syntax-broken file blanks the whole Vite
+    // build, but a MISSING file is already handled (checkAndStampMissingFiles stamps
+    // it → stepGenerate2/verifyAndRepair regenerates it). So this strictly converts a
+    // catastrophic failure into a recoverable one. Single-file block; the rest ship.
+    const gated: typeof patchedFiles = []
+    for (const file of patchedFiles) {
+      const parsed = await parseFile(file.path, file.content)
+      if (parsed.ok) { gated.push(file); continue }
+      console.warn(`[write-files] PARSE RUNG withheld ${file.path}: ${parsed.error} — leaving it missing for stamp+repair`)
+    }
+
     try {
       await sandbox.writeFiles(
-        patchedFiles.map((file) => ({
+        gated.map((file) => ({
           content: Buffer.from(file.content, 'utf8'),
           path: file.path,
         }))
