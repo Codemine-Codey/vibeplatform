@@ -1,0 +1,10 @@
+{
+  "note": "Website whose Home imports a section component that was never generated (the classic multi-section website failure). Resolve rung must flag the missing ./sections/Contact.",
+  "skill": "website",
+  "files": [
+    { "path": "src/App.tsx", "exports": ["default"] },
+    { "path": "src/pages/Home.tsx", "exports": ["default"] },
+    { "path": "src/sections/Hero.tsx", "exports": ["default"] },
+    { "path": "src/sections/About.tsx", "exports": ["default"] }
+  ]
+}

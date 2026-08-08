@@ -1,0 +1,7 @@
+{
+  "expect": "fail",
+  "mustCatch": [
+    { "rung": "resolve", "file": "src/pages/Home.tsx", "specifier": "../sections/Contact" }
+  ],
+  "note": "Home imports ./sections/Contact which is neither on disk nor in the manifest → the hallucination/missing-section signal."
+}

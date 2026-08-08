@@ -1,0 +1,5 @@
+{
+  "expect": "pass",
+  "mustNotFlag": ["@/components/ui/button", "../sections/Hero", "../sections/About", "../sections/Contact"],
+  "note": "All sections present + scaffold button import. Gates must PASS with zero flags."
+}

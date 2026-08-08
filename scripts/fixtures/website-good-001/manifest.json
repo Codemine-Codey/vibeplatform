@@ -1,0 +1,11 @@
+{
+  "note": "Clean multi-section website (Hero/About/Contact) using scaffold UI + relative section imports. Parse + resolve must PASS.",
+  "skill": "website",
+  "files": [
+    { "path": "src/App.tsx", "exports": ["default"] },
+    { "path": "src/pages/Home.tsx", "exports": ["default"] },
+    { "path": "src/sections/Hero.tsx", "exports": ["default"] },
+    { "path": "src/sections/About.tsx", "exports": ["default"] },
+    { "path": "src/sections/Contact.tsx", "exports": ["default"] }
+  ]
+}
