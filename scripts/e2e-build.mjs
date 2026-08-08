@@ -39,7 +39,7 @@ const consoleErrors = []
 const failedRequests = []
 const leakHits = new Set()
 
-const browser = await chromium.launch({ headless: true })
+const browser = await chromium.launch({ headless: process.env.PWHEADLESS !== 'false', slowMo: process.env.PWHEADLESS === 'false' ? 100 : 0 })
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } })
 const page = await ctx.newPage()
 
@@ -180,9 +180,12 @@ try {
         return { textLen: txt.length, hasCanvas, nodes, sample: txt.slice(0, 80) }
       })
       await pv.screenshot({ path: 'scripts/e2e-preview.png' }).catch(() => {})
-      // Real generated content: games have canvas, websites/apps have 50+ DOM nodes and 400+ chars.
-      // The branded fallback terminal state scores nodes≈7, text≈100 — exclude it explicitly.
-      const rendered = info.hasCanvas || (info.nodes >= 50 && info.textLen >= 400)
+      // Real generated content: games have a canvas; websites/apps have real DOM structure.
+      // DOM node count is the reliable signal — a working app has 50+ nodes. TEXT length is
+      // NOT reliable: a tip calculator (77 nodes, 0 console errors) legitimately has ~370
+      // chars and was false-flagged BLANK before. So: rendered = canvas OR 50+ nodes OR a
+      // text-heavy page. The branded fallback terminal state scores nodes≈7, text≈100.
+      const rendered = info.hasCanvas || info.nodes >= 50 || info.textLen >= 400
       const isFallback = !info.hasCanvas && info.nodes < 30 && info.textLen < 300
       renderVerdict = rendered
         ? `RENDERED ✅ (canvas=${info.hasCanvas}, text=${info.textLen}, nodes=${info.nodes})`
