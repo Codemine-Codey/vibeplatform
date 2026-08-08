@@ -66,7 +66,17 @@ export async function POST(req: Request) {
     }
 
     try {
-      const rows = await sql(`SET search_path TO "${schemaName}"; ${body.sql}`)
+      // The Neon HTTP driver uses Postgres's extended protocol, which rejects two
+      // statements in one call (`SET ...; SELECT ...` → "syntax error at or near LIMIT").
+      // Run the search_path set and the user SELECT as a single transaction over ONE
+      // connection instead, so the schema applies to the SELECT. schemaName is regex-
+      // validated above (^cm_[a-z0-9_]+$), so interpolating it into SET is safe (SET
+      // cannot parameterize an identifier).
+      const results = await sql.transaction([
+        sql(`SET search_path TO "${schemaName}"`),
+        sql(body.sql!),
+      ])
+      const rows = (results[results.length - 1] ?? []) as Record<string, unknown>[]
       if (rows.length === 0) return NextResponse.json({ columns: [], rows: [] })
       const columns = Object.keys(rows[0])
       const data = rows.map(r => columns.map(c => r[c]))

@@ -39,6 +39,7 @@ import { readSandboxFile, repairFile, generateMissingFile, installMissingModules
 import { logRepair } from '@/lib/telemetry'
 import {
   checkAndStampMissingFiles,
+  findStubPaths,
   verifyAndRepair,
   headlessRuntimeCheck,
   functionalVerify,
@@ -100,8 +101,14 @@ interface GenerateResult {
   firstUserText: string
   lastUserText: string
   userText: string
-  // false when the AI generation was aborted mid-stream (hit the 11-min soft deadline)
-  // stepGenerate2 continues from where it left off — stub files are already on disk
+  // The EXACT system prompt stepGenerate used (params.systemPrompt + addenda). The
+  // continuation step (stepGenerate2) reuses this byte-for-byte so round 2 runs with
+  // identical rules to round 1 — no behavioral drift, no divergent prompt.
+  fullSystem: string
+  // false when stub/missing files still remain on disk after this step. This is DISK
+  // TRUTH (findStubPaths), not an abort flag — it catches both the timeout case AND
+  // the "AI finished but skipped a manifest file" case. buildProject re-chains
+  // stepGenerate2 (capped) until this is true or the cap is hit.
   generationComplete: boolean
 }
 
@@ -218,12 +225,25 @@ function makeSilenceFilter() {
 export async function buildProject(params: BuildPipelineParams): Promise<void> {
   'use workflow'
 
-  // Generation: if the AI hits the 11-min soft deadline mid-stream, stepGenerate
-  // returns generationComplete=false. Stub files are already on disk (checkAndStamp
-  // runs before the step exits). stepGenerate2 reconnects and finishes the remaining
-  // files before we move to verify — unlimited generation time.
+  // Generation chain (mirrors the verify chain below). Each step gets a fresh 800s
+  // Vercel budget. stepGenerate2 completes ONLY the stub files still on disk, reusing
+  // the exact same system prompt — so a handoff never re-does completed work and never
+  // diverges from round-1's rules. generationComplete is disk truth (no stubs remain),
+  // so this loop keeps handing off until the project is genuinely complete.
+  //
+  // HARD CAP: 2 continuation rounds. If stubs still remain after that (should never
+  // happen), we proceed to verify anyway — its missing-file repair + ensureNavShells
+  // are the deterministic backstop, and stepVerify's own dead-man's-switch guarantees
+  // a working preview. The cap is the deliberate infinite-loop guard.
   let genResult = await stepGenerate(params)
-  if (!genResult.generationComplete) genResult = await stepGenerate2(params, genResult)
+  let contRounds = 0
+  while (!genResult.generationComplete && contRounds < 2) {
+    genResult = await stepGenerate2(params, genResult)
+    contRounds++
+  }
+  if (!genResult.generationComplete) {
+    console.warn(`[buildProject] generation still incomplete after ${contRounds} continuation round(s) — proceeding to verify (repair backstop will finish it)`)
+  }
 
   // Verify: same unlimited chain via while loop.
   let checkpoint = await stepVerify(params, genResult)
@@ -270,6 +290,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
       firstUserText: params.firstUserText,
       lastUserText: params.lastUserText,
       userText: params.userText,
+      fullSystem: params.systemPrompt,
       generationComplete: true,
     }
   }
@@ -566,6 +587,19 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     await checkAndStampMissingFiles(sandbox, planBox.manifest.files.map(f => f.path)).catch(() => {})
   }
 
+  // Generation completeness = DISK TRUTH. Scan the manifest for any file that is still
+  // a stub (sentinel) or missing. This catches BOTH the timeout-abort case and the
+  // "AI finished naturally but skipped/renamed a manifest file" case (e.g. it planned
+  // ReservationPreview.tsx but wrote ReservationForm.tsx). If any stub remains,
+  // buildProject re-chains stepGenerate2 to complete exactly those files.
+  let remainingStubs: string[] = []
+  if (planBox.manifest) {
+    remainingStubs = await findStubPaths(sandbox, planBox.manifest.files.map(f => f.path)).catch(() => [])
+    if (remainingStubs.length > 0) {
+      console.warn(`[stepGenerate] ${remainingStubs.length} stub/missing file(s) remain — will chain stepGenerate2: ${remainingStubs.join(', ')}`)
+    }
+  }
+
   // CSS sanity fix + palette lock
   try {
     const cssStream = await sandbox.readFile({ path: 'src/index.css' })
@@ -632,14 +666,19 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     firstUserText: params.firstUserText,
     lastUserText: params.lastUserText,
     userText: params.userText,
-    generationComplete: !genAbort.aborted,
+    fullSystem,
+    // DISK TRUTH: complete only when zero stubs remain. Unifies the abort path and
+    // the skipped-file path — never relies on whether the stream was aborted.
+    generationComplete: remainingStubs.length === 0,
   }
 }
 
-// ── Step 1B: Continue generation when stepGenerate hit the 11-min deadline ───
-// Stub files are already on disk from checkAndStampMissingFiles in stepGenerate.
-// This step reads the planned manifest, finds stub/missing files, and asks the AI
-// to complete them. Returns an updated GenerateResult with generationComplete=true.
+// ── Step 1B: Seamless continuation ───────────────────────────────────────────
+// Completes ONLY the stub files still on disk (detected by STUB_SENTINEL), reusing
+// the EXACT system prompt from stepGenerate (partial.fullSystem) so round 2 follows
+// identical rules to round 1 and never re-does completed work. Returns an updated
+// GenerateResult whose generationComplete is disk truth — buildProject re-chains this
+// step (capped) until no stubs remain. Idempotent and safe to re-enter.
 
 async function stepGenerate2(params: BuildPipelineParams, partial: GenerateResult): Promise<GenerateResult> {
   'use step'
@@ -647,32 +686,30 @@ async function stepGenerate2(params: BuildPipelineParams, partial: GenerateResul
   const { writer, flushAndRelease } = makeStepWriter(partial.runId)
   writer.write({ id: 'srv-phase-gen2', type: 'data-build-phase', data: { phase: 'generating', label: 'Completing remaining files...' } })
 
-  let sandbox: Sandbox
-  try {
-    sandbox = await Sandbox.get({ sandboxId: partial.sandboxId })
-  } catch (err) {
-    console.warn('[stepGenerate2] sandbox reconnect failed:', err instanceof Error ? err.message : err)
-    await flushAndRelease()
-    return { ...partial, generationComplete: true }
-  }
-
-  // Find which planned files are stubs (< 100 bytes = auto-stamped placeholder)
-  const stubPaths: string[] = []
-  for (const filePath of partial.manifestFilePaths) {
+  // Reconnect to the sandbox — retry once before giving up (transient network blips
+  // shouldn't abort a continuation). On hard failure we hand OFF to verify (which does
+  // its own reconnect + dead-man's-switch), rather than silently claiming success.
+  let sandbox: Sandbox | null = null
+  for (let attempt = 0; attempt < 2 && !sandbox; attempt++) {
     try {
-      const stream = await sandbox.readFile({ path: filePath })
-      if (!stream) { stubPaths.push(filePath); continue }
-      const chunks: Buffer[] = []
-      for await (const c of stream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as string))
-      const content = Buffer.concat(chunks).toString('utf8')
-      if (content.trim().length < 100) stubPaths.push(filePath)
-    } catch {
-      stubPaths.push(filePath)
+      sandbox = await Sandbox.get({ sandboxId: partial.sandboxId })
+    } catch (err) {
+      console.warn(`[stepGenerate2] sandbox reconnect attempt ${attempt + 1} failed:`, err instanceof Error ? err.message : err)
+      if (attempt === 0) await new Promise(r => setTimeout(r, 2000))
     }
   }
+  if (!sandbox) {
+    console.error('[stepGenerate2] sandbox unreachable after 2 attempts — handing off to verify with generation incomplete')
+    await flushAndRelease()
+    // NOT complete — but buildProject's cap will stop the loop and proceed to verify,
+    // whose repair backstop + dead-man's-switch guarantee a working preview.
+    return { ...partial, generationComplete: false }
+  }
+
+  // Stubs = disk truth via the shared sentinel scanner (no length thresholds).
+  const stubPaths = await findStubPaths(sandbox, partial.manifestFilePaths).catch(() => [] as string[])
 
   if (stubPaths.length === 0) {
-    // Nothing to complete — all files are real
     await flushAndRelease()
     return { ...partial, generationComplete: true }
   }
@@ -692,27 +729,40 @@ async function stepGenerate2(params: BuildPipelineParams, partial: GenerateResul
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const continuationTools: Record<string, any> = { generateFiles: continuationGF }
 
+  // Per-stub export contracts from the manifest — instruct EXACT paths + exports so
+  // the model can't rename (the ReservationForm-vs-Preview class of bug).
+  const exportsByPath = new Map<string, string[]>()
+  for (const f of partial.planManifest?.files ?? []) {
+    if (Array.isArray(f.exports) && f.exports.length > 0) exportsByPath.set(f.path, f.exports)
+  }
+  const stubContractLines = stubPaths.map(p => {
+    const exp = exportsByPath.get(p)
+    return exp && exp.length > 0 ? `  - ${p}  (must export: ${exp.join(', ')})` : `  - ${p}`
+  }).join('\n')
   const alreadyGenerated = partial.manifestFilePaths.filter(p => !stubPaths.includes(p))
-  const continuationSystem =
-    params.systemPrompt +
-    `\n\n## CONTINUATION — GENERATION WAS INTERRUPTED\n` +
-    `sandboxId: ${partial.sandboxId}\n` +
-    `Brand: ${brandName ?? 'the project'}\n` +
-    `Skill: ${skill}\n` +
-    `DO NOT call createSandbox, runCommand, or getSandboxURL.\n` +
-    `DO NOT call planProject or getUnsplashBatch — images are already in the code.\n` +
-    `These files were already generated (DO NOT regenerate them):\n${alreadyGenerated.map(p => `  - ${p}`).join('\n')}\n\n` +
-    `These files need to be completed (they are empty stubs on disk):\n${stubPaths.map(p => `  - ${p}`).join('\n')}\n\n` +
-    `Call generateFiles ONCE with EXACTLY this path list: [${stubPaths.map(p => `"${p}"`).join(', ')}]\n` +
-    `Generate each file COMPLETELY — no placeholders, no TODO comments, production-quality code.\n` +
-    `The design brief and original request: ${params.userText}\n`
+
+  // CRITICAL: system prompt is byte-identical to stepGenerate's (partial.fullSystem).
+  // All continuation-specific instructions go in the USER message so round 2 runs with
+  // exactly the same rules/persona as round 1 — no behavioral drift across the handoff.
+  const continuationUserMessage =
+    `CONTINUATION — the previous generation step ended before finishing every file. ` +
+    `The sandbox and all completed files are already in place.\n\n` +
+    `sandboxId: ${partial.sandboxId}\nBrand: ${brandName ?? 'the project'}\nSkill: ${skill}\n\n` +
+    `DO NOT call createSandbox, runCommand, getSandboxURL, planProject, or getUnsplashBatch.\n\n` +
+    `These files are ALREADY DONE — do NOT regenerate or touch them:\n${alreadyGenerated.map(p => `  - ${p}`).join('\n') || '  (none)'}\n\n` +
+    `These files are still empty placeholders and must be completed:\n${stubContractLines}\n\n` +
+    `Call generateFiles ONCE with EXACTLY this path list (no additions, no renames): ` +
+    `[${stubPaths.map(p => `"${p}"`).join(', ')}]\n` +
+    `Generate each file COMPLETELY — production-quality, no placeholders, no TODOs. ` +
+    `Match the exports listed above so imports from the already-done files resolve.\n\n` +
+    `Original request: ${params.userText}`
 
   const gen2Budget = AbortSignal.timeout(700_000)
 
   const aiResult2 = streamText({
     ...getModelOptions(DEFAULT_MODEL),
-    system: continuationSystem,
-    messages: [{ role: 'user', content: `Complete the ${stubPaths.length} missing files for this ${skill} project.` }],
+    system: partial.fullSystem,
+    messages: [{ role: 'user', content: continuationUserMessage }],
     stopWhen: stepCountIs(4),
     maxOutputTokens: getMaxOutputTokens(DEFAULT_MODEL),
     tools: continuationTools,
@@ -734,13 +784,16 @@ async function stepGenerate2(params: BuildPipelineParams, partial: GenerateResul
     if (!/abort|timeout|cancel/i.test(msg)) console.error('[workflow-gen2] stream error:', msg)
   }
 
-  // Ensure any remaining stubs get a proper fallback
+  // Re-stamp anything the AI still left missing, then recompute disk truth so
+  // buildProject's loop knows whether another continuation round is needed.
+  let remainingStubs: string[] = []
   if (partial.planManifest) {
     await checkAndStampMissingFiles(sandbox, partial.planManifest.files.map(f => f.path)).catch(() => {})
+    remainingStubs = await findStubPaths(sandbox, partial.planManifest.files.map(f => f.path)).catch(() => [])
   }
 
   await flushAndRelease()
-  return { ...partial, generationComplete: true }
+  return { ...partial, generationComplete: remainingStubs.length === 0 }
 }
 
 // ── Step 2: Install + verify + reveal preview URL ────────────────────────────

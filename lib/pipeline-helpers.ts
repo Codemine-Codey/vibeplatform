@@ -112,34 +112,59 @@ export async function waitForDevServer(url: string, maxWaitMs = 45_000, sandbox?
   return null
 }
 
-// Stamp build-safe placeholders for any manifest-declared file the AI never wrote.
-export async function checkAndStampMissingFiles(sandbox: Sandbox, paths: string[]): Promise<void> {
+// Sentinel marker written as the first line of every stamped placeholder. Stub
+// detection matches this EXACT string — no fragile length thresholds. Both the
+// stamper and the scanner import this one constant so they can never drift apart.
+export const STUB_SENTINEL = '__CM_STUB__'
+
+// True if a file's content is a stamped placeholder (contains the sentinel marker).
+function isStubContent(content: string | null | undefined): boolean {
+  return !content || content.trim().length === 0 || content.includes(STUB_SENTINEL)
+}
+
+// Scan the given manifest paths and return the ones that are still stubs/missing
+// on disk. This is the single source of truth for "generation is incomplete".
+export async function findStubPaths(sandbox: Sandbox, paths: string[]): Promise<string[]> {
   const relevant = paths.filter(p => /\.(tsx?|jsx?|css|json)$/.test(p) && !SCAFFOLD_PATH_SET.has(p))
-  if (relevant.length === 0) return
+  if (relevant.length === 0) return []
+  const results = await Promise.all(
+    relevant.map(async (path) => ({ path, stub: isStubContent(await readSandboxFile(sandbox, path)) }))
+  )
+  return results.filter(r => r.stub).map(r => r.path)
+}
+
+// Stamp build-safe placeholders (marked with STUB_SENTINEL) for any manifest-declared
+// file the AI never wrote. Returns the list of paths that were missing and stamped —
+// callers use this to compute generationComplete (missing.length === 0 = done).
+export async function checkAndStampMissingFiles(sandbox: Sandbox, paths: string[]): Promise<string[]> {
+  const relevant = paths.filter(p => /\.(tsx?|jsx?|css|json)$/.test(p) && !SCAFFOLD_PATH_SET.has(p))
+  if (relevant.length === 0) return []
 
   const results = await Promise.all(
     relevant.map(async (path) => {
       const content = await readSandboxFile(sandbox, path)
-      return { path, exists: !!content && content.trim().length > 5 }
+      // A real file exists AND is not itself a stamped stub.
+      return { path, exists: !!content && content.trim().length > 5 && !content.includes(STUB_SENTINEL) }
     })
   )
   const missing = results.filter(r => !r.exists).map(r => r.path)
-  if (missing.length === 0) return
+  if (missing.length === 0) return []
 
   console.warn(`[manifest-check] ${missing.length} declared file(s) missing — stamping placeholders: ${missing.join(', ')}`)
   await sandbox.writeFiles(
     missing.map((path) => ({
       path,
       content: Buffer.from(
-        path.endsWith('.css') ? '/* placeholder */\n' :
-        path.endsWith('.json') ? '{}\n' :
+        path.endsWith('.css') ? `/* ${STUB_SENTINEL} */\n/* placeholder */\n` :
+        path.endsWith('.json') ? `{ "${STUB_SENTINEL}": true }\n` :
         /\/pages\/|\/components\/|\/screens\//.test(path)
-          ? `import React from 'react'\nexport default function ${path.replace(/.*\//, '').replace(/\.(tsx?|jsx?)$/, '')}() {\n  return <div className="bg-background min-h-screen" />\n}\n`
-          : 'export {}\n',
+          ? `/* ${STUB_SENTINEL} */\nimport React from 'react'\nexport default function ${path.replace(/.*\//, '').replace(/\.(tsx?|jsx?)$/, '')}() {\n  return <div className="bg-background min-h-screen" />\n}\n`
+          : `/* ${STUB_SENTINEL} */\nexport {}\n`,
         'utf8'
       ),
     }))
   )
+  return missing
 }
 
 // Deterministic nav shell stamper — fills missing page files that nav links point to.

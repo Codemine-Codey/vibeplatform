@@ -13,7 +13,49 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   const project = await getProject(id) // RLS — only the owner's row is returned
   if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+
+  // FALLBACK PATH: no saved snapshot yet, but the original sandbox may still be
+  // paused-and-wakeable. Try to wake it before giving up — this is what prevents the
+  // "we couldn't wake this workspace" dead-end when a snapshot upload didn't finish.
   if (!project.snapshot_path) {
+    if (project.sandbox_id) {
+      try {
+        const existing = await Sandbox.get({ sandboxId: project.sandbox_id })
+        await existing.runCommand({ cmd: 'echo', args: ['alive'] }) // throws if truly dead
+        existing.runCommand({
+          detached: true, cmd: 'bash',
+          args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'],
+        }).then(c => c.wait()).catch(() => {})
+        const wokeUrl = existing.domain(3000)
+        // Wait for Vite to be listening (non-502) before returning, so the client
+        // never receives a URL that renders as a 502 in the iframe.
+        const wokeDeadline = Date.now() + 30_000
+        while (Date.now() < wokeDeadline) {
+          try {
+            const res = await fetch(wokeUrl, { signal: AbortSignal.timeout(4000) })
+            if (res.status !== 502) break
+          } catch { /* not ready */ }
+          await new Promise((r) => setTimeout(r, 2500))
+        }
+        await updateProjectRow(id, { sandbox_id: existing.sandboxId, preview_url: wokeUrl }).catch(() => {})
+        return NextResponse.json({
+          url: wokeUrl,
+          sandboxId: existing.sandboxId,
+          projectId: project.id,
+          projectName: project.name,
+          databaseId: project.database_id ?? undefined,
+          databaseName: project.database_name ?? undefined,
+          authEnabled: project.auth_enabled ?? undefined,
+          authWorkerUrl: project.auth_worker_url ?? undefined,
+          authAppId: project.auth_enabled ? project.id : undefined,
+          deployedUrl: project.deploy_url ?? undefined,
+          chatMessages: project.chat_messages ?? undefined,
+          chatSummary: project.chat_summary ?? undefined,
+        })
+      } catch {
+        /* original sandbox is gone too — fall through to the hard error */
+      }
+    }
     return NextResponse.json({ error: 'This project has no saved snapshot yet.' }, { status: 400 })
   }
 

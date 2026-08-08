@@ -26,14 +26,24 @@
 // All models route through OpenRouter (OPENROUTER_API_KEY).
 // Direct DeepSeek (api.deepseek.com) confirmed dead — 402 Insufficient Balance
 // via /api/diag 2026-08-08. Slash prefix = openrouterProvider in gateway.ts.
-export const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash'
+// Pinned to the official DATED slug (…-20260731) for launch stability — the undated
+// alias floats to whatever DeepSeek ships next and can silently change the provider pool.
+export const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash-20260731'
 // Claude Sonnet 5 via OpenRouter: confirmed 200 OK in diag. Cross-file consistent.
 // Thinking disabled via gateway.ts. Caching via cache_control on system message.
 export const FILE_GENERATION_MODEL = 'anthropic/claude-sonnet-5'
-export const EDIT_MODEL = 'deepseek/deepseek-v4-flash'
-export const ERROR_MODEL = 'deepseek/deepseek-v4-flash'
-export const ORCHESTRATION_MODEL = 'deepseek/deepseek-v4-flash'
-export const BRIEF_MODEL = 'deepseek/deepseek-v4-flash'
+export const EDIT_MODEL = 'deepseek/deepseek-v4-flash-20260731'
+export const ERROR_MODEL = 'deepseek/deepseek-v4-flash-20260731'
+export const ORCHESTRATION_MODEL = 'deepseek/deepseek-v4-flash-20260731'
+export const BRIEF_MODEL = 'deepseek/deepseek-v4-flash-20260731'
+// Single-file repairs + missing-file generation. These are NARROW, error-driven
+// tasks (the model gets the exact error + the full file) — they do NOT need the
+// frontier cross-file reasoning that initial whole-project generation needs. The
+// repair helpers in sandbox-util.ts were originally written for Flash ("Ask Flash
+// to repair ONE file"); pointing them at FILE_GENERATION_MODEL silently upgraded
+// every repair to Sonnet 5 at 20x the cost. This restores the cheap model for the
+// 10+ repair calls a single build can make — the biggest sustainability lever.
+export const REPAIR_MODEL = 'deepseek/deepseek-v4-flash-20260731'
 // Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
 // gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
 // and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),
@@ -50,10 +60,13 @@ export const VISION_MODEL = 'google/gemma-3-12b-it'
 //    single file or edit while keeping the credit reservation small.
 export function getMaxOutputTokens(modelId: string): number {
   if (modelId.startsWith('claude-opus') || modelId.startsWith('claude-fable')) return 128000
-  // DeepSeek V4 — MAX output is 384K (per DeepSeek platform spec). One-pass whole-project
-  // generation needs the full ceiling so large modular sites fit in one response.
-  // Match both direct ('deepseek-v4-flash') and OpenRouter ('deepseek/deepseek-v4-flash').
-  if (modelId.startsWith('deepseek') || modelId.includes('/deepseek')) return 384000
+  // DeepSeek V4 via OpenRouter. OpenRouter RESERVES credits upfront for the full
+  // max_tokens (a 384K cap reserves ~$0.33/call and, under concurrency, spuriously
+  // throws "Insufficient Balance"). Direct DeepSeek (which had no reservation and
+  // needed 384K for one-pass whole-project gen) is dead — every deepseek call now
+  // goes through OpenRouter and only does orchestration + single-file repairs, which
+  // never need more than 64K. Whole-project generation is Claude's job now.
+  if (modelId.startsWith('deepseek') || modelId.includes('/deepseek')) return 64000
   // GPT-5.6 Terra via OpenRouter — 1M context, generous output window. OpenRouter
   // reserves credits up-front for max_tokens, so cap at 64K to avoid over-reservation
   // while still comfortably covering any full-project generation (15 files × 400 lines

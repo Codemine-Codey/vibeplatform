@@ -145,8 +145,13 @@ export function Chat({ className }: Props) {
     () => chat.messages as ChatUIMessage[]
   )
   const rafPending = useRef(false)
+  // Timestamp of the last stream event — the dead-man's-switch uses this to detect a
+  // SILENT stall (the stream froze with no error). Updated on every message callback,
+  // which fires on every token/tool/narration event during a healthy build.
+  const lastEventAtRef = useRef(Date.now())
   useEffect(() => {
     return (chat as any)['~registerMessagesCallback'](() => {
+      lastEventAtRef.current = Date.now()
       if (!rafPending.current) {
         rafPending.current = true
         requestAnimationFrame(() => {
@@ -292,6 +297,37 @@ export function Chat({ className }: Props) {
   // Context-aware follow-up suggestion pills (server-generated after a verified build).
   const suggestions = useSandboxStore((s) => s.suggestions)
   const setSuggestions = useSandboxStore((s) => s.setSuggestions)
+
+  // ── DEAD-MAN'S-SWITCH: rescue a SILENTLY stalled build ───────────────────────
+  // NOT a fixed timer (that would fire during healthy long builds and inject a racing
+  // turn). Fires ONLY on the stall signature: status still working + no preview URL yet
+  // + zero stream events for STALL_MS. A healthy build streams events constantly, so it
+  // can never trip this; only a genuinely frozen build can. One-shot per build (reset
+  // when a new build starts or a preview appears). The nudge goes down the same cheap
+  // edit path the user's manual "continue" used, so cost impact is negligible.
+  //
+  // This is the BACKSTOP for a silent freeze (stream open, no events). The COMMON case
+  // (stream drops when a step ends) is handled faster by the streamError auto-resume
+  // above (~15s). 60s keeps the rare silent-stall recovery snappy without false-firing
+  // during legitimate generation gaps.
+  const STALL_MS = 60_000
+  const deadmanFiredRef = useRef(false)
+  useEffect(() => {
+    // A new working session (or a fresh preview) re-arms the switch.
+    if (!isWorking || previewUrl) { deadmanFiredRef.current = false; return }
+    if (!sandboxId) return
+    const id = setInterval(() => {
+      if (deadmanFiredRef.current) return
+      if (!isWorking || previewUrl) return
+      if (Date.now() - lastEventAtRef.current < STALL_MS) return
+      // Genuine silent stall — nudge exactly once.
+      deadmanFiredRef.current = true
+      lastEventAtRef.current = Date.now() // avoid immediate re-trigger
+      setStreamError(null)
+      autoResumeRef.current('Please continue from where you left off and ensure the preview is working without any errors.')
+    }, 15_000)
+    return () => clearInterval(id)
+  }, [isWorking, previewUrl, sandboxId, setStreamError])
 
   useEffect(() => {
     if (!streamError || isWorking) return

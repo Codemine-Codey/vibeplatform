@@ -1,7 +1,7 @@
 import type { Sandbox } from '@vercel/sandbox'
 import { generateText } from 'ai'
 import { getModelOptions } from '@/ai/gateway'
-import { FILE_GENERATION_MODEL, getMaxOutputTokens } from '@/ai/constants'
+import { REPAIR_MODEL, getMaxOutputTokens } from '@/ai/constants'
 import { logRepair } from '@/lib/telemetry'
 
 // ── Shared sandbox / build-repair helpers ─────────────────────────────────────
@@ -343,8 +343,8 @@ export async function repairAllFiles(
     .join('\n\n')
   try {
     const res = await generateText({
-      ...getModelOptions(FILE_GENERATION_MODEL),
-      maxOutputTokens: getMaxOutputTokens(FILE_GENERATION_MODEL),
+      ...getModelOptions(REPAIR_MODEL),
+      maxOutputTokens: getMaxOutputTokens(REPAIR_MODEL),
       abortSignal: AbortSignal.timeout(90_000),
       system:
         'You are a build-error repair tool. You receive MULTIPLE files and the exact build error they cause. ' +
@@ -390,8 +390,8 @@ export async function generateMissingFile(
 ): Promise<string | null> {
   try {
     const res = await generateText({
-      ...getModelOptions(FILE_GENERATION_MODEL),
-      maxOutputTokens: getMaxOutputTokens(FILE_GENERATION_MODEL),
+      ...getModelOptions(REPAIR_MODEL),
+      maxOutputTokens: getMaxOutputTokens(REPAIR_MODEL),
       abortSignal: AbortSignal.timeout(45_000),
       system:
         'You are a React/TypeScript module generator. A Vite build failed because the file shown below does not exist. ' +
@@ -423,8 +423,8 @@ export async function generateMissingFile(
 export async function repairFile(path: string, content: string, error: string): Promise<string | null> {
   try {
     const res = await generateText({
-      ...getModelOptions(FILE_GENERATION_MODEL),
-      maxOutputTokens: getMaxOutputTokens(FILE_GENERATION_MODEL),
+      ...getModelOptions(REPAIR_MODEL),
+      maxOutputTokens: getMaxOutputTokens(REPAIR_MODEL),
       abortSignal: AbortSignal.timeout(45_000),
       system:
         'You are a build-error repair tool. You receive ONE file and the exact build error it causes. ' +
