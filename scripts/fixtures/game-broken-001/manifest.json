@@ -1,0 +1,14 @@
+{
+  "note": "Intended file manifest the AI committed to. The resolve gate is manifest-aware: an import to a file listed here but not yet written is NOT a failure during streaming; an import to a file in neither manifest nor node_modules IS the hallucination signal.",
+  "skill": "game",
+  "files": [
+    { "path": "src/App.tsx", "exports": ["default"] },
+    { "path": "src/pages/Home.tsx", "exports": ["default"] },
+    { "path": "src/engine.ts", "exports": ["Game", "VW", "VH", "GAME_STATE", "createInitialGame", "updateGame", "flap", "drawGame", "loadHighScore", "saveHighScore", "AudioEngine"] },
+    { "path": "src/components/NotFound.tsx", "exports": ["default"] }
+  ],
+  "knownDefects": [
+    "src/App.tsx imports ./pages/Game which is NOT in the manifest and NOT on disk (resolve gate must fail).",
+    "src/engine.ts exports Game as a non-class; src/pages/Home.tsx does `new Game()` (typecheck gate must fail)."
+  ]
+}

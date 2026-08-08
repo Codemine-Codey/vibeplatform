@@ -1,0 +1,10 @@
+{
+  "note": "A clean game project — parse + resolve must both PASS. Guards against false positives (the gate crying wolf on healthy code).",
+  "skill": "game",
+  "files": [
+    { "path": "src/App.tsx", "exports": ["default"] },
+    { "path": "src/pages/Home.tsx", "exports": ["default"] },
+    { "path": "src/engine.ts", "exports": ["Game", "VW", "VH"] },
+    { "path": "src/components/NotFound.tsx", "exports": ["default"] }
+  ]
+}
