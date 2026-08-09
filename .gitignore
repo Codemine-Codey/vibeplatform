@@ -43,3 +43,11 @@ next-env.d.ts
 .env.local
 CREDENTIALS.md
 lib/build-info.json
+
+# session junk (auto-added by mistake)
+.claude/worktrees/
+*.log
+scripts/*.log
+scripts/*-test-run.log
+scripts/*.png
+dev-server.log

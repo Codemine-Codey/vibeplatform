@@ -1,7 +1,0 @@
-[2s] version preflight OK — https://codemineapp.com serving commit b4643921 (matches local) ✅
-[4s] login…
-[14s] no welcome modal (cookie worked)
-[15s] logged in, chat ready
-[29s] clarify → clicked "Skip — just build it"
-
-E2E ERROR: build never started — input never went busy (clarify not skipped / prompt not accepted)
