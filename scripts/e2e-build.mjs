@@ -4,6 +4,7 @@
 //
 // Run: node scripts/e2e-build.mjs [website|webapp|game]
 import { chromium } from 'playwright'
+import { renderVerdict as getRenderVerdict } from './render-verdict.mjs'
 import { execSync } from 'node:child_process'
 
 const BASE = process.env.CM_TEST_BASE || 'https://codemineapp.com'
@@ -204,25 +205,13 @@ try {
       const pv = await ctx.newPage()
       await pv.goto(previewSrc, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => {})
       await pv.waitForTimeout(4000)
-      const info = await pv.evaluate(() => {
-        const txt = (document.body?.innerText || '').trim()
-        const hasCanvas = !!document.querySelector('canvas')
-        const nodes = document.querySelectorAll('body *').length
-        return { textLen: txt.length, hasCanvas, nodes, sample: txt.slice(0, 80) }
-      })
+      // Shared verdict (scripts/render-verdict.mjs) — agrees with the production headless
+      // gate: NotFound-at-home = broken (wrong page), plus a blank floor.
+      const v = await getRenderVerdict(pv)
       await pv.screenshot({ path: 'scripts/e2e-preview.png' }).catch(() => {})
-      // Real generated content: games have a canvas; websites/apps have real DOM structure.
-      // DOM node count is the reliable signal — a working app has 50+ nodes. TEXT length is
-      // NOT reliable: a tip calculator (77 nodes, 0 console errors) legitimately has ~370
-      // chars and was false-flagged BLANK before. So: rendered = canvas OR 50+ nodes OR a
-      // text-heavy page. The branded fallback terminal state scores nodes≈7, text≈100.
-      const rendered = info.hasCanvas || info.nodes >= 50 || info.textLen >= 400
-      const isFallback = !info.hasCanvas && info.nodes < 30 && info.textLen < 300
-      renderVerdict = rendered
-        ? `RENDERED ✅ (canvas=${info.hasCanvas}, text=${info.textLen}, nodes=${info.nodes})`
-        : isFallback
-          ? `FALLBACK ❌ terminal/loading page (canvas=${info.hasCanvas}, text=${info.textLen}, nodes=${info.nodes})`
-          : `BLANK ❌ (canvas=${info.hasCanvas}, text=${info.textLen}, nodes=${info.nodes})`
+      renderVerdict = v.rendered
+        ? `RENDERED ✅ (${v.reason}; canvas=${v.info.hasCanvas}, text=${v.info.textLen}, nodes=${v.info.nodes})`
+        : `NOT RENDERED ❌ (${v.reason}; canvas=${v.info.hasCanvas}, text=${v.info.textLen}, nodes=${v.info.nodes})`
       await pv.close()
     } catch (e) { renderVerdict = 'check failed: ' + e.message }
   }

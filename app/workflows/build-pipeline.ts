@@ -649,6 +649,30 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     }
   } catch (e) { console.warn('[end-resolve-gate] non-fatal:', e instanceof Error ? e.message : e) }
 
+  // ── HOME PAGE GUARANTEE ──────────────────────────────────────────────────────
+  // The glob-router's index route is src/pages/Home.tsx. A MISSING Home isn't an
+  // "unresolved import" (the router globs, it doesn't import) — so the resolve gate can't
+  // catch it, and "/" renders the NotFound 404 (the exact notes-app failure: a stalled
+  // build's continuation made support files but never the Home page). Guarantee it exists
+  // for every non-game skill; if absent/stub, create a REAL page from the request + Layout.
+  if (skill !== 'game') {
+    try {
+      const home = await readSandboxFile(sandbox, 'src/pages/Home.tsx')
+      if (!home || home.trim().length < 40 || home.includes('__CM_STUB__')) {
+        const layout = (await readSandboxFile(sandbox, 'src/components/Layout.tsx')) ?? ''
+        const ctx = `This is the MAIN PAGE at the index route "/". Build the app's primary content here.\n` +
+          `Original request: ${params.userText}\n\n` +
+          (layout ? `It renders inside this Layout:\n${layout.slice(0, 2500)}` : '')
+        const gen = await generateMissingFile('src/pages/Home.tsx', 'the app main/home page (default export React component)', ctx).catch(() => null)
+        if (gen) {
+          await sandbox.writeFiles([{ path: 'src/pages/Home.tsx', content: Buffer.from(gen, 'utf8') }])
+          logRepair({ layer: 'stamp-local-alias', action: 'home-guarantee-created', detail: 'created missing src/pages/Home.tsx (would have been a 404)', sandboxId })
+          console.warn('[home-guarantee] created missing src/pages/Home.tsx')
+        }
+      }
+    } catch (e) { console.warn('[home-guarantee] non-fatal:', e instanceof Error ? e.message : e) }
+  }
+
   // CSS sanity fix + palette lock
   try {
     const cssStream = await sandbox.readFile({ path: 'src/index.css' })

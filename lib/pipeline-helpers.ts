@@ -751,8 +751,13 @@ export async function headlessRuntimeCheck(
       const bodyText = (document.body?.innerText || '').trim()
       const boundaryHit = bodyText.length < 400 &&
         /something went wrong|this section (couldn'?t|could not) load|an error occurred|failed to render|oops[,! ]/i.test(bodyText)
-      return { captured, overlayText, boundaryHit, bodyTextSample: bodyText.slice(0, 200) }
-    }).catch(() => ({ captured: [] as string[], overlayText: '', boundaryHit: false, bodyTextSample: '' }))
+      // The scaffold's own NotFound carries data-cm-notfound. If it's showing at the HOME
+      // route (this check runs against "/"), the app's main page is missing/mis-routed —
+      // a rendered-but-WRONG page the paint check would otherwise pass. Deterministic marker,
+      // never text — zero false positives on apps that legitimately contain "404" copy.
+      const notFoundAtHome = !!document.querySelector('[data-cm-notfound]')
+      return { captured, overlayText, boundaryHit, notFoundAtHome, bodyTextSample: bodyText.slice(0, 200) }
+    }).catch(() => ({ captured: [] as string[], overlayText: '', boundaryHit: false, notFoundAtHome: false, bodyTextSample: '' }))
 
     const paint = await page.evaluate(() => {
       const r = document.getElementById('root')
@@ -777,6 +782,13 @@ export async function headlessRuntimeCheck(
         detail: `A React error boundary rendered its fallback ("${domSignals.bodyTextSample}") — a child component threw during render. ` +
           `Identify the throwing component and fix the actual bug.\n` +
           (errors.length ? errors.slice(0, 8).join('\n') : 'No console stack captured.'),
+      }
+    }
+    if (domSignals.notFoundAtHome) {
+      return {
+        status: 'broken',
+        detail: `The home route ("/") is rendering the NotFound/404 fallback — the app's main page is missing or not routed. ` +
+          `Create src/pages/Home.tsx with the app's primary content so the index route renders the real app, not the 404.`,
       }
     }
 
