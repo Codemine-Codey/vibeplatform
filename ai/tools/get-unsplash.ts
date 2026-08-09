@@ -1,8 +1,6 @@
 import { tool } from 'ai'
 import z from 'zod/v3'
-
-// Single neutral fallback — only used when Unsplash API key is missing entirely.
-const FALLBACK_URL = 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?auto=format&fit=crop&w=1200&q=80'
+import { resolveFallbackImage } from './image-fallback'
 
 export const getUnsplash = () =>
   tool({
@@ -16,7 +14,7 @@ export const getUnsplash = () =>
     }),
     execute: async ({ keyword, orientation = 'landscape' }) => {
       const accessKey = process.env.UNSPLASH_ACCESS_KEY
-      if (!accessKey) return { url: FALLBACK_URL }
+      if (!accessKey) return { url: await resolveFallbackImage(keyword, orientation) }
 
       try {
         const params = new URLSearchParams({ query: keyword, orientation, content_filter: 'high' })
@@ -24,12 +22,12 @@ export const getUnsplash = () =>
           `https://api.unsplash.com/photos/random?${params}`,
           { headers: { Authorization: `Client-ID ${accessKey}` }, signal: AbortSignal.timeout(8_000) }
         )
-        if (!response.ok) return { url: FALLBACK_URL }
+        if (!response.ok) return { url: await resolveFallbackImage(keyword, orientation) }
         const data = await response.json() as { urls: { regular: string } }
         const base = data.urls.regular.split('?')[0]
         return { url: `${base}?auto=format&fit=crop&w=1200&q=80` }
       } catch {
-        return { url: FALLBACK_URL }
+        return { url: await resolveFallbackImage(keyword, orientation) }
       }
     },
   })

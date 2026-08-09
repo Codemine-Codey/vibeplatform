@@ -1,9 +1,6 @@
 import { tool } from 'ai'
 import z from 'zod/v3'
-
-// Single neutral fallback — only used when Unsplash API key is missing entirely.
-// When the key is present, live API always wins regardless of keyword.
-const FALLBACK_URL = 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?auto=format&fit=crop&w=1200&q=80'
+import { resolveFallbackImage } from './image-fallback'
 
 const fmt = (regular: string) => `${regular.split('?')[0]}?auto=format&fit=crop&w=1200&q=80`
 
@@ -22,7 +19,9 @@ async function searchTop(query: string, orientation: string, accessKey: string):
 // words → random (always returns a loosely-matching photo) → fallback URL. This
 // keeps images on-topic (search) without ever leaving an empty slot (random).
 export async function fetchOne(keyword: string, orientation: string, accessKey: string | undefined): Promise<string> {
-  if (!accessKey) return FALLBACK_URL
+  // No Unsplash key → straight to the multi-source fallback (Pexels/Picsum), which is
+  // real + DISTINCT per keyword (never one repeated photo across the page).
+  if (!accessKey) return resolveFallbackImage(keyword, orientation)
   try {
     const full = await searchTop(keyword, orientation, accessKey)
     if (full) return full
@@ -40,9 +39,11 @@ export async function fetchOne(keyword: string, orientation: string, accessKey: 
       const data = await res.json() as { urls?: { regular: string } }
       if (data.urls) return fmt(data.urls.regular)
     }
-    return FALLBACK_URL
+    // Every Unsplash path failed (rate-limit/no-results) → Pexels then keyless Picsum,
+    // so each slot stays real + distinct instead of the same repeated fallback photo.
+    return resolveFallbackImage(keyword, orientation)
   } catch {
-    return FALLBACK_URL
+    return resolveFallbackImage(keyword, orientation)
   }
 }
 
