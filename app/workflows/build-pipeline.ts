@@ -929,7 +929,10 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
   const withinBudget = () => Date.now() - stepStart < STEP_DEADLINE_MS
 
   try {
-    if (skill === 'website') {
+    // #7: guarantee EVERY nav-linked page exists (not just Home) so no nav link 404s.
+    // Extended from website-only to all non-game skills — a webapp sidebar (Dashboard/
+    // Settings/etc.) must not 404 either. Games are single-file (no nav).
+    if (skill !== 'game') {
       try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
     }
 
@@ -969,7 +972,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       } catch { /* non-fatal */ }
     }
 
-    if (skill === 'website' && !devError) {
+    if (skill !== 'game' && !devError) {
       try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
     }
 
