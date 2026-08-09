@@ -36,6 +36,7 @@ import { getSkillCatalog, loadSkillBody, designSkillFor } from '@/ai/skills'
 import { generateSuggestions } from '@/ai/suggestions'
 import { reviewGeneratedCode } from '@/lib/code-review-gate'
 import { readSandboxFile, repairFile, generateMissingFile, installMissingModules } from '@/lib/sandbox-util'
+import { extractImports, resolveGate, SCAFFOLD_RESOLVABLE, localImportBasePath } from '@/lib/gates/checker.mjs'
 import { logRepair } from '@/lib/telemetry'
 import {
   checkAndStampMissingFiles,
@@ -600,6 +601,68 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     }
   }
 
+  // ── END-OF-GENERATION RESOLVE GATE (Phase 2 hard gate → generateMissingFile) ──
+  // Catch LOCAL imports to files that were NEVER created — undeclared imports the model
+  // invented mid-file (e.g. @/components/MainViewTimer, ./pages/Game). These blank the
+  // preview via a Vite "failed to resolve import"; repairFile CAN'T fix them (it can't
+  // create a file) — only generateMissingFile can (infers the export shape from the
+  // importer). Scans ALL src files on disk (a closure/repair-created file can also import
+  // something undeclared — not just manifest files). Bounded to 5 created (a runaway
+  // import-inventor must not mint 20 files on REPAIR_MODEL); the rest are logged only.
+  // Cost: ~1 cheap DeepSeek call per invented import (~$0.001–0.01) vs a failed build.
+  try {
+    let srcFiles: string[] = []
+    try {
+      const listCmd = await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', "find src -type f \\( -name '*.tsx' -o -name '*.ts' \\) 2>/dev/null | tee /tmp/cm-srcls.log >/dev/null"] })
+      await Promise.race([listCmd.wait(), new Promise<void>((_, rej) => setTimeout(() => rej(new Error('ls timeout')), 15_000))])
+      const lsLog = (await readSandboxFile(sandbox, '/tmp/cm-srcls.log')) ?? ''
+      srcFiles = lsLog.split('\n').map(s => s.trim()).filter(Boolean)
+    } catch { /* fall back below */ }
+    if (srcFiles.length === 0 && planBox.manifest) srcFiles = planBox.manifest.files.map(f => f.path)
+
+    // Read every src file's content (skip stubs — their imports aren't real yet).
+    const onDisk: Array<{ path: string; content: string }> = []
+    for (const p of srcFiles) {
+      const content = await readSandboxFile(sandbox, p)
+      if (content && !content.includes('__CM_STUB__')) onDisk.push({ path: p, content })
+    }
+    const withImports = await Promise.all(onDisk.map(async f => ({ path: f.path, imports: await extractImports(f.path, f.content) })))
+    const fileSet = new Set(onDisk.map(f => f.path))
+    const unresolved = resolveGate(withImports, fileSet, SCAFFOLD_RESOLVABLE)
+
+    // Dedupe by the file we'd create; skip anything already on disk / in the manifest.
+    const declaredPaths = new Set([...onDisk.map(f => f.path), ...(planBox.manifest?.files.map(f => f.path) ?? [])])
+    const toCreate = new Map<string, { spec: string; importer: string }>()
+    for (const u of unresolved) {
+      const base = localImportBasePath(u.file, u.specifier ?? '')
+      if (!base) continue
+      const importerContent = onDisk.find(f => f.path === u.file)?.content ?? ''
+      const name = base.split('/').pop() ?? ''
+      // JSX-usage decides extension: used as <Name → .tsx, else path-shape heuristic.
+      const usedAsJsx = name.length > 0 && new RegExp(`<${name}[\\s/>]`).test(importerContent)
+      const ext = (usedAsJsx || /\/(components|pages|sections|screens|views|layouts)\//.test('/' + base)) ? '.tsx' : '.ts'
+      const createPath = base + ext
+      if (declaredPaths.has(createPath) || fileSet.has(createPath)) continue
+      if (!toCreate.has(createPath)) toCreate.set(createPath, { spec: u.specifier ?? '', importer: u.file })
+    }
+
+    let created = 0
+    for (const [createPath, info] of toCreate) {
+      if (created >= 5) { console.warn(`[end-resolve-gate] >5 undeclared imports — recording rest, not creating`); break }
+      const importerContent = onDisk.find(f => f.path === info.importer)?.content ?? ''
+      const gen = await generateMissingFile(createPath, info.spec, importerContent).catch(() => null)
+      if (gen) {
+        await sandbox.writeFiles([{ path: createPath, content: Buffer.from(gen, 'utf8') }])
+        created++
+        logRepair({ layer: 'stamp-local-alias', action: 'end-resolve-created', detail: `${createPath} <- "${info.spec}" (imported by ${info.importer})`, sandboxId })
+        console.warn(`[end-resolve-gate] created missing ${createPath} for import "${info.spec}"`)
+      }
+    }
+    if (created > 0 && planBox.manifest) {
+      remainingStubs = await findStubPaths(sandbox, planBox.manifest.files.map(f => f.path)).catch(() => remainingStubs)
+    }
+  } catch (e) { console.warn('[end-resolve-gate] non-fatal:', e instanceof Error ? e.message : e) }
+
   // CSS sanity fix + palette lock
   try {
     const cssStream = await sandbox.readFile({ path: 'src/index.css' })
@@ -1099,11 +1162,35 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
         if (fresh.status !== 'broken') break // fresh PASS → reveal
         logRepair({ layer: 'runtime-check', action: `reveal-gate-r${gateAttempts + 1}`, detail: (fresh.detail || '').slice(0, 180), sandboxId })
         let wrote = false
-        for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 6)) {
-          const content = await readSandboxFile(sandbox, path)
-          if (!content) continue
-          const fixed = await repairFile(path, content, `The rendered page is broken/blank before reveal. Fix this so it renders:\n${fresh.detail || 'runtime error / blank render'}`)
-          if (fixed && fixed !== content) { await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }]); wrote = true }
+        // Missing-file class: "Failed to resolve import X from Y" → CREATE X (repairFile
+        // can't create a file — this is what let tonight's blank through). Parse from the
+        // FULL detail (not the truncated log line).
+        const resolveMatch = (fresh.detail || '').match(/Failed to resolve import "([^"]+)" from "([^"]+)"/)
+        if (resolveMatch) {
+          const spec = resolveMatch[1]
+          const importerPath = resolveMatch[2].replace(/^.*\/(src\/)/, 'src/')
+          const importerContent = await readSandboxFile(sandbox, importerPath).catch(() => null)
+          const base = localImportBasePath(importerPath, spec)
+          if (base) {
+            const name = base.split('/').pop() ?? ''
+            const usedAsJsx = name.length > 0 && new RegExp(`<${name}[\\s/>]`).test(importerContent ?? '')
+            const ext = (usedAsJsx || /\/(components|pages|sections|screens|views|layouts)\//.test('/' + base)) ? '.tsx' : '.ts'
+            const createPath = base + ext
+            const gen = await generateMissingFile(createPath, spec, importerContent ?? '').catch(() => null)
+            if (gen) {
+              await sandbox.writeFiles([{ path: createPath, content: Buffer.from(gen, 'utf8') }])
+              wrote = true
+              logRepair({ layer: 'stamp-local-alias', action: 'reveal-gate-created', detail: `${createPath} <- "${spec}"`, sandboxId })
+            }
+          }
+        }
+        if (!wrote) {
+          for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 6)) {
+            const content = await readSandboxFile(sandbox, path)
+            if (!content) continue
+            const fixed = await repairFile(path, content, `The rendered page is broken/blank before reveal. Fix this so it renders:\n${fresh.detail || 'runtime error / blank render'}`)
+            if (fixed && fixed !== content) { await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }]); wrote = true }
+          }
         }
         if (!wrote) break // nothing to change → reveal (avoid spinning)
         try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
@@ -1326,11 +1413,32 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
       if (fresh.status !== 'broken') break
       logRepair({ layer: 'runtime-check', action: `reveal-gate2-r${gateAttempts + 1}`, detail: (fresh.detail || '').slice(0, 180), sandboxId })
       let wrote = false
-      for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 6)) {
-        const content = await readSandboxFile(sandbox, path)
-        if (!content) continue
-        const fixed = await repairFile(path, content, `The rendered page is broken/blank before reveal. Fix this so it renders:\n${fresh.detail || 'runtime error / blank render'}`)
-        if (fixed && fixed !== content) { await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }]); wrote = true }
+      const resolveMatch2 = (fresh.detail || '').match(/Failed to resolve import "([^"]+)" from "([^"]+)"/)
+      if (resolveMatch2) {
+        const spec = resolveMatch2[1]
+        const importerPath = resolveMatch2[2].replace(/^.*\/(src\/)/, 'src/')
+        const importerContent = await readSandboxFile(sandbox, importerPath).catch(() => null)
+        const base = localImportBasePath(importerPath, spec)
+        if (base) {
+          const name = base.split('/').pop() ?? ''
+          const usedAsJsx = name.length > 0 && new RegExp(`<${name}[\\s/>]`).test(importerContent ?? '')
+          const ext = (usedAsJsx || /\/(components|pages|sections|screens|views|layouts)\//.test('/' + base)) ? '.tsx' : '.ts'
+          const createPath = base + ext
+          const gen = await generateMissingFile(createPath, spec, importerContent ?? '').catch(() => null)
+          if (gen) {
+            await sandbox.writeFiles([{ path: createPath, content: Buffer.from(gen, 'utf8') }])
+            wrote = true
+            logRepair({ layer: 'stamp-local-alias', action: 'reveal-gate2-created', detail: `${createPath} <- "${spec}"`, sandboxId })
+          }
+        }
+      }
+      if (!wrote) {
+        for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 6)) {
+          const content = await readSandboxFile(sandbox, path)
+          if (!content) continue
+          const fixed = await repairFile(path, content, `The rendered page is broken/blank before reveal. Fix this so it renders:\n${fresh.detail || 'runtime error / blank render'}`)
+          if (fixed && fixed !== content) { await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }]); wrote = true }
+        }
       }
       if (!wrote) break
       try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }

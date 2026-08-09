@@ -1,0 +1,10 @@
+{
+  "expect": "fail",
+  "mustCatch": [
+    { "rung": "resolve", "file": "src/pages/Home.tsx", "specifier": "@/components/MainViewTimer" }
+  ],
+  "writeGate": {
+    "mustWrite": ["src/App.tsx", "src/pages/Home.tsx"]
+  },
+  "note": "@/components/MainViewTimer is neither scaffold nor in the manifest nor on disk → the undeclared-import signal. Parse passes (valid syntax); resolve flags it."
+}

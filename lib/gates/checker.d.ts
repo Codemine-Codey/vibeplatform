@@ -26,6 +26,7 @@ export interface WriteGateResult {
   unresolved: Array<{ file: string; specifier?: string; detail: string }>
 }
 
+export function localImportBasePath(importerPath: string, spec: string): string | null
 export function parseFile(path: string, code: string): Promise<{ ok: boolean; error?: string }>
 export function extractImports(path: string, code: string): Promise<string[]>
 export function resolveGate(

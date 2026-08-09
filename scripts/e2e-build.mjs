@@ -114,12 +114,18 @@ try {
 
   // Single loop (up to 90s): the platform may ask up to 3 clarifying questions
   // ("QUESTION 1 OF 3 …") which appear a few seconds apart. Click "Skip — just build it"
-  // whenever it shows, and detect build-start (input goes busy). No body-text scan.
+  // whenever it shows, and detect build-start via MULTIPLE robust signals (not just the
+  // input busy-state, which can be missed): input disabled/placeholder, OR any build-phase
+  // narration (Thinking/Planning/Building/Generating/Writing code), OR an assistant reply.
   let started = false, skipped = false
   for (let i = 0; i < 60; i++) {
     started = await page.evaluate(() => {
       const inputs = [...document.querySelectorAll('input[placeholder]')]
-      return inputs.some((i) => i.disabled || /building|publishing/i.test(i.getAttribute('placeholder') || ''))
+      if (inputs.some((i) => i.disabled || /building|publishing/i.test(i.getAttribute('placeholder') || ''))) return true
+      // Build-phase narration / tool activity anywhere on the page = build is underway.
+      const body = (document.body.innerText || '')
+      if (/thinking\.\.\.|planning your|building your|generating|writing code|installing|starting preview|crafting/i.test(body)) return true
+      return false
     })
     if (started) break
     const skip = page.locator('text=just build it').first()

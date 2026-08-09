@@ -1,0 +1,8 @@
+{
+  "note": "Real failure from the 2026-08-09 countdown-timer build: a MANIFEST file (Home.tsx) imports an UNDECLARED @/ path (@/components/MainViewTimer) that was never created. Vite 'failed to resolve import' → blank. The resolve gate must flag it; the end-of-gen gate creates it via generateMissingFile before reveal.",
+  "skill": "webapp",
+  "files": [
+    { "path": "src/App.tsx", "exports": ["default"] },
+    { "path": "src/pages/Home.tsx", "exports": ["default"] }
+  ]
+}
