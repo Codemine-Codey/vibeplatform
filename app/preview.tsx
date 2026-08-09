@@ -20,6 +20,7 @@ export function Preview({ className }: Props) {
   const addBrowserError = useSandboxStore((s) => s.addBrowserError)
   const setUrl = useSandboxStore((s) => s.setUrl)
   const projectId = useSandboxStore((s) => s.projectId)
+  const setPendingChatMessage = useSandboxStore((s) => s.setPendingChatMessage)
   const [reconnecting, setReconnecting] = useState(false)
   const isWorking = chatStatus === 'streaming' || chatStatus === 'submitted'
 
@@ -153,6 +154,25 @@ export function Preview({ className }: Props) {
             An issue was detected — working on a fix
           </div>
         </div>
+      )}
+
+      {/* "Something's wrong?" — manual self-report for issues the auto-monitor can't see
+          (e.g. a logic error that renders fine but behaves wrong). Injects a repair turn
+          through the normal gated chat flow, so it re-checks + fixes with no error text
+          needed from the user. Shown only when a preview is live and nothing else is running. */}
+      {url && !isWorking && !isFixingError && !reconnecting && (
+        <button
+          onClick={() =>
+            setPendingChatMessage(
+              "The preview looks broken, blank, or isn't working correctly. Please re-check the whole app for errors and fix them so it works as intended."
+            )
+          }
+          className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 bg-black/70 hover:bg-black/85 text-white text-xs px-3 py-2 rounded-full backdrop-blur-sm transition-colors"
+          title="Report a problem — Codemine will re-check and fix it"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+          Something&apos;s wrong?
+        </button>
       )}
     </div>
   )
