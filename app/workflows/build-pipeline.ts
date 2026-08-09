@@ -37,6 +37,7 @@ import { generateSuggestions } from '@/ai/suggestions'
 import { reviewGeneratedCode } from '@/lib/code-review-gate'
 import { readSandboxFile, repairFile, generateMissingFile, installMissingModules } from '@/lib/sandbox-util'
 import { plannedMissingFiles, SCAFFOLD_RESOLVABLE, localImportBasePath } from '@/lib/gates/checker.mjs'
+import { scrubPart } from '@/lib/leak-guard'
 import { logRepair } from '@/lib/telemetry'
 import {
   checkAndStampMissingFiles,
@@ -207,15 +208,16 @@ function makeSilenceFilter() {
         return
       }
 
-      // Text events: pass before first tool, drop after
+      // Text events: pass before first tool, drop after. Scrub leaks on the way out.
       if (t === 'text-start' || t === 'text-delta' || t === 'text-end' || t === 'text') {
-        if (!firstToolSeen) controller.enqueue(part)
+        if (!firstToolSeen) controller.enqueue(scrubPart(part))
         // after firstToolSeen: drop entirely — no orphaned start/end pairs
         return
       }
 
       // Everything else (step-start, step-finish, data-*, finish-step, etc.) passes always
-      controller.enqueue(part)
+      // — scrubbed so data-narration can never leak infra/model/"sandbox" to the user.
+      controller.enqueue(scrubPart(part))
     },
     flush(_controller: TransformStreamDefaultController) { /* nothing held */ },
   })

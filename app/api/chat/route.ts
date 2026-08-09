@@ -54,6 +54,7 @@ import {
 import { createProjectRow, getProject, snapshotProject, updateProjectRow, getProjectBySandboxId, incrementProjectTokens, restoreSnapshotInto } from '@/lib/projects-db'
 import { tokenStore } from '@/lib/token-context'
 import { ensureValidCss } from '@/lib/css-guard'
+import { makeScrubStream } from '@/lib/leak-guard'
 import { trimStaleReadResults } from '@/lib/trim-history'
 import prompt from './prompt.md.ts'
 
@@ -1869,7 +1870,8 @@ async function runAgenticLoop({
         console.error(JSON.stringify(error, null, 2))
       },
     })
-    writer.merge(result.toUIMessageStream({ sendReasoning: false, sendStart: false }))
+    // Scrub leaks (sandbox / model / infra names) deterministically before the user sees them.
+    writer.merge(result.toUIMessageStream({ sendReasoning: false, sendStart: false }).pipeThrough(makeScrubStream()))
     try {
       await result.text
     } catch {
