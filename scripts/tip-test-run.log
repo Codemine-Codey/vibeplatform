@@ -1,0 +1,63 @@
+[2s] login…
+[13s] no welcome modal (cookie worked)
+[17s] logged in, chat ready
+[31s] clarify → clicked "Skip — just build it"
+[32s] submitted webapp prompt — BUILD STARTED (input busy) ✅
+[32s] phase → "Thinking...1s"
+[36s] phase → "Thinking...5s"
+[40s] phase → "Thinking...9s"
+[44s] phase → "Thinking...13s"
+[48s] phase → "Thinking...17s"
+[52s] phase → "Thinking...21s"
+[57s] phase → "Thinking...25s"
+[61s] phase → "Thinking...29s"
+[65s] phase → "Thinking...33s"
+[69s] phase → "Thinking...37s"
+[73s] phase → "Thinking...41s"
+[77s] phase → "Thinking...45s"
+[81s] phase → "Thinking...49s"
+[85s] phase → "Thinking...53s"
+[89s] phase → "Thinking...57s"
+[93s] phase → "Building your project...1:01"
+[97s] phase → "Building your project...1:05"
+[101s] phase → "Building your project...1:09"
+[105s] phase → "Building your project...1:14"
+[109s] phase → "Building your project...1:18"
+[113s] phase → "Building your project...1:22"
+[117s] phase → "Building your project...1:26"
+[121s] phase → "Building your project...1:30"
+[125s] phase → "Building your project...1:34"
+[129s] phase → "Building your project...1:38"
+[133s] phase → "Building your project...1:42"
+[137s] phase → "Building your project...1:46"
+[141s] phase → "Building your project...1:50"
+[145s] phase → "Building your project...1:54"
+[149s] phase → "Building your project...1:58"
+[153s] phase → "Building your project...2:02"
+[157s] phase → "Building your project...2:06"
+[161s] phase → "Building your project...2:10"
+[165s] phase → "Building your project...2:14"
+[169s] phase → "Building your project...2:18"
+[173s] phase → "Building your project...2:22"
+[177s] phase → "Building your project...2:26"
+[181s] phase → "Building your project...2:30"
+[185s] phase → "Building your project...2:34"
+[189s] phase → "Installing packages...158s"
+[193s] phase → "Building and starting preview...162s"
+[197s] phase → "Building and starting preview...166s"
+[201s] phase → "Building and starting preview...170s"
+[205s] phase → "Building and starting preview...174s"
+[209s] phase → "Building and starting preview...178s"
+[213s] phase → "Starting preview — this may take up to 30 seconds, please wait."
+[339s] PREVIEW LIVE at 339s — https://sb-5b7pab4543i0.vercel.run…
+[343s] build complete (input re-enabled)
+
+================ E2E REPORT ================
+kind: webapp
+time-to-preview: 339s
+PREVIEW RENDER: BLANK ❌ (canvas=false, text=377, nodes=77)
+total elapsed: 353s
+leaked words: NONE ✅
+console errors: 0
+failed/404 API requests: 0
+===========================================

@@ -1,0 +1,89 @@
+[2s] version preflight OK — https://codemineapp.com serving commit ff023940 (matches local) ✅
+[3s] login…
+[11s] no welcome modal (cookie worked)
+[13s] logged in, chat ready
+[17s] clarify → clicked "Skip — just build it"
+[19s] submitted webapp prompt — BUILD STARTED (input busy) ✅
+[19s] phase → "Thinking...1s"
+[23s] phase → "Thinking...5s"
+[27s] phase → "Thinking...9s"
+[31s] phase → "Thinking...13s"
+[35s] phase → "Thinking...17s"
+[39s] phase → "Thinking...21s"
+[43s] phase → "Thinking...25s"
+[47s] phase → "Thinking...29s"
+[51s] phase → "Thinking...33s"
+[55s] phase → "Thinking...37s"
+[59s] phase → "Thinking...41s"
+[63s] phase → "Thinking...45s"
+[67s] phase → "Thinking...49s"
+[71s] phase → "Thinking...53s"
+[75s] phase → "Thinking...57s"
+[79s] phase → "Building your project...1:01"
+[83s] phase → "Building your project...1:05"
+[87s] phase → "Building your project...1:09"
+[91s] phase → "Building your project...1:13"
+[95s] phase → "Building your project...1:17"
+[99s] phase → "Building your project...1:21"
+[103s] phase → "Building your project...1:25"
+[107s] phase → "Building your project...1:29"
+[111s] phase → "Building your project...1:33"
+[115s] phase → "Building your project...1:37"
+[119s] phase → "Building your project...1:41"
+[123s] phase → "Building your project...1:45"
+[127s] phase → "Building your project...1:50"
+[131s] phase → "Building your project...1:54"
+[135s] phase → "Building your project...1:58"
+[139s] phase → "Building your project...2:02"
+[143s] phase → "Building your project...2:06"
+[147s] phase → "Building your project...2:10"
+[151s] phase → "Building your project...2:14"
+[155s] phase → "Building your project...2:18"
+[159s] phase → "Building your project...2:22"
+[163s] phase → "Building your project...2:26"
+[167s] phase → "Building your project...2:30"
+[171s] phase → "Building your project...2:34"
+[175s] phase → "Building your project...2:38"
+[179s] phase → "Building your project...2:42"
+[184s] phase → "Building your project...2:46"
+[188s] phase → "Building your project...2:50"
+[192s] phase → "Building your project...2:54"
+[196s] phase → "Building your project...2:58"
+[200s] phase → "Building your project...3:02"
+[204s] phase → "Building your project...3:06"
+[208s] phase → "Building your project...3:10"
+[212s] phase → "Building your project...3:14"
+[216s] phase → "Building your project...3:18"
+[220s] phase → "Building your project...3:22"
+[224s] phase → "Building your project...3:26"
+[228s] phase → "Building your project...3:30"
+[232s] phase → "Building your project...3:34"
+[236s] phase → "Building your project...3:38"
+[240s] phase → "Building your project...3:42"
+[244s] phase → "Building your project...3:46"
+[248s] phase → "Building your project...3:50"
+[252s] phase → "Building your project...3:54"
+[256s] phase → "Building your project...3:58"
+[260s] phase → "Building your project...4:02"
+[264s] phase → "Building your project...4:06"
+[268s] phase → "Building and starting preview...250s"
+[272s] phase → "Building and starting preview...254s"
+[276s] phase → "Building and starting preview...258s"
+[280s] phase → "Building and starting preview...262s"
+[284s] phase → "Starting preview — this may take up to 30 seconds, please wait."
+[750s] PREVIEW LIVE at 750s — https://sb-61dbx6qskup9.vercel.run…
+[750s] build complete (input re-enabled)
+
+================ E2E REPORT ================
+kind: webapp
+time-to-preview: 750s
+PREVIEW RENDER: RENDERED ✅ (canvas=false, text=602, nodes=95)
+total elapsed: 761s
+leaked words: NONE ✅
+console errors: 1
+   • TypeError: Cannot read properties of undefined (reading 'state')
+    at pi.makeRequest (https://codemineapp.com/_next/static/chunks/52ba8068d722e90c.js?dpl=dpl_CAbDzrvLNUM5AifnuaHRJWAMbqpk:54:71188)
+    at async pi.sendMessage (https://codemineapp.com/_next/static/chunks/52ba8068d722e90c.js?dpl=dpl_
+failed/404 API requests: 1
+   • net::ERR_ABORTED https://codemineapp.com/api/sandboxes/sbx_9aFwOcX60L4lQF2t0yMDmUydTCQr/cmds/cmd_68522f29be7145f1978d11b168e4
+===========================================

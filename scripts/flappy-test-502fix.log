@@ -1,0 +1,82 @@
+[1s] login…
+[9s] no welcome modal (cookie worked)
+[11s] logged in, chat ready
+[19s] clarify → clicked "Skip — just build it"
+[21s] submitted game prompt — BUILD STARTED (input busy) ✅
+[21s] phase → "Thinking...1s"
+[25s] phase → "Thinking...5s"
+[29s] phase → "Thinking...9s"
+[33s] phase → "Thinking...13s"
+[37s] phase → "Thinking...17s"
+[41s] phase → "Thinking...21s"
+[45s] phase → "Thinking...25s"
+[49s] phase → "Thinking...29s"
+[53s] phase → "Thinking...33s"
+[57s] phase → "Thinking...37s"
+[61s] phase → "Thinking...41s"
+[65s] phase → "Thinking...45s"
+[69s] phase → "Thinking...49s"
+[73s] phase → "Thinking...53s"
+[77s] phase → "Thinking...57s"
+[81s] phase → "Building your project...1:01"
+[85s] phase → "Building your project...1:05"
+[89s] phase → "Building your project...1:10"
+[93s] phase → "Building your project...1:14"
+[97s] phase → "Building your project...1:18"
+[101s] phase → "Building your project...1:22"
+[105s] phase → "Building your project...1:26"
+[109s] phase → "Building your project...1:30"
+[113s] phase → "Building your project...1:34"
+[117s] phase → "Building your project...1:38"
+[121s] phase → "Building your project...1:42"
+[125s] phase → "Building your project...1:46"
+[129s] phase → "Building your project...1:50"
+[133s] phase → "Building your project...1:54"
+[137s] phase → "Building your project...1:58"
+[141s] phase → "Building your project...2:02"
+[145s] phase → "Building your project...2:06"
+[149s] phase → "Building your project...2:10"
+[153s] phase → "Building your project...2:14"
+[157s] phase → "Building your project...2:18"
+[161s] phase → "Building your project...2:22"
+[165s] phase → "Building your project...2:26"
+[169s] phase → "Building your project...2:30"
+[173s] phase → "Building your project...2:34"
+[177s] phase → "Building your project...2:38"
+[181s] phase → "Building your project...2:42"
+[185s] phase → "Building your project...2:46"
+[189s] phase → "Building your project...2:50"
+[193s] phase → "Building your project...2:54"
+[197s] phase → "Building your project...2:58"
+[201s] phase → "Building your project...3:02"
+[205s] phase → "Building your project...3:06"
+[209s] phase → "Building your project...3:10"
+[213s] phase → "Building your project...3:14"
+[218s] phase → "Building your project...3:18"
+[222s] phase → "Building your project...3:22"
+[226s] phase → "Building your project...3:26"
+[230s] phase → "Building your project...3:30"
+[234s] phase → "Building your project...3:34"
+[238s] phase → "Building your project...3:38"
+[242s] phase → "Building your project...3:42"
+[246s] phase → "Building your project...3:46"
+[250s] phase → "Building your project...3:50"
+[254s] phase → "Building your project...3:54"
+[258s] phase → "Building your project...3:58"
+[262s] phase → "Building your project...4:02"
+[266s] phase → "Building your project...4:06"
+[270s] phase → "Building your project...4:10"
+[274s] phase → "Building your project...4:14"
+[278s] phase → "Building your project...4:18"
+[282s] PREVIEW LIVE at 282s — https://sb-70evyytm7bla.vercel.run…
+[282s] build complete (input re-enabled)
+
+================ E2E REPORT ================
+kind: game
+time-to-preview: 282s
+PREVIEW RENDER: RENDERED ✅ (canvas=true, text=109, nodes=10)
+total elapsed: 293s
+leaked words: NONE ✅
+console errors: 0
+failed/404 API requests: 0
+===========================================

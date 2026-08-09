@@ -1,0 +1,18 @@
+[16:44:50] 
+=== DEEP TEST: website5 ===
+[16:44:50] prompt: Build me a luxury real estate website for a boutique agency called Meridian Estates
+[16:44:50] walk-away mode: off
+[16:48:28]   ⏱  FIRST PREVIEW (client-observed) at 3m38s (218s) → https://sb-1ypdzyxjr6ag.vercel.run
+[18:02:07]   (stream ended early — non-fatal, build continues server-side: terminated)
+[18:02:07]   stream ended at 77m18s (4638s) (runId=03917d6f-21ee-49ce-b321-a79b76b63b0e)
+[18:02:16] 
+  ── RESULT: website5 ──
+[18:02:16]   status:            done
+[18:02:16]   time to preview:   3m35s (215s)
+[18:02:16]   total build time:  18m20s (1100s)
+[18:02:16]   phases:            2/2 completed
+[18:02:16]   tokens used:       381167
+[18:02:16]   chained (walkaway): YES (1 handoff msg)
+[18:02:16]   preview url:       https://sb-1ypdzyxjr6ag.vercel.run
+[18:02:16]   event log size:    87
+[18:02:16]   narrations:        0

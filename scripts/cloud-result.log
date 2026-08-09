@@ -1,0 +1,26 @@
+[1s] login...
+[8s] logged in; building a fresh project...
+[16s] clicked "just build it"
+[189s] preview src: https://sb-6mjbsotpf451.vercel.run
+[189s] build finished with a live preview OK
+[192s] --- DATABASE ---
+[194s] >> API 200 cloud/neon -> {"provisioned":false,"host":null,"databaseName":null,"neonProjectId":null}
+[197s] >> API 502 cloud/neon -> {"error":"The database service rejected the request. Please try again shortly."}
+[198s] clicked Connect Database: true
+[290s] DATABASE => FAILS
+[290s] --- AUTH ---
+[296s] clicked Enable Auth: true
+[297s] >> API 200 auth/setup -> {"authUrl":"https://cm-auth.vibeplatfrom.workers.dev","appId":"8918dbce-e2f9-4a50-927f-57803f82265f","provider":"cf-worker"}
+[299s] AUTH => WORKS
+[299s] --- DEPLOY ---
+[335s] clicked Publish Live: true
+[335s] DEPLOY => WORKS
+[335s] === TARGET API RESPONSES ===
+[335s]   200 cloud/neon -> {"provisioned":false,"host":null,"databaseName":null,"neonProjectId":null}
+[335s]   502 cloud/neon -> {"error":"The database service rejected the request. Please try again shortly."}
+[335s]   200 auth/setup -> {"authUrl":"https://cm-auth.vibeplatfrom.workers.dev","appId":"8918dbce-e2f9-4a50-927f-57803f82265f","provider":"cf-worker"}
+[335s] === SUMMARY ===
+[335s]   Database: FAILS
+[335s]   Auth:     WORKS
+[335s]   Deploy:   WORKS
+[335s] DONE. Full dump: scripts/cloud-api-dump.json

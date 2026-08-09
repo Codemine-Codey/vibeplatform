@@ -1,0 +1,82 @@
+auth ok
+probe HTTP 401
+try 1: still 401
+probe HTTP 401
+try 2: still 401
+probe HTTP 401
+try 3: still 401
+probe HTTP 401
+try 4: still 401
+probe HTTP 401
+try 5: still 401
+probe HTTP 401
+try 6: still 401
+probe HTTP 401
+try 7: still 401
+probe HTTP 401
+try 8: still 401
+probe HTTP 401
+try 9: still 401
+probe HTTP 401
+try 10: still 401
+probe HTTP 401
+try 11: still 401
+probe HTTP 401
+try 12: still 401
+probe HTTP 401
+try 13: still 401
+probe HTTP 401
+try 14: still 401
+probe HTTP 401
+try 15: still 401
+probe HTTP 401
+try 16: still 401
+probe HTTP 401
+try 17: still 401
+probe HTTP 401
+try 18: still 401
+probe HTTP 401
+try 19: still 401
+probe HTTP 401
+try 20: still 401
+probe HTTP 401
+try 21: still 401
+probe HTTP 401
+try 22: still 401
+probe HTTP 401
+try 23: still 401
+probe HTTP 401
+try 24: still 401
+probe HTTP 401
+try 25: still 401
+probe HTTP 401
+try 26: still 401
+probe HTTP 401
+try 27: still 401
+probe HTTP 401
+try 28: still 401
+probe HTTP 401
+try 29: still 401
+probe HTTP 401
+try 30: still 401
+probe HTTP 401
+try 31: still 401
+probe HTTP 401
+try 32: still 401
+probe HTTP 401
+try 33: still 401
+probe HTTP 401
+try 34: still 401
+probe HTTP 401
+try 35: still 401
+probe HTTP 401
+try 36: still 401
+probe HTTP 401
+try 37: still 401
+probe HTTP 401
+try 38: still 401
+probe HTTP 401
+try 39: still 401
+probe HTTP 401
+try 40: still 401
+TIMEOUT

@@ -1,0 +1,89 @@
+[1s] login…
+[8s] no welcome modal (cookie worked)
+[10s] logged in, chat ready
+[16s] clarify → clicked "Skip — just build it"
+[18s] submitted game prompt — BUILD STARTED (input busy) ✅
+[18s] phase → "Thinking...1s"
+[22s] phase → "Thinking...5s"
+[26s] phase → "Thinking...9s"
+[30s] phase → "Thinking...13s"
+[34s] phase → "Thinking...17s"
+[38s] phase → "Thinking...21s"
+[42s] phase → "Thinking...25s"
+[46s] phase → "Thinking...29s"
+[50s] phase → "Thinking...33s"
+[54s] phase → "Thinking...37s"
+[58s] phase → "Thinking...41s"
+[62s] phase → "Thinking...45s"
+[66s] phase → "Thinking...49s"
+[70s] phase → "Thinking...53s"
+[74s] phase → "Thinking...57s"
+[78s] phase → "Building your project...1:01"
+[82s] phase → "Building your project...1:05"
+[86s] phase → "Building your project...1:09"
+[90s] phase → "Building your project...1:14"
+[94s] phase → "Building your project...1:18"
+[98s] phase → "Building your project...1:22"
+[102s] phase → "Building your project...1:26"
+[106s] phase → "Building your project...1:30"
+[110s] phase → "Building your project...1:34"
+[114s] phase → "Building your project...1:38"
+[118s] phase → "Building your project...1:42"
+[122s] phase → "Building your project...1:46"
+[126s] phase → "Building your project...1:50"
+[130s] phase → "Building your project...1:54"
+[134s] phase → "Building your project...1:58"
+[138s] phase → "Building your project...2:02"
+[142s] phase → "Building your project...2:06"
+[146s] phase → "Building your project...2:10"
+[150s] phase → "Building your project...2:14"
+[154s] phase → "Building your project...2:18"
+[158s] phase → "Building your project...2:22"
+[162s] phase → "Building your project...2:26"
+[166s] phase → "Building your project...2:30"
+[170s] phase → "Building your project...2:34"
+[174s] phase → "Building your project...2:38"
+[178s] phase → "Building your project...2:42"
+[182s] phase → "Building your project...2:46"
+[187s] phase → "Building your project...2:50"
+[191s] phase → "Building your project...2:54"
+[195s] phase → "Building your project...2:58"
+[199s] phase → "Building your project...3:02"
+[203s] phase → "Building your project...3:06"
+[207s] phase → "Building your project...3:10"
+[211s] phase → "Building your project...3:14"
+[215s] PREVIEW LIVE at 215s — https://sb-16skkknxcc9z.vercel.run…
+[215s] build complete (input re-enabled)
+
+================ E2E REPORT ================
+kind: game
+time-to-preview: 215s
+PREVIEW RENDER: BLANK ❌ (canvas=false, text=0, nodes=2)
+total elapsed: 226s
+leaked words: NONE ✅
+console errors: 10
+   • PAGEERROR: ReferenceError: Cannot access 'Href' before initialization
+   • PAGEERROR: ReferenceError: Cannot access 'Href' before initialization
+   • The above error occurred in the <Home> component:
+
+    at Home (https://sb-16skkknxcc9z.vercel.run/src/pages/Home.tsx:48:24)
+    at RenderedRoute (https://sb-16skkknxcc9z.vercel.run/node_modules/.vite/deps/react-router-dom.js?v=b0306926:4120:5)
+    at Routes (https://sb-16skkknxcc9z.vercel.run/node_
+   • PAGEERROR: ReferenceError: Cannot access 'Href' before initialization
+   • PAGEERROR: ReferenceError: Cannot access 'Href' before initialization
+   • The above error occurred in the <Home> component:
+
+    at Home (https://sb-16skkknxcc9z.vercel.run/src/pages/Home.tsx:48:24)
+    at RenderedRoute (https://sb-16skkknxcc9z.vercel.run/node_modules/.vite/deps/react-router-dom.js?v=b0306926:4120:5)
+    at Routes (https://sb-16skkknxcc9z.vercel.run/node_
+   • Failed to load resource: the server responded with a status of 500 ()
+   • PAGEERROR: ReferenceError: Cannot access 'Href' before initialization
+   • PAGEERROR: ReferenceError: Cannot access 'Href' before initialization
+   • The above error occurred in the <Home> component:
+
+    at Home (https://sb-16skkknxcc9z.vercel.run/src/pages/Home.tsx:48:24)
+    at RenderedRoute (https://sb-16skkknxcc9z.vercel.run/node_modules/.vite/deps/react-router-dom.js?v=b0306926:4120:5)
+    at Routes (https://sb-16skkknxcc9z.vercel.run/node_
+failed/404 API requests: 1
+   • net::ERR_ABORTED https://codemineapp.com/api/sandboxes/sbx_9cZOLHmYqMcel89CZbv4N2TQQjKp/cmds/cm-browser-console
+===========================================

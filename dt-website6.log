@@ -1,0 +1,3 @@
+Auth OK, user: test@codemine.app
+[website6] HTTP 401 @ 23:38:27
+  body: {"error":"Please sign in to build."}

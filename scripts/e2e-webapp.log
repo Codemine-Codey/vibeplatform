@@ -1,0 +1,40 @@
+[1s] login…
+[5s] no welcome modal (cookie worked)
+[5s] logged in, chat ready
+[8s] submitted webapp prompt — BUILD STARTED (input busy) ✅
+[8s] phase → "CodemineBuildingYouThinking...1s"
+[12s] phase → "CodemineBuildingYouThinking...5s"
+[32s] phase → "Thinking...2s"
+[64s] phase → "Thinking...1s"
+[133s] PREVIEW LIVE at 133s — https://sb-5exg1iq52xa4.vercel.run…
+[133s] build complete (input re-enabled)
+
+================ E2E REPORT ================
+kind: webapp
+time-to-preview: 133s
+PREVIEW RENDER: RENDERED ✅ (canvas=false, text=100, nodes=7)
+total elapsed: 143s
+leaked words: NONE ✅
+console errors: 4
+   • AI communication error: Error: Insufficient Balance
+    at https://codemineapp.com/_next/static/chunks/3b5d82393d14f8d2.js?dpl=dpl_Ekhe1NXqeGsnRufWAuqByLDrXWgt:54:70026
+    at https://codemineapp.com/_next/static/chunks/3b5d82393d14f8d2.js?dpl=dpl_Ekhe1NXqeGsnRufWAuqByLDrXWgt:54:61310
+    at Array.<
+   • AI communication error: Error: Insufficient Balance
+    at https://codemineapp.com/_next/static/chunks/3b5d82393d14f8d2.js?dpl=dpl_Ekhe1NXqeGsnRufWAuqByLDrXWgt:54:70026
+    at https://codemineapp.com/_next/static/chunks/3b5d82393d14f8d2.js?dpl=dpl_Ekhe1NXqeGsnRufWAuqByLDrXWgt:54:61310
+    at Array.<
+   • AI communication error: Error: Insufficient Balance
+    at https://codemineapp.com/_next/static/chunks/3b5d82393d14f8d2.js?dpl=dpl_Ekhe1NXqeGsnRufWAuqByLDrXWgt:54:70026
+    at https://codemineapp.com/_next/static/chunks/3b5d82393d14f8d2.js?dpl=dpl_Ekhe1NXqeGsnRufWAuqByLDrXWgt:54:61310
+    at Array.<
+   • AI communication error: Error: Insufficient Balance
+    at https://codemineapp.com/_next/static/chunks/3b5d82393d14f8d2.js?dpl=dpl_Ekhe1NXqeGsnRufWAuqByLDrXWgt:54:70026
+    at https://codemineapp.com/_next/static/chunks/3b5d82393d14f8d2.js?dpl=dpl_Ekhe1NXqeGsnRufWAuqByLDrXWgt:54:61310
+    at Array.<
+failed/404 API requests: 4
+   • net::ERR_ABORTED https://codemineapp.com/api/chat
+   • net::ERR_ABORTED https://codemineapp.com/api/chat
+   • net::ERR_ABORTED https://codemineapp.com/api/chat
+   • net::ERR_ABORTED https://codemineapp.com/api/chat
+===========================================

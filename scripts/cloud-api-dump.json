@@ -1,0 +1,214 @@
+{
+  "summary": {
+    "database": "FAILS",
+    "auth": "WORKS",
+    "deploy": "WORKS"
+  },
+  "apiResults": [
+    {
+      "t": "194",
+      "status": 200,
+      "path": "cloud/neon",
+      "url": "https://codemineapp.com/api/cloud/neon",
+      "body": "{\"provisioned\":false,\"host\":null,\"databaseName\":null,\"neonProjectId\":null}"
+    },
+    {
+      "t": "197",
+      "status": 502,
+      "path": "cloud/neon",
+      "url": "https://codemineapp.com/api/cloud/neon",
+      "body": "{\"error\":\"The database service rejected the request. Please try again shortly.\"}"
+    },
+    {
+      "t": "297",
+      "status": 200,
+      "path": "auth/setup",
+      "url": "https://codemineapp.com/api/auth/setup",
+      "body": "{\"authUrl\":\"https://cm-auth.vibeplatfrom.workers.dev\",\"appId\":\"8918dbce-e2f9-4a50-927f-57803f82265f\",\"provider\":\"cf-worker\"}"
+    }
+  ],
+  "allApi": [
+    {
+      "t": "13",
+      "status": 200,
+      "path": "clarify",
+      "url": "https://codemineapp.com/api/clarify",
+      "body": "{\"questions\":[{\"question\":\"What visual style do you want for the guestbook?\",\"options\":[\"Clean & minimal (white space, simple fonts)\",\"Retro / nostalgic (warm tones, handwritten feel)\",\"Modern bold (dark mode, vibrant accents)\"]},{\"question\":\"What's the main purpose or audience for this guestbook?\",\"options\":[\"Personal blog / family & friends\",\"Professional portfolio / business feedback\",\"Community event / shared project\"]},{\"question\":\"What extra feature would you like most?\",\"options\":[\"A 'like' button on each message\",\"Sort by newest or oldest messages\",\"A 'secret' password-protected page to delete messages\"]}]}"
+    },
+    {
+      "t": "51",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "body": "{\"status\":\"running\"}"
+    },
+    {
+      "t": "81",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "body": "{\"status\":\"running\"}"
+    },
+    {
+      "t": "113",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "body": "{\"status\":\"running\"}"
+    },
+    {
+      "t": "143",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "body": "{\"status\":\"running\"}"
+    },
+    {
+      "t": "151",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/files",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/files?path=src%2Fstore%2FuseGuestbook.ts",
+      "body": "import { useState, useEffect, useCallback, useMemo } from 'react'\n\nexport interface Entry {\n  id: string\n  name: string\n  message: string\n  createdAt: number\n}\n\nconst STORAGE_KEY = 'scribblelog_entries'\n\nfunction loadEntries(): Entry[] {\n  try {\n    const raw = localStorage.getItem(STORAGE_KEY)\n    const parsed = JSON.parse(raw ?? '[]')\n    return Array.isArray(parsed) ? parsed : []\n  } catch {\n    return []\n  }\n}\n\nfunction persistEntries(entries: Entry[]): void {\n  try {\n    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))\n  } catch { /* quota exceeded — fail silently */ }\n}\n\nexport function useGuestbook() {\n  const [entries, setEntries] = useState<Entry[]>(loadEntries)\n  const [hydrated, setHydrated] = useState(false)\n\n  useEffect(() => {\n    setHydrated(true)\n  }, [])\n\n  const save = useCallback((next: Entry[]) => {\n    setEntries(next)\n    persistEntries(next)\n  }, [])\n\n  const addEntry = useCallback((name: string, message: string): Entry => {\n    const entry: Entry = {\n      id: crypto.randomUUID(),\n      name: name.trim(),\n      message: message.trim(),\n      createdAt: Date.now(),\n    }\n    save([entry, ...entries])\n    return entry\n  }, [entries, save])\n\n  const removeEntry = useCallback((id: string) => {\n    save(entries.filter(e => e.id !== id))\n  }, [entries, save])\n\n  const clearAll = useCallback(() => {\n    save([])\n  }, [save])\n\n  const sortedEntries = useMemo(\n    () => [...entries].sort((a, b) => b.createdAt - a.createdAt),\n    [entries],\n  )\n\n  return {\n    entries: sortedEntries,\n    hydrated,\n    addEntry,\n    removeEntry,\n    clearAll,\n    total: entries.length,\n  }\n}\n\nexport default useGuestbook"
+    },
+    {
+      "t": "153",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/files",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/files?path=src%2Fstore%2FuseGuestbook.ts",
+      "body": "import { useState, useEffect, useCallback, useMemo } from 'react'\n\nexport interface Entry {\n  id: string\n  name: string\n  message: string\n  createdAt: number\n}\n\nconst STORAGE_KEY = 'scribblelog_entries'\n\nfunction loadEntries(): Entry[] {\n  try {\n    const raw = localStorage.getItem(STORAGE_KEY)\n    const parsed = JSON.parse(raw ?? '[]')\n    return Array.isArray(parsed) ? parsed : []\n  } catch {\n    return []\n  }\n}\n\nfunction persistEntries(entries: Entry[]): void {\n  try {\n    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))\n  } catch { /* quota exceeded — fail silently */ }\n}\n\nexport function useGuestbook() {\n  const [entries, setEntries] = useState<Entry[]>(loadEntries)\n  const [hydrated, setHydrated] = useState(false)\n\n  useEffect(() => {\n    setHydrated(true)\n  }, [])\n\n  const save = useCallback((next: Entry[]) => {\n    setEntries(next)\n    persistEntries(next)\n  }, [])\n\n  const addEntry = useCallback((name: string, message: string): Entry => {\n    const entry: Entry = {\n      id: crypto.randomUUID(),\n      name: name.trim(),\n      message: message.trim(),\n      createdAt: Date.now(),\n    }\n    save([entry, ...entries])\n    return entry\n  }, [entries, save])\n\n  const removeEntry = useCallback((id: string) => {\n    save(entries.filter(e => e.id !== id))\n  }, [entries, save])\n\n  const clearAll = useCallback(() => {\n    save([])\n  }, [save])\n\n  const sortedEntries = useMemo(\n    () => [...entries].sort((a, b) => b.createdAt - a.createdAt),\n    [entries],\n  )\n\n  return {\n    entries: sortedEntries,\n    hydrated,\n    addEntry,\n    removeEntry,\n    clearAll,\n    total: entries.length,\n  }\n}\n\nexport default useGuestbook"
+    },
+    {
+      "t": "174",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/files",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/files?path=src%2Fcomponents%2FEntryCard.tsx",
+      "body": "import { motion } from 'framer-motion'\nimport { Trash2 } from 'lucide-react'\nimport { cn } from '@/lib/utils'\nimport { formatRelativeTime } from './InkStamp'\n\ninterface EntryCardProps {\n  entry: Entry\n  index: number\n  onDelete: (id: string) => void\n}\n\nconst rotations = [-1, 0.7, -0.5, 0.9, -0.8, 0.6, -0.4, 0.8, -0.6, 0.5]\n\nexport default function EntryCard({ entry, index, onDelete }: EntryCardProps) {\n  const rotation = rotations[index % rotations.length]\n\n  return (\n    <motion.article\n      initial={{ opacity: 0, y: 24, rotate: rotation }}\n      animate={{ opacity: 1, y: 0, rotate: rotation }}\n      transition={{\n        duration: 0.5,\n        ease: [0.22, 1, 0.36, 1],\n        delay: index * 0.06,\n      }}\n      whileHover={{ y: -2, rotate: 0, transition: { duration: 0.3 } }}\n      className={cn(\n        'group relative bg-surface rounded-lg p-6 shadow-sm',\n        'border border-[#E8D5C4] hover:shadow-md',\n        'transition-shadow duration-300',\n      )}\n      style={{\n        boxShadow:\n          '0 1px 3px rgba(26,20,16,0.06), 0 4px 8px rgba(26,20,16,0.04)',\n      }}\n    >\n      {/* dot-grid overlay revealed on hover */}\n      <div className=\"pointer-events-none absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-500\">\n        <div\n          className=\"absolute inset-0 rounded-lg\"\n          style={{\n            backgroundImage:\n              'radial-gradient(circle, rgba(139,111,94,0.12) 1px, transparent 1px)',\n            backgroundSize: '16px 16px',\n          }}\n        />\n      </div>\n\n      {/* delete button */}\n      <button\n        onClick={() => onDelete(entry.id)}\n        className={cn(\n          'absolute top-4 right-4 p-1.5 rounded-full',\n          'opacity-0 group-hover:opacity-100 transition-opacity duration-200',\n          'hover:bg-[#F5EDE4] text-muted-foreground hover:text-red-500',\n          'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',\n        )}\n        aria-label=\"Delete entry\"\n"
+    },
+    {
+      "t": "174",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "body": "{\"status\":\"running\"}"
+    },
+    {
+      "t": "175",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/files",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/files?path=src%2Fcomponents%2FEntryCard.tsx",
+      "body": "import { motion } from 'framer-motion'\nimport { Trash2 } from 'lucide-react'\nimport { cn } from '@/lib/utils'\nimport { formatRelativeTime } from './InkStamp'\n\ninterface EntryCardProps {\n  entry: Entry\n  index: number\n  onDelete: (id: string) => void\n}\n\nconst rotations = [-1, 0.7, -0.5, 0.9, -0.8, 0.6, -0.4, 0.8, -0.6, 0.5]\n\nexport default function EntryCard({ entry, index, onDelete }: EntryCardProps) {\n  const rotation = rotations[index % rotations.length]\n\n  return (\n    <motion.article\n      initial={{ opacity: 0, y: 24, rotate: rotation }}\n      animate={{ opacity: 1, y: 0, rotate: rotation }}\n      transition={{\n        duration: 0.5,\n        ease: [0.22, 1, 0.36, 1],\n        delay: index * 0.06,\n      }}\n      whileHover={{ y: -2, rotate: 0, transition: { duration: 0.3 } }}\n      className={cn(\n        'group relative bg-surface rounded-lg p-6 shadow-sm',\n        'border border-[#E8D5C4] hover:shadow-md',\n        'transition-shadow duration-300',\n      )}\n      style={{\n        boxShadow:\n          '0 1px 3px rgba(26,20,16,0.06), 0 4px 8px rgba(26,20,16,0.04)',\n      }}\n    >\n      {/* dot-grid overlay revealed on hover */}\n      <div className=\"pointer-events-none absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-500\">\n        <div\n          className=\"absolute inset-0 rounded-lg\"\n          style={{\n            backgroundImage:\n              'radial-gradient(circle, rgba(139,111,94,0.12) 1px, transparent 1px)',\n            backgroundSize: '16px 16px',\n          }}\n        />\n      </div>\n\n      {/* delete button */}\n      <button\n        onClick={() => onDelete(entry.id)}\n        className={cn(\n          'absolute top-4 right-4 p-1.5 rounded-full',\n          'opacity-0 group-hover:opacity-100 transition-opacity duration-200',\n          'hover:bg-[#F5EDE4] text-muted-foreground hover:text-red-500',\n          'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',\n        )}\n        aria-label=\"Delete entry\"\n"
+    },
+    {
+      "t": "179",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/files",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/files?path=src%2Fcomponents%2FEntryForm.tsx",
+      "body": "import { useState, useRef, useCallback } from 'react'\nimport { motion, AnimatePresence } from 'framer-motion'\nimport { PenLine, Loader2 } from 'lucide-react'\nimport { cn } from '@/lib/utils'\nimport InkStamp from './InkStamp'\n\ninterface EntryFormProps {\n  onSubmit: (name: string, message: string) => void\n}\n\nconst NAME_MAX = 50\nconst MESSAGE_MAX = 500\n\nexport default function EntryForm({ onSubmit }: EntryFormProps) {\n  const [name, setName] = useState('')\n  const [message, setMessage] = useState('')\n  const [nameError, setNameError] = useState('')\n  const [messageError, setMessageError] = useState('')\n  const [isSubmitting, setIsSubmitting] = useState(false)\n  const [showStamp, setShowStamp] = useState(false)\n  const [showToast, setShowToast] = useState(false)\n  const formRef = useRef<HTMLFormElement>(null)\n  const nameRef = useRef<HTMLInputElement>(null)\n\n  const remaining = MESSAGE_MAX - message.length\n  const isNearLimit = remaining <= 50\n  const isOverLimit = remaining < 0\n\n  const validate = useCallback((): boolean => {\n    let valid = true\n    const trimmedName = name.trim()\n    const trimmedMessage = message.trim()\n\n    if (!trimmedName) {\n      setNameError('Your name is required')\n      valid = false\n    } else if (trimmedName.length > NAME_MAX) {\n      setNameError(`Name must be ${NAME_MAX} characters or fewer`)\n      valid = false\n    } else {\n      setNameError('')\n    }\n\n    if (!trimmedMessage) {\n      setMessageError('A message is required')\n      valid = false\n    } else if (trimmedMessage.length > MESSAGE_MAX) {\n      setMessageError(`Message must be ${MESSAGE_MAX} characters or fewer`)\n      valid = false\n    } else {\n      setMessageError('')\n    }\n\n    return valid\n  }, [name, message])\n\n  const handleSubmit = useCallback(\n    (e: React.FormEvent) => {\n      e.preventDefault()\n      if (!validate()) return\n\n      setIsSubmitting(true)\n\n      // brief delay for the stamp animation to feel satisfying\n      setTimeout(() => {\n        onSubmit(name, me"
+    },
+    {
+      "t": "180",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/files",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/files?path=src%2Fcomponents%2FEntryForm.tsx",
+      "body": "import { useState, useRef, useCallback } from 'react'\nimport { motion, AnimatePresence } from 'framer-motion'\nimport { PenLine, Loader2 } from 'lucide-react'\nimport { cn } from '@/lib/utils'\nimport InkStamp from './InkStamp'\n\ninterface EntryFormProps {\n  onSubmit: (name: string, message: string) => void\n}\n\nconst NAME_MAX = 50\nconst MESSAGE_MAX = 500\n\nexport default function EntryForm({ onSubmit }: EntryFormProps) {\n  const [name, setName] = useState('')\n  const [message, setMessage] = useState('')\n  const [nameError, setNameError] = useState('')\n  const [messageError, setMessageError] = useState('')\n  const [isSubmitting, setIsSubmitting] = useState(false)\n  const [showStamp, setShowStamp] = useState(false)\n  const [showToast, setShowToast] = useState(false)\n  const formRef = useRef<HTMLFormElement>(null)\n  const nameRef = useRef<HTMLInputElement>(null)\n\n  const remaining = MESSAGE_MAX - message.length\n  const isNearLimit = remaining <= 50\n  const isOverLimit = remaining < 0\n\n  const validate = useCallback((): boolean => {\n    let valid = true\n    const trimmedName = name.trim()\n    const trimmedMessage = message.trim()\n\n    if (!trimmedName) {\n      setNameError('Your name is required')\n      valid = false\n    } else if (trimmedName.length > NAME_MAX) {\n      setNameError(`Name must be ${NAME_MAX} characters or fewer`)\n      valid = false\n    } else {\n      setNameError('')\n    }\n\n    if (!trimmedMessage) {\n      setMessageError('A message is required')\n      valid = false\n    } else if (trimmedMessage.length > MESSAGE_MAX) {\n      setMessageError(`Message must be ${MESSAGE_MAX} characters or fewer`)\n      valid = false\n    } else {\n      setMessageError('')\n    }\n\n    return valid\n  }, [name, message])\n\n  const handleSubmit = useCallback(\n    (e: React.FormEvent) => {\n      e.preventDefault()\n      if (!validate()) return\n\n      setIsSubmitting(true)\n\n      // brief delay for the stamp animation to feel satisfying\n      setTimeout(() => {\n        onSubmit(name, me"
+    },
+    {
+      "t": "185",
+      "status": 200,
+      "path": "chat",
+      "url": "https://codemineapp.com/api/chat",
+      "body": "data: {\"id\":\"srv-run\",\"type\":\"data-run\",\"data\":{\"runId\":\"bcf809e3-f4ea-41b1-9fb4-33150ba38a2e\"}}\n\ndata: {\"id\":\"srv-sandbox\",\"type\":\"data-create-sandbox\",\"data\":{\"status\":\"loading\"}}\n\ndata: {\"id\":\"srv-sandbox\",\"type\":\"data-create-sandbox\",\"data\":{\"sandboxId\":\"sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw\",\"projectId\":\"8918dbce-e2f9-4a50-927f-57803f82265f\",\"status\":\"done\"}}\n\ndata: {\"id\":\"srv-phase-gen\",\"type\":\"data-build-phase\",\"data\":{\"phase\":\"generating\",\"label\":\"Generating your files...\"}}\n\ndata: {\"type\":\"start-step\"}\n\ndata: {\"type\":\"text-start\",\"id\":\"0\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\"A\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\" warm\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\" parchment\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\" guest\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\"book\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\" with\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\" ink\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\"-st\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\"amp\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\" charm\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\" and\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\" paper\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\"-st\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\"ack\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\" post\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\"cards\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\" â€”\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\" building\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\" Scrib\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\"ble\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\"Log\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"0\",\"delta\":\".\"}\n\ndata: {\"type\":\"tool-input-start\",\"toolCallId\":\"call_00_m3lJJIjMf9Nje8pYvVOc7136\",\"toolName\":\"planProject\"}\n\ndata: {\"type\":\"tool-input-delta\",\"toolCallId\":\"call_00_m3lJJIjMf9Nje8pYvVOc7136\",\"inputTextDelta\":\"{\"}\n\ndata: {\"type\":\"tool-input-delta\",\"toolCallId\":\"call_00_m3lJJ"
+    },
+    {
+      "t": "186",
+      "status": 200,
+      "path": "projects/8918dbce-e2f9-4a50-927f-57803f82265f/messages",
+      "url": "https://codemineapp.com/api/projects/8918dbce-e2f9-4a50-927f-57803f82265f/messages",
+      "body": "{\"ok\":true}"
+    },
+    {
+      "t": "187",
+      "status": 200,
+      "path": "projects/8918dbce-e2f9-4a50-927f-57803f82265f/messages",
+      "url": "https://codemineapp.com/api/projects/8918dbce-e2f9-4a50-927f-57803f82265f/messages",
+      "body": "{\"ok\":true}"
+    },
+    {
+      "t": "189",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/cmds/cm-browser-console/logs",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/cmds/cm-browser-console/logs",
+      "body": ""
+    },
+    {
+      "t": "190",
+      "status": 500,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/cmds/cm-browser-console",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw/cmds/cm-browser-console",
+      "body": ""
+    },
+    {
+      "t": "194",
+      "status": 200,
+      "path": "cloud/neon",
+      "url": "https://codemineapp.com/api/cloud/neon",
+      "body": "{\"provisioned\":false,\"host\":null,\"databaseName\":null,\"neonProjectId\":null}"
+    },
+    {
+      "t": "197",
+      "status": 502,
+      "path": "cloud/neon",
+      "url": "https://codemineapp.com/api/cloud/neon",
+      "body": "{\"error\":\"The database service rejected the request. Please try again shortly.\"}"
+    },
+    {
+      "t": "205",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "body": "{\"status\":\"running\"}"
+    },
+    {
+      "t": "218",
+      "status": 200,
+      "path": "silent-repair",
+      "url": "https://codemineapp.com/api/silent-repair",
+      "body": "{\"ok\":true,\"repairedAny\":true}"
+    },
+    {
+      "t": "236",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "body": "{\"status\":\"running\"}"
+    },
+    {
+      "t": "266",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "body": "{\"status\":\"running\"}"
+    },
+    {
+      "t": "297",
+      "status": 200,
+      "path": "auth/setup",
+      "url": "https://codemineapp.com/api/auth/setup",
+      "body": "{\"authUrl\":\"https://cm-auth.vibeplatfrom.workers.dev\",\"appId\":\"8918dbce-e2f9-4a50-927f-57803f82265f\",\"provider\":\"cf-worker\"}"
+    },
+    {
+      "t": "297",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "body": "{\"status\":\"running\"}"
+    },
+    {
+      "t": "328",
+      "status": 200,
+      "path": "sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "url": "https://codemineapp.com/api/sandboxes/sbx_9m7eJntIXBWe3H8uYRK5TUdOloHw",
+      "body": "{\"status\":\"running\"}"
+    }
+  ]
+}

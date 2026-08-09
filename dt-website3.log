@@ -1,0 +1,19 @@
+[16:20:59] 
+=== DEEP TEST: website3 ===
+[16:20:59] prompt: Build me a stunning portfolio website for a UX designer named Sofia
+[16:20:59] walk-away mode: off
+[16:25:51]   ⏱  FIRST PREVIEW (client-observed) at 4m52s (292s) → https://sb-7c64lb257c11.vercel.run
+[16:33:10]   💬 731s: Your site is live and clickable — go ahead and try it while I work. I'm filling in the rest of the pages now…
+[16:33:11]   💬 731s: Your site's already live and usable — I'll keep filling in the remaining pages in the background; they'll appear as they're ready.
+[16:33:13]   stream ended at 12m14s (734s) (runId=5e2d0631-e1bd-4d88-96fa-b0b073438495)
+[16:36:04] 
+  ── RESULT: website3 ──
+[16:36:04]   status:            done
+[16:36:04]   time to preview:   4m49s (289s)
+[16:36:04]   total build time:  14m56s (896s)
+[16:36:04]   phases:            2/2 completed
+[16:36:04]   tokens used:       266366
+[16:36:04]   chained (walkaway): YES (1 handoff msg)
+[16:36:04]   preview url:       https://sb-7c64lb257c11.vercel.run
+[16:36:04]   event log size:    69
+[16:36:04]   narrations:        2

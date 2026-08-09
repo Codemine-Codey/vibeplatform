@@ -1,0 +1,19 @@
+
+> codemine@0.1.0 dev C:\Users\shazi\OneDrive\Desktop\VibePlatform
+> next dev --turbopack "--port" "3001"
+
+ ⨯ Failed to start server
+C:\Users\shazi\OneDrive\Desktop\VibePlatform\node_modules\.pnpm\next@16.0.10_@opentelemetry_56a127a2a535bd8bb24c97bba6aeb5d8\node_modules\next\dist\server\lib\start-server.js: Invalid source map. Only conformant source maps can be used to find the original code. Cause: Error: sourceMapURL could not be parsed
+C:\Users\shazi\OneDrive\Desktop\VibePlatform\node_modules\.pnpm\next@16.0.10_@opentelemetry_56a127a2a535bd8bb24c97bba6aeb5d8\node_modules\next\dist\trace\trace.js: Invalid source map. Only conformant source maps can be used to find the original code. Cause: Error: sourceMapURL could not be parsed
+Error: listen EADDRINUSE: address already in use :::3001
+    at <unknown> (Error: listen EADDRINUSE: address already in use :::3001)
+    at new Promise (<anonymous>) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3001
+}
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+[?25h
+ ELIFECYCLE  Command failed with exit code 1.

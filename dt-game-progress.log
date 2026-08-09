@@ -1,0 +1,33 @@
+[15:32:06] 
+=== DEEP TEST: game ===
+[15:32:06] prompt: Build me an Asteroids space shooter game
+[15:32:06] walk-away mode: off
+[15:37:22]   stream ended at 5m16s (316s) (runId=23e67e7e-c0fd-41b6-93af-e8c665ab4e08)
+
+=== DEEP TEST: game ===
+prompt: Build me an Asteroids space shooter game
+walk-away mode: off
+  ⏱  FIRST PREVIEW (client-observed) at 5m32s (332s) → https://sb-7mgjyj6tyl98.vercel.run
+  stream ended at 5m34s (334s) (runId=dbab2652-2b1e-4c6c-8b64-52249022cbfc)
+
+  ── RESULT: game ──
+  status:            done
+  time to preview:   5m29s (329s)
+  total build time:  5m31s (331s)
+  phases:            0/? completed
+  tokens used:       119213
+  chained (walkaway): no (single invocation)
+  preview url:       https://sb-7mgjyj6tyl98.vercel.run
+  event log size:    18
+  narrations:        0
+[15:57:24] 
+  ── RESULT: game ──
+[15:57:24]   status:            running
+[15:57:24]   time to preview:   n/a
+[15:57:24]   total build time:  0m00s (0s)
+[15:57:24]   phases:            0/? completed
+[15:57:24]   tokens used:       0
+[15:57:24]   chained (walkaway): no (single invocation)
+[15:57:24]   preview url:       null
+[15:57:24]   event log size:    5
+[15:57:24]   narrations:        0
