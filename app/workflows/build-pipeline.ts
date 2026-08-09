@@ -21,6 +21,7 @@ import { getModelOptions } from '@/ai/gateway'
 import {
   DEFAULT_MODEL,
   FILE_GENERATION_MODEL,
+  REPAIR_MODEL,
   getMaxOutputTokens,
 } from '@/ai/constants'
 import { getScaffoldFiles } from '@/ai/tools/scaffold'
@@ -1164,13 +1165,16 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       // SAFETY NET (monotonic): on budget-exhaust OR an unavailable check we reveal ANYWAY
       // (today's behavior) so the gate can NEVER hold previews hostage on a false-negative.
       let gateAttempts = 0
-      while (withinBudget() && gateAttempts < 2 && (rtStatus === 'broken' || rtStatus === null)) {
+      while (withinBudget() && gateAttempts < 3 && (rtStatus === 'broken' || rtStatus === null)) {
         let fresh: Awaited<ReturnType<typeof headlessRuntimeCheck>> | null = null
         try { fresh = await headlessRuntimeCheck(resolvedUrl, sandboxId) } catch { fresh = null }
         if (!fresh) break // check unavailable → don't block reveal (it logs loudly elsewhere)
         rtStatus = fresh.status
         if (fresh.status !== 'broken') break // fresh PASS → reveal
-        logRepair({ layer: 'runtime-check', action: `reveal-gate-r${gateAttempts + 1}`, detail: (fresh.detail || '').slice(0, 180), sandboxId })
+        // 3-TRY ESCALATION (user rule): attempts 1-2 use cheap Flash; the 3rd (final) uses
+        // Claude — a stubborn error the cheap model can't crack gets the frontier model.
+        const repairModel = gateAttempts >= 2 ? FILE_GENERATION_MODEL : REPAIR_MODEL
+        logRepair({ layer: 'runtime-check', action: `reveal-gate-r${gateAttempts + 1}${gateAttempts >= 2 ? '-claude' : ''}`, detail: (fresh.detail || '').slice(0, 180), sandboxId })
         let wrote = false
         // Missing-file class: "Failed to resolve import X from Y" → CREATE X (repairFile
         // can't create a file — this is what let tonight's blank through). Parse from the
@@ -1186,7 +1190,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
             const usedAsJsx = name.length > 0 && new RegExp(`<${name}[\\s/>]`).test(importerContent ?? '')
             const ext = (usedAsJsx || /\/(components|pages|sections|screens|views|layouts)\//.test('/' + base)) ? '.tsx' : '.ts'
             const createPath = base + ext
-            const gen = await generateMissingFile(createPath, spec, importerContent ?? '').catch(() => null)
+            const gen = await generateMissingFile(createPath, spec, importerContent ?? '', repairModel).catch(() => null)
             if (gen) {
               await sandbox.writeFiles([{ path: createPath, content: Buffer.from(gen, 'utf8') }])
               wrote = true
@@ -1198,7 +1202,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
           for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 6)) {
             const content = await readSandboxFile(sandbox, path)
             if (!content) continue
-            const fixed = await repairFile(path, content, `The rendered page is broken/blank before reveal. Fix this so it renders:\n${fresh.detail || 'runtime error / blank render'}`)
+            const fixed = await repairFile(path, content, `The rendered page is broken/blank before reveal. Fix this so it renders:\n${fresh.detail || 'runtime error / blank render'}`, repairModel)
             if (fixed && fixed !== content) { await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }]); wrote = true }
           }
         }
@@ -1415,13 +1419,15 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
       try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
     }
     let gateAttempts = 0
-    while (withinBudget() && gateAttempts < 2 && (rtStatus === 'broken' || rtStatus === null)) {
+    while (withinBudget() && gateAttempts < 3 && (rtStatus === 'broken' || rtStatus === null)) {
       let fresh: Awaited<ReturnType<typeof headlessRuntimeCheck>> | null = null
       try { fresh = await headlessRuntimeCheck(resolvedUrl, sandboxId) } catch { fresh = null }
       if (!fresh) break
       rtStatus = fresh.status
       if (fresh.status !== 'broken') break
-      logRepair({ layer: 'runtime-check', action: `reveal-gate2-r${gateAttempts + 1}`, detail: (fresh.detail || '').slice(0, 180), sandboxId })
+      // 3-try escalation: attempts 1-2 Flash, 3rd Claude (same rule as stepVerify).
+      const repairModel = gateAttempts >= 2 ? FILE_GENERATION_MODEL : REPAIR_MODEL
+      logRepair({ layer: 'runtime-check', action: `reveal-gate2-r${gateAttempts + 1}${gateAttempts >= 2 ? '-claude' : ''}`, detail: (fresh.detail || '').slice(0, 180), sandboxId })
       let wrote = false
       const resolveMatch2 = (fresh.detail || '').match(/Failed to resolve import "([^"]+)" from "([^"]+)"/)
       if (resolveMatch2) {
@@ -1434,7 +1440,7 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
           const usedAsJsx = name.length > 0 && new RegExp(`<${name}[\\s/>]`).test(importerContent ?? '')
           const ext = (usedAsJsx || /\/(components|pages|sections|screens|views|layouts)\//.test('/' + base)) ? '.tsx' : '.ts'
           const createPath = base + ext
-          const gen = await generateMissingFile(createPath, spec, importerContent ?? '').catch(() => null)
+          const gen = await generateMissingFile(createPath, spec, importerContent ?? '', repairModel).catch(() => null)
           if (gen) {
             await sandbox.writeFiles([{ path: createPath, content: Buffer.from(gen, 'utf8') }])
             wrote = true
@@ -1446,7 +1452,7 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
         for (const path of ['src/pages/Home.tsx', ...manifestFilePaths.filter(p => /\.(tsx|ts)$/.test(p))].slice(0, 6)) {
           const content = await readSandboxFile(sandbox, path)
           if (!content) continue
-          const fixed = await repairFile(path, content, `The rendered page is broken/blank before reveal. Fix this so it renders:\n${fresh.detail || 'runtime error / blank render'}`)
+          const fixed = await repairFile(path, content, `The rendered page is broken/blank before reveal. Fix this so it renders:\n${fresh.detail || 'runtime error / blank render'}`, repairModel)
           if (fixed && fixed !== content) { await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }]); wrote = true }
         }
       }

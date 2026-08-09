@@ -387,11 +387,12 @@ export async function generateMissingFile(
   path: string,
   spec: string,
   importerContent: string,
+  modelId: string = REPAIR_MODEL,
 ): Promise<string | null> {
   try {
     const res = await generateText({
-      ...getModelOptions(REPAIR_MODEL),
-      maxOutputTokens: getMaxOutputTokens(REPAIR_MODEL),
+      ...getModelOptions(modelId),
+      maxOutputTokens: getMaxOutputTokens(modelId),
       abortSignal: AbortSignal.timeout(45_000),
       system:
         'You are a React/TypeScript module generator. A Vite build failed because the file shown below does not exist. ' +
@@ -418,13 +419,15 @@ export async function generateMissingFile(
   }
 }
 
-// Ask Flash to repair ONE file given the exact build error. Returns corrected
-// full-file content, or null if it couldn't help.
-export async function repairFile(path: string, content: string, error: string): Promise<string | null> {
+// Repair ONE file given the exact build error. Returns corrected full-file content, or
+// null. modelId defaults to the cheap REPAIR_MODEL (Flash); repair loops ESCALATE to the
+// strong FILE_GENERATION_MODEL (Claude) on the final attempt (user's 3-try rule: Flash x2,
+// Claude x3) — a stubborn error a cheap model can't crack gets the frontier model.
+export async function repairFile(path: string, content: string, error: string, modelId: string = REPAIR_MODEL): Promise<string | null> {
   try {
     const res = await generateText({
-      ...getModelOptions(REPAIR_MODEL),
-      maxOutputTokens: getMaxOutputTokens(REPAIR_MODEL),
+      ...getModelOptions(modelId),
+      maxOutputTokens: getMaxOutputTokens(modelId),
       abortSignal: AbortSignal.timeout(45_000),
       system:
         'You are a build-error repair tool. You receive ONE file and the exact build error it causes. ' +
