@@ -3,5 +3,6 @@
   "mustCatch": [
     { "rung": "resolve", "file": "src/App.tsx", "specifier": "./pages/Game" }
   ],
+  "mustPlanCreate": ["src/pages/Game.tsx"],
   "note": "The resolve rung (in-memory) must flag the missing ./pages/Game import. The `new Game()` non-class bug is a TYPECHECK-rung catch (tsc, in-sandbox) — validated separately in Phase 2, not by the in-memory harness."
 }

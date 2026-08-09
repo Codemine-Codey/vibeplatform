@@ -3,5 +3,6 @@
   "mustCatch": [
     { "rung": "resolve", "file": "src/pages/Home.tsx", "specifier": "../sections/Contact" }
   ],
+  "mustPlanCreate": ["src/sections/Contact.tsx"],
   "note": "Home imports ./sections/Contact which is neither on disk nor in the manifest → the hallucination/missing-section signal."
 }

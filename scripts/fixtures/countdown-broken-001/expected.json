@@ -6,5 +6,6 @@
   "writeGate": {
     "mustWrite": ["src/App.tsx", "src/pages/Home.tsx"]
   },
+  "mustPlanCreate": ["src/components/MainViewTimer.tsx"],
   "note": "@/components/MainViewTimer is neither scaffold nor in the manifest nor on disk → the undeclared-import signal. Parse passes (valid syntax); resolve flags it."
 }

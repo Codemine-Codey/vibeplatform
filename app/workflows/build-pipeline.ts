@@ -36,7 +36,7 @@ import { getSkillCatalog, loadSkillBody, designSkillFor } from '@/ai/skills'
 import { generateSuggestions } from '@/ai/suggestions'
 import { reviewGeneratedCode } from '@/lib/code-review-gate'
 import { readSandboxFile, repairFile, generateMissingFile, installMissingModules } from '@/lib/sandbox-util'
-import { extractImports, resolveGate, SCAFFOLD_RESOLVABLE, localImportBasePath } from '@/lib/gates/checker.mjs'
+import { plannedMissingFiles, SCAFFOLD_RESOLVABLE, localImportBasePath } from '@/lib/gates/checker.mjs'
 import { logRepair } from '@/lib/telemetry'
 import {
   checkAndStampMissingFiles,
@@ -626,36 +626,20 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
       const content = await readSandboxFile(sandbox, p)
       if (content && !content.includes('__CM_STUB__')) onDisk.push({ path: p, content })
     }
-    const withImports = await Promise.all(onDisk.map(async f => ({ path: f.path, imports: await extractImports(f.path, f.content) })))
-    const fileSet = new Set(onDisk.map(f => f.path))
-    const unresolved = resolveGate(withImports, fileSet, SCAFFOLD_RESOLVABLE)
-
-    // Dedupe by the file we'd create; skip anything already on disk / in the manifest.
-    const declaredPaths = new Set([...onDisk.map(f => f.path), ...(planBox.manifest?.files.map(f => f.path) ?? [])])
-    const toCreate = new Map<string, { spec: string; importer: string }>()
-    for (const u of unresolved) {
-      const base = localImportBasePath(u.file, u.specifier ?? '')
-      if (!base) continue
-      const importerContent = onDisk.find(f => f.path === u.file)?.content ?? ''
-      const name = base.split('/').pop() ?? ''
-      // JSX-usage decides extension: used as <Name → .tsx, else path-shape heuristic.
-      const usedAsJsx = name.length > 0 && new RegExp(`<${name}[\\s/>]`).test(importerContent)
-      const ext = (usedAsJsx || /\/(components|pages|sections|screens|views|layouts)\//.test('/' + base)) ? '.tsx' : '.ts'
-      const createPath = base + ext
-      if (declaredPaths.has(createPath) || fileSet.has(createPath)) continue
-      if (!toCreate.has(createPath)) toCreate.set(createPath, { spec: u.specifier ?? '', importer: u.file })
-    }
+    // Shared planner (also unit-tested by the replay harness) decides WHAT to create.
+    const planned = (await plannedMissingFiles(onDisk, SCAFFOLD_RESOLVABLE))
+      .filter(p => !onDisk.some(f => f.path === p.createPath))
 
     let created = 0
-    for (const [createPath, info] of toCreate) {
+    for (const info of planned) {
       if (created >= 5) { console.warn(`[end-resolve-gate] >5 undeclared imports — recording rest, not creating`); break }
       const importerContent = onDisk.find(f => f.path === info.importer)?.content ?? ''
-      const gen = await generateMissingFile(createPath, info.spec, importerContent).catch(() => null)
+      const gen = await generateMissingFile(info.createPath, info.spec, importerContent).catch(() => null)
       if (gen) {
-        await sandbox.writeFiles([{ path: createPath, content: Buffer.from(gen, 'utf8') }])
+        await sandbox.writeFiles([{ path: info.createPath, content: Buffer.from(gen, 'utf8') }])
         created++
-        logRepair({ layer: 'stamp-local-alias', action: 'end-resolve-created', detail: `${createPath} <- "${info.spec}" (imported by ${info.importer})`, sandboxId })
-        console.warn(`[end-resolve-gate] created missing ${createPath} for import "${info.spec}"`)
+        logRepair({ layer: 'stamp-local-alias', action: 'end-resolve-created', detail: `${info.createPath} <- "${info.spec}" (imported by ${info.importer})`, sandboxId })
+        console.warn(`[end-resolve-gate] created missing ${info.createPath} for import "${info.spec}"`)
       }
     }
     if (created > 0 && planBox.manifest) {

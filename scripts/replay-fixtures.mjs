@@ -11,7 +11,7 @@
 import { readdirSync, readFileSync, statSync, existsSync } from 'fs'
 import { join, relative, sep } from 'path'
 import { fileURLToPath } from 'url'
-import { runInMemoryGates, prepareWriteGate } from '../lib/gates/checker.mjs'
+import { runInMemoryGates, prepareWriteGate, plannedMissingFiles } from '../lib/gates/checker.mjs'
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 const FIXTURES_DIR = join(HERE, 'fixtures')
@@ -80,6 +80,19 @@ function checkWriteGate(expected, wg) {
   return problems
 }
 
+// Check the end-of-gen resolve gate PLANNER: expected.mustPlanCreate = the createPaths
+// the gate would hand to generateMissingFile (proves the detection + path-mapping the
+// real fix depends on, deterministically at $0).
+function checkPlanner(expected, planned) {
+  const problems = []
+  for (const cp of expected.mustPlanCreate || []) {
+    if (!planned.some(p => p.createPath === cp)) {
+      problems.push(`planner: expected to plan-create "${cp}" but did not (got: ${planned.map(p => p.createPath).join(', ') || 'none'})`)
+    }
+  }
+  return problems
+}
+
 const t0 = Date.now()
 const dirs = readdirSync(FIXTURES_DIR).filter(d => statSync(join(FIXTURES_DIR, d)).isDirectory()).sort()
 let allOk = true
@@ -89,7 +102,8 @@ for (const name of dirs) {
   const { files, manifestPaths, expected } = loadFixture(join(FIXTURES_DIR, name))
   const result = await runInMemoryGates(files, manifestPaths)
   const wg = await prepareWriteGate(files, { manifestPaths, generatedPaths: manifestPaths })
-  const problems = [...checkExpectation(expected, result), ...checkWriteGate(expected, wg)]
+  const planned = await plannedMissingFiles(files)
+  const problems = [...checkExpectation(expected, result), ...checkWriteGate(expected, wg), ...checkPlanner(expected, planned)]
   const ok = problems.length === 0
   allOk = allOk && ok
   const verdict = ok ? 'OK ✅' : 'REGRESSION ❌'
