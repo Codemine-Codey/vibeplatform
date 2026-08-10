@@ -339,7 +339,11 @@ export function Marquee({ children, className = '', speed = 30, reverse = false 
 }
 
 // Number that counts up (ease-out) when scrolled into view.
-export function CountUp({ to, duration = 2, suffix = '', prefix = '', className = '' }: { to: number; duration?: number; suffix?: string; prefix?: string; className?: string }) {
+export function CountUp({ to, duration = 2, suffix = '', prefix = '', className = '' }: { to?: number; duration?: number; suffix?: string; prefix?: string; className?: string }) {
+  // Bulletproof: coerce whatever the AI passes into a finite number. A missing or
+  // non-numeric \`to\` used to make setN(to) store undefined → n.toLocaleString()
+  // threw on scroll-into-view and tripped the error boundary in a reload loop.
+  const target = Number.isFinite(Number(to)) ? Number(to) : 0
   const ref = useRef(null)
   const inView = useInView(ref, { once: true, margin: '-60px' })
   const [n, setN] = useState(0)
@@ -349,14 +353,14 @@ export function CountUp({ to, duration = 2, suffix = '', prefix = '', className 
     const start = performance.now()
     const tick = (t: number) => {
       const p = Math.min((t - start) / (duration * 1000), 1)
-      setN(Math.floor((1 - Math.pow(1 - p, 3)) * to))
+      setN(Math.floor((1 - Math.pow(1 - p, 3)) * target))
       if (p < 1) raf = requestAnimationFrame(tick)
-      else setN(to)
+      else setN(target)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [inView, to, duration])
-  return <span ref={ref} className={className}>{prefix}{n.toLocaleString()}{suffix}</span>
+  }, [inView, target, duration])
+  return <span ref={ref} className={className}>{prefix}{Number(n || 0).toLocaleString()}{suffix}</span>
 }
 `
 

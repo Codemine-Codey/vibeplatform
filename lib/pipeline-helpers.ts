@@ -736,7 +736,25 @@ export async function headlessRuntimeCheck(
 
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 15_000 }).catch(() => {})
     await new Promise(r => setTimeout(r, 2000))
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {})
+    // STEP-SCROLL — never an instant jump. Sections mount/animate on scroll-into-view via
+    // IntersectionObserver (useInView). An instant scrollTo(bottom) skips the middle of the
+    // page, so those observers never fire and any scroll-triggered runtime crash (e.g. a
+    // stat counter calling .toLocaleString() on an undefined value) never happens during the
+    // check — the user hits it mid-scroll instead. Walking down in viewport-sized steps with
+    // a pause forces every section to enter view and run its code, so scroll-into-view errors
+    // land in the pageerror handler here (→ broken verdict at the errors[] check below),
+    // BEFORE the preview is ever revealed. Bounded to 40 steps so infinite-scroll can't hang.
+    await page.evaluate(async () => {
+      const step = Math.max(300, Math.floor(window.innerHeight * 0.75))
+      let y = 0
+      for (let i = 0; i < 40; i++) {
+        window.scrollTo(0, y)
+        await new Promise(r => setTimeout(r, 200))
+        if (y >= document.body.scrollHeight) break
+        y += step
+      }
+      window.scrollTo(0, document.body.scrollHeight)
+    }).catch(() => {})
     await new Promise(r => setTimeout(r, 500))
 
     const domSignals = await page.evaluate(() => {
