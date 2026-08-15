@@ -292,34 +292,41 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
         return 'ERROR: paths list is empty. You must provide at least one file path to generate.'
       }
 
-      // ── Edit-mode overwrite guard ────────────────────────────────────────────
-      // In edit mode, generateFiles is for CREATING NEW files only. Any requested path that
-      // already exists is dropped here and the model is told to use patchFile — so an edit
-      // can never silently regenerate (and re-theme) the landing page or other existing files.
-      if (editMode) {
-        try {
-          const sb = await Sandbox.get({ sandboxId })
-          const existing: string[] = []
-          const fresh: string[] = []
-          await Promise.all(paths.map(async (p) => {
-            try {
-              const cmd = await sb.runCommand({ cmd: 'test', args: ['-f', p], detached: true })
-              const done = await cmd.wait()
-              if (done.exitCode === 0) existing.push(p); else fresh.push(p)
-            } catch { fresh.push(p) }
-          }))
-          if (existing.length > 0) {
-            paths = fresh
-            const note =
-              `BLOCKED (edit mode): these files already exist and were NOT regenerated — ` +
-              `${existing.join(', ')}. To change an existing file, read it then use patchFile ` +
-              `for a targeted edit. generateFiles only CREATES new files during edits. ` +
-              (fresh.length > 0 ? `Proceeding to create the new file(s): ${fresh.join(', ')}.` : `Nothing new to create — use patchFile for your change.`)
-            if (fresh.length === 0) return note
-            console.log(`[edit-guard] refused to overwrite existing: ${existing.join(', ')}`)
-          }
-        } catch { /* non-fatal — fall through */ }
-      }
+      // ── Overwrite guard — never REGENERATE a file that is already COMPLETE (BUG2) ──────
+      // EDIT mode: drop ANY path that already exists (changes go through patchFile) — an edit
+      // can never silently re-theme the landing page. INITIAL build: drop a path only if it
+      // exists AND is non-stub (complete) — this kills the duplicate "Built N files" ×2–3
+      // regeneration the model sometimes does (candy-crush wrote types/config/logic three
+      // times), while still letting the recovery path finish genuine stub/placeholder files.
+      // STUB_SENTINEL = __CM_STUB__. On the very first call nothing exists yet, so everything
+      // generates; only a repeat call for an already-finished file is skipped.
+      try {
+        const sb = await Sandbox.get({ sandboxId })
+        const dropped: string[] = []
+        const keep: string[] = []
+        await Promise.all(paths.map(async (p) => {
+          try {
+            const check = editMode
+              ? `test -f "${p}"`
+              : `test -f "${p}" && ! grep -qF '__CM_STUB__' "${p}"`
+            const cmd = await sb.runCommand({ cmd: 'bash', args: ['-c', check], detached: true })
+            const done = await cmd.wait()
+            if (done.exitCode === 0) dropped.push(p); else keep.push(p)
+          } catch { keep.push(p) }
+        }))
+        if (dropped.length > 0) {
+          paths = keep
+          const note = editMode
+            ? `BLOCKED (edit mode): these already exist and were NOT regenerated — ${dropped.join(', ')}. ` +
+              `Use patchFile to change an existing file. ` +
+              (keep.length > 0 ? `Creating the new file(s): ${keep.join(', ')}.` : `Nothing new to create — use patchFile.`)
+            : `Already generated — skipped to avoid duplicate work: ${dropped.join(', ')}. ` +
+              `Do NOT regenerate finished files; use patchFile to change one. ` +
+              (keep.length > 0 ? `Generating the remaining: ${keep.join(', ')}.` : `All requested files are already complete.`)
+          console.log(`[gen-guard] skipped ${editMode ? 'existing' : 'complete'}: ${dropped.join(', ')}`)
+          if (keep.length === 0) return note
+        }
+      } catch { /* non-fatal — fall through */ }
 
       writer.write({
         id: toolCallId,

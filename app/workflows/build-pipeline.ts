@@ -22,6 +22,7 @@ import {
   DEFAULT_MODEL,
   FILE_GENERATION_MODEL,
   REPAIR_MODEL,
+  LEAF_MODEL,
   getMaxOutputTokens,
 } from '@/ai/constants'
 import { getScaffoldFiles } from '@/ai/tools/scaffold'
@@ -235,13 +236,15 @@ export async function buildProject(params: BuildPipelineParams): Promise<void> {
   // diverges from round-1's rules. generationComplete is disk truth (no stubs remain),
   // so this loop keeps handing off until the project is genuinely complete.
   //
-  // HARD CAP: 2 continuation rounds. If stubs still remain after that (should never
-  // happen), we proceed to verify anyway — its missing-file repair + ensureNavShells
-  // are the deterministic backstop, and stepVerify's own dead-man's-switch guarantees
-  // a working preview. The cap is the deliberate infinite-loop guard.
+  // Generation chains across fresh ~13-min Vercel budgets so a big build never hits the single-
+  // invocation limit (no "13-min death"). Cap = 3 rounds ≈ 40 min total (user's ceiling); after that
+  // verify's missing-file repair + ensureNavShells finish it deterministically. Verify chains
+  // unlimited (while loop below). If we EXHAUST the rounds still incomplete, the user is told in
+  // plain words (below) — never a silent hang.
+  const MAX_CONT_ROUNDS = 3
   let genResult = await stepGenerate(params)
   let contRounds = 0
-  while (!genResult.generationComplete && contRounds < 2) {
+  while (!genResult.generationComplete && contRounds < MAX_CONT_ROUNDS) {
     genResult = await stepGenerate2(params, genResult)
     contRounds++
   }
@@ -276,8 +279,10 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
       sandbox = await Sandbox.create({ timeout: 1_800_000, ports: [3000] })
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { error: { message }, status: 'error' } })
+    // Keep the real error in the server logs, but show the USER a plain, calm line — never a raw
+    // technical message or infra name.
+    console.error('[stepGenerate] sandbox create failed:', err instanceof Error ? err.message : String(err))
+    writer.write({ id: 'srv-sandbox', type: 'data-create-sandbox', data: { error: { message: "I couldn't get your workspace started just now — please hit send again in a moment and I'll pick it right back up." }, status: 'error' } })
     await flushAndRelease()
     if (params.runId) await updateRun(params.runId, { status: 'error' }).catch(() => {})
     return {
@@ -441,6 +446,50 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
   const rawGF = generateFiles({ writer: rawWriterForGF as any, modelId: FILE_GENERATION_MODEL, designContext }) as any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const phase1GF = generateFiles({ writer: rawWriterForGF as any, modelId: FILE_GENERATION_MODEL, designContext, skipQualityGates: true }) as any
+  // Split a generateFiles call into SPINE (Sonnet, cross-file reasoning) + LEAVES (DeepSeek Pro,
+  // self-contained sections). Sequential (the write-path has never seen concurrent writers). Leaves
+  // = src/components/sections/*. Cuts the Sonnet output ~in half → the initial-build cost drop.
+  const isLeafPath = (p: string) => /^src\/components\/sections\//.test(p)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fanoutGenerate = async (spineGF: any, args: { sandboxId: string; paths: string[] }, ctx: any) => {
+    const leafPaths = args.paths.filter(isLeafPath)
+    const spinePaths = args.paths.filter((p) => !isLeafPath(p))
+    const out: string[] = []
+    if (spinePaths.length > 0) out.push(await spineGF.execute({ ...args, paths: spinePaths }, ctx))
+    if (leafPaths.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let leafCtx: any = { ...ctx, toolCallId: `${ctx?.toolCallId ?? 'gen'}-leaves` }
+      // FEED THE LEAVES THE SPINE — the spine (Layout, pages, data/types, index.css tokens) is
+      // already written, so read it back and pin its EXACT shapes into the leaf call's context so
+      // the leaves import the right names/shapes (no drift → no extra repair rounds that eat the
+      // cost win). Best-effort: read failure → generate without it (the gates still protect).
+      try {
+        const sandbox = await Sandbox.get({ sandboxId: args.sandboxId })
+        const parts: string[] = []
+        for (const p of spinePaths) {
+          const content = (await readSandboxFile(sandbox, p).catch(() => null)) ?? ''
+          if (content.trim()) parts.push(`// ${p}\n${content.slice(0, 2500)}`)
+        }
+        if (parts.length > 0) {
+          const spineMsg = {
+            role: 'user' as const,
+            content:
+              'These SPINE files are ALREADY WRITTEN and are READ-ONLY context. Your section components ' +
+              'MUST import from them and match their EXACT export names, prop types, data shapes, and ' +
+              'design tokens — never invent different names or shapes:\n\n' + parts.join('\n\n'),
+          }
+          leafCtx = { ...leafCtx, messages: [...(ctx?.messages ?? []), spineMsg] }
+        }
+      } catch { /* no spine context — leaves stay gate-protected */ }
+      // Create the leaf generator KNOWING the spine files already exist (existingPaths=spinePaths),
+      // so the leaf's import-closure never regenerates Layout/data/types the leaves import — that
+      // would overwrite the spine with a leaf-model version = drift + a duplicate/inconsistent brand.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const leafGF = generateFiles({ writer: rawWriterForGF as any, modelId: LEAF_MODEL, designContext, existingPaths: spinePaths }) as any
+      out.push(await leafGF.execute({ ...args, paths: leafPaths }, leafCtx))
+    }
+    return out.filter(Boolean).join('\n') || 'Files generated.'
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const websiteGF: any = {
@@ -452,7 +501,8 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
         const inject = pageMapPaths.filter((p) => !have.has(p))
         if (inject.length > 0) paths = [...paths, ...inject]
       }
-      return rawGF.execute({ ...args, paths }, ctx)
+      // FAN-OUT: spine (Home/Layout/pages/data) on Sonnet, section leaves on DeepSeek Pro.
+      return fanoutGenerate(rawGF, { ...args, paths }, ctx)
     },
   }
 

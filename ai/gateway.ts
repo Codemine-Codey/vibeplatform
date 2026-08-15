@@ -46,13 +46,18 @@ const openrouterProvider = createOpenAI({
         // is automatic. allow_fallbacks keeps availability high.
         if (typeof body.model === 'string') {
           if (body.model.startsWith('deepseek/')) {
-            // Route DeepSeek by THROUGHPUT, not by a fixed provider pin. The old
-            // order:['DeepSeek'] pin fell back to Baidu at ~5 tok/s (confirmed via
-            // /api/diag 2026-08-08: 918 tokens in 170s), which stalled orchestration
-            // and tripped the step handoff. sort:'throughput' picks the fastest live
-            // provider so generation completes inside one 800s step. DeepSeek is cheap
-            // ($0.43/M) so losing its prefix-cache here costs pennies; speed matters more.
-            body.provider = { sort: 'throughput', allow_fallbacks: true }
+            if (/-pro/.test(body.model)) {
+              // PRO = the fan-out LEAF model. The big reused prefix (design context + spine files) is
+              // sent on every leaf call, so pin to caching-capable providers in cost order so
+              // consecutive leaf calls hit the SAME provider's prompt cache (measured: GMICloud caches
+              // ~99% of a large prefix; DeepSeek first-party is cheapest cache-read). allow_fallbacks
+              // keeps the build alive (uncached) if all preferred are down.
+              body.provider = { order: ['DeepSeek', 'GMICloud', 'Fireworks'], allow_fallbacks: true }
+            } else {
+              // FLASH = orchestration/edits/repairs — speed-critical + cheap. Route by throughput;
+              // the old order:['DeepSeek'] pin fell back to Baidu at ~5 tok/s and stalled the handoff.
+              body.provider = { sort: 'throughput', allow_fallbacks: true }
+            }
           } else if (body.model.startsWith('openai/')) {
             // OpenAI's infra does automatic prompt caching for prompts ≥ 1024 tokens.
             // Pin to OpenAI to guarantee cache hits rather than routing to an Azure
