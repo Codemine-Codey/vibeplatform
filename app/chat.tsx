@@ -320,6 +320,11 @@ export function Chat({ className }: Props) {
       if (deadmanFiredRef.current) return
       if (!isWorking || previewUrl) return
       if (Date.now() - lastEventAtRef.current < STALL_MS) return
+      // Durable run active → do NOT client-nudge. A build runs server-side (the durable run) and the
+      // reconnect (chat-context onFinish → reconnectAndDrain) re-reads its events + the verify step's
+      // OWN dead-man guarantees a preview. A client "continue" here RE-DRIVES a whole 2nd generation
+      // = the churn + the DOUBLED cost the user saw ($0.86 ≈ 2×). Only nudge an UNTRACKED stall.
+      if (useSandboxStore.getState().activeRunId) return
       // Genuine silent stall — nudge exactly once.
       deadmanFiredRef.current = true
       lastEventAtRef.current = Date.now() // avoid immediate re-trigger
@@ -333,6 +338,9 @@ export function Chat({ className }: Props) {
     if (!streamError || isWorking) return
     // Only auto-resume during generation (sandbox exists, no preview URL yet)
     if (!sandboxId || previewUrl) return
+    // Durable run active → the reconnect + verify-step dead-man own recovery; a client "continue"
+    // here re-drives a 2nd generation (churn + doubled cost). Only auto-resume an untracked stall.
+    if (useSandboxStore.getState().activeRunId) return
     // All retries exhausted — switch to passive URL polling instead
     if (autoResumeCount.current >= 3) {
       if (projectId) setPollingForPreview(true)
