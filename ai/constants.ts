@@ -44,6 +44,11 @@ export const BRIEF_MODEL = 'deepseek/deepseek-v4-flash-20260731'
 // every repair to Sonnet 5 at 20x the cost. This restores the cheap model for the
 // 10+ repair calls a single build can make — the biggest sustainability lever.
 export const REPAIR_MODEL = 'deepseek/deepseek-v4-flash-20260731'
+// FAN-OUT leaf model: Sonnet 5 writes the SPINE (App/Layout/pages/data/types/index.css — cross-file
+// reasoning), DeepSeek v4 PRO writes the LEAF sections (src/components/sections/* — self-contained UI
+// against the spine's pinned contract). Cuts the Sonnet output ~in half → big cost drop on the
+// initial build, while the spine keeps design + cross-file consistency. Website-only.
+export const LEAF_MODEL = 'deepseek/deepseek-v4-pro'
 // Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
 // gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
 // and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),

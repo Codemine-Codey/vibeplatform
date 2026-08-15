@@ -3020,13 +3020,6 @@ The server does NOT enforce a 2-file limit — you decide the correct structure 
     try {
       // Preview is already visible (early reveal); this runs in the background and lands
       // fixes via HMR. Only if we somehow did NOT reveal early do we tell the user it's coming.
-      if (!revealed) {
-        writer.write({
-          id: 'srv-preview-starting',
-          type: 'data-narration',
-          data: { text: 'Starting preview — this may take up to 30 seconds, please wait.' },
-        })
-      }
       writer.write({
         id: 'srv-runtime',
         type: 'data-run-command',

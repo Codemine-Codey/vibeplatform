@@ -32,6 +32,15 @@ const RULES: { test: RegExp; issue: string }[] = [
       'A mapped list uses key={index}. Index keys corrupt state, inputs, and animations the moment items reorder, drag, sort, or get deleted. Key by a stable unique id instead (key={item.id}).',
   },
   {
+    // .map(cb => <Tag ...>) whose opening tag has NO key= (the "Each child in a list should have a
+    // unique key" warning). Matches an arrow map with an EXPRESSION body returning a JSX element
+    // whose opening tag (up to the first >) contains no key=. Keyed maps and block-body maps
+    // ({ return <..> }) are NOT flagged → near-zero false positives.
+    test: /\.map\(\s*(?:async\s*)?\(?[^)]*\)?\s*=>\s*\(?\s*<[A-Za-z][\w.]*(?:(?!key=)[^>])*\/?>/,
+    issue:
+      'A mapped list renders elements WITHOUT a `key` prop (React warns "Each child in a list should have a unique key"). Add a stable unique `key` to the top-level element returned by .map() — key={item.id} or another stable unique value. Never key by array index.',
+  },
+  {
     // <AnimatePresence> ... <motion.* > with NO key= on the direct child (best-effort).
     test: /<AnimatePresence[^>]*>\s*\{[^}]*&&\s*<motion\.[a-z]+(?:(?!key=)[^>])*\/?>(?![\s\S]{0,40}key=)/,
     issue:

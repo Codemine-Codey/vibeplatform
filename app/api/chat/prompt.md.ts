@@ -237,6 +237,8 @@ The scaffold file tree below is what exists BEFORE you generate anything. Import
 @/styles/cm-ui.css           → CSS utility classes (import as side-effect)
 \`\`\`
 
+**⚠️ \`CountUp\` — \`to\` MUST be a literal number**, e.g. \`<CountUp to={1200} suffix="+" />\` or \`<CountUp to={98} suffix="%" />\`. NEVER pass a string ("1.2K"), a units-baked value, or a variable that could be undefined — a non-number renders as **0** (the exact "all figures show 0" bug). Put any unit/symbol in \`suffix\`/\`prefix\`, keep the raw count in \`to\`.
+
 **The COMPLETE allow-list of @/ import paths:**
 \`@/lib/utils\` · \`@/components/ui/button\` · \`@/components/ui/card\` · \`@/components/ui/input\` · \`@/components/ui/label\` · \`@/components/ui/badge\` · \`@/components/ui/textarea\` · \`@/components/ui/separator\` · \`@/components/ui/select\` · \`@/components/ui/dialog\` · \`@/components/ui/tabs\` · \`@/components/ui/accordion\` · \`@/components/ui/dropdown-menu\` · \`@/components/ui/switch\` · \`@/components/ui/slider\` · \`@/components/ui/tooltip\` · \`@/components/ui/avatar\` · \`@/components/ui/progress\` · \`@/components/ui/table\` · \`@/components/ui/checkbox\` · \`@/components/ui/popover\` · \`@/components/ui/scroll-area\` · \`@/components/ui/radio-group\` · \`@/components/ui/sheet\` · \`@/components/ui/skeleton\` · \`@/components/ui/alert\` · \`@/components/ui/toast\` · \`@/components/blocks\` · \`@/components/blocks/index\` · \`@/components/blocks/sections\` · \`@/components/game/engine\` · \`@/components/NotFound\` + any path you declare yourself in \`planProject\`.
 

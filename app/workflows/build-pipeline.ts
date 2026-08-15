@@ -1023,7 +1023,6 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
     let rtResult: { status: 'ok' | 'broken' | 'skipped'; detail: string } | null = null
     if (!devError) {
       try {
-        writer.write({ id: 'srv-preview-starting', type: 'data-narration', data: { text: 'Starting preview — this may take up to 30 seconds, please wait.' } })
         writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'executing' } })
         let rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
         for (let attempt = 1; attempt <= 5 && rt.status === 'broken'; attempt++) {

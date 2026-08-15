@@ -2009,12 +2009,20 @@ export const VEHICLE_PHYSICS = {
 // at "/" exactly like a website page. Optional global chrome lives in src/components/Layout.tsx.
 // Model ONLY adds page files + Layout, NEVER writes this file — where recurring App.tsx
 // errors originated (unescaped quotes, missing imports, route/import mismatches).
-export const APP_TSX_ROUTER = `import { Routes, Route } from 'react-router-dom'
+export const APP_TSX_ROUTER = `import { Routes, Route, Navigate } from 'react-router-dom'
 import type { ComponentType, ReactNode } from 'react'
-import NotFound from './components/NotFound'
 
-const pageModules = import.meta.glob('./pages/*.tsx', { eager: true }) as Record<string, { default: ComponentType }>
-const layoutModules = import.meta.glob('./components/Layout.tsx', { eager: true }) as Record<string, { default: ComponentType<{ children: ReactNode }> }>
+// PATH GATE: auto-route pages at ./pages/*.tsx AND nested ./pages/**/*.tsx.
+const pageModules = import.meta.glob(['./pages/*.tsx', './pages/**/*.tsx'], { eager: true }) as Record<string, { default: ComponentType }>
+// PATH GATE: auto-mount the global Layout (nav + footer) wherever the model put it — the recurring
+// "no nav bar" bug was the model writing components/layout/Layout.tsx (subfolder) while this only
+// looked at components/Layout.tsx. Match every common convention so the chrome ALWAYS mounts.
+const layoutModules = import.meta.glob([
+  './components/Layout.tsx',
+  './components/layout/Layout.tsx',
+  './components/layout/index.tsx',
+  './components/Layout/index.tsx',
+], { eager: true }) as Record<string, { default: ComponentType<{ children: ReactNode }> }>
 
 const routes = Object.entries(pageModules)
   .map(([file, mod]) => {
@@ -2033,7 +2041,8 @@ export default function App() {
       {routes.map((r) => (
         <Route key={r.path} path={r.path} element={<r.Component />} />
       ))}
-      <Route path="*" element={<NotFound />} />
+      {/* PATH GATE: a link to a page that wasn't generated goes HOME, never a blank/404/error. */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
   return Layout ? <Layout>{content}</Layout> : content
