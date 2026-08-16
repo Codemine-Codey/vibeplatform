@@ -41,6 +41,15 @@ const RULES: { test: RegExp; issue: string }[] = [
       'A mapped list renders elements WITHOUT a `key` prop (React warns "Each child in a list should have a unique key"). Add a stable unique `key` to the top-level element returned by .map() — key={item.id} or another stable unique value. Never key by array index.',
   },
   {
+    // BLOCK-BODY map: .map(item => { ...; return <Tag ...> }) whose returned opening tag has NO key=.
+    // The expression-body rule above only catches `=> <Tag>`; a block body (`=> { return <Tag> }`) slips
+    // past it — that's the ContactDetail miss. Same near-zero-false-positive guard: a key= before the
+    // first `>` (keyed element) breaks the match, so keyed maps are NOT flagged.
+    test: /\.map\(\s*(?:async\s*)?\(?[^)]*\)?\s*=>\s*\{[\s\S]{0,800}?return\s*\(?\s*<[A-Za-z][\w.]*(?:(?!key=)[^>])*\/?>/,
+    issue:
+      'A mapped list (block-body .map with a return) renders elements WITHOUT a `key` prop (React warns "Each child in a list should have a unique key"). Add a stable unique `key` to the top-level element returned inside the .map() callback — key={item.id} or another stable unique value. Never key by array index.',
+  },
+  {
     // <AnimatePresence> ... <motion.* > with NO key= on the direct child (best-effort).
     test: /<AnimatePresence[^>]*>\s*\{[^}]*&&\s*<motion\.[a-z]+(?:(?!key=)[^>])*\/?>(?![\s\S]{0,40}key=)/,
     issue:

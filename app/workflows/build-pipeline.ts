@@ -55,11 +55,13 @@ import {
   sanitizeTsx,
   type PipelineWriter,
 } from '@/lib/pipeline-helpers'
-import { appendRunEventBatch, updateRun } from '@/lib/runs'
+import { appendRunEventBatch, updateRun, getRun } from '@/lib/runs'
 import {
   updateProjectRow,
   snapshotProject,
+  incrementProjectTokens,
 } from '@/lib/projects-db'
+import { tokenStore } from '@/lib/token-context'
 import { saveCheckpoint } from '@/ai/tools/checkpoint'
 import type { Skill, ColorTokens, PageSpec } from '@/ai/types/project-brief'
 import type { ChatUIMessage } from '@/components/chat/types'
@@ -146,6 +148,15 @@ function makeStepWriter(runId: string | null): {
   const gWriter = writable.getWriter()
   const pending: Promise<void>[] = []
 
+  // Per-step token accounting. The durable workflow runs each 'use step' in its OWN
+  // Vercel invocation, so the tokenStore context set in the chat route never reaches
+  // here — which is why tokens_used logged 0. enterWith binds a fresh accumulator to
+  // THIS step's async context; the metrics middleware's addTokens() sums every model
+  // call into it, and flushAndRelease (called on every exit path) persists the delta
+  // onto the run + project. Read-modify-write mirrors /api/runs/continue.
+  const tokenBox = { total: 0 }
+  tokenStore.enterWith(tokenBox)
+
   // Ordered batch Supabase writes — fixes garbled chat and tool-input-delta errors.
   // Concurrent fire-and-forget inserts race for seq values so a text-delta emitted
   // 2nd can land with a lower seq than the one emitted 1st, corrupting the stream
@@ -183,6 +194,14 @@ function makeStepWriter(runId: string | null): {
     await Promise.all(pending).catch(() => {})
     await flushChain.catch(() => {})
     gWriter.releaseLock()
+    // Persist this step's token usage onto the run + project (best-effort).
+    if (runId && tokenBox.total > 0) {
+      try {
+        const run = await getRun(runId)
+        await updateRun(runId, { tokens_used: (run?.tokens_used ?? 0) + tokenBox.total })
+        if (run?.project_id) await incrementProjectTokens(run.project_id, tokenBox.total)
+      } catch { /* telemetry only — never fail a build over accounting */ }
+    }
   }
 
   return { writer, flushAndRelease }
@@ -502,6 +521,12 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
         if (inject.length > 0) paths = [...paths, ...inject]
       }
       // FAN-OUT: spine (Home/Layout/pages/data) on Sonnet, section leaves on DeepSeek Pro.
+      // Runtime toggle so we can A/B fan-out (cheaper, ~2x slower) vs all-Sonnet (faster, pricier
+      // per-token but cached) from the Vercel env WITHOUT a redeploy — the decision is data-driven
+      // off the per-build cost telemetry. Set FANOUT_ENABLED=false to route the whole site on Sonnet.
+      if (process.env.FANOUT_ENABLED === 'false') {
+        return rawGF.execute({ ...args, paths }, ctx)
+      }
       return fanoutGenerate(rawGF, { ...args, paths }, ctx)
     },
   }
