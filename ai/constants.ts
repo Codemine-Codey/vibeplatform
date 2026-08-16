@@ -31,7 +31,10 @@
 export const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash-20260731'
 // Claude Sonnet 5 via OpenRouter: confirmed 200 OK in diag. Cross-file consistent.
 // Thinking disabled via gateway.ts. Caching via cache_control on system message.
-export const FILE_GENERATION_MODEL = 'anthropic/claude-sonnet-5'
+// Env-overridable so we can A/B the initial-generation model (the ONE expensive call —
+// everything else already runs on cheap DeepSeek) from the Vercel env via a free redeploy,
+// without a code change. Default stays Sonnet 5. Set CM_FILE_MODEL to test e.g. all-DeepSeek-Pro.
+export const FILE_GENERATION_MODEL = process.env.CM_FILE_MODEL || 'anthropic/claude-sonnet-5'
 export const EDIT_MODEL = 'deepseek/deepseek-v4-flash-20260731'
 export const ERROR_MODEL = 'deepseek/deepseek-v4-flash-20260731'
 export const ORCHESTRATION_MODEL = 'deepseek/deepseek-v4-flash-20260731'
@@ -48,7 +51,7 @@ export const REPAIR_MODEL = 'deepseek/deepseek-v4-flash-20260731'
 // reasoning), DeepSeek v4 PRO writes the LEAF sections (src/components/sections/* — self-contained UI
 // against the spine's pinned contract). Cuts the Sonnet output ~in half → big cost drop on the
 // initial build, while the spine keeps design + cross-file consistency. Website-only.
-export const LEAF_MODEL = 'deepseek/deepseek-v4-pro'
+export const LEAF_MODEL = process.env.CM_LEAF_MODEL || 'deepseek/deepseek-v4-pro'
 // Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
 // gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
 // and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),
