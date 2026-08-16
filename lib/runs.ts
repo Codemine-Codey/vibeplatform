@@ -240,6 +240,48 @@ export async function listStuckContinuingRuns(
   }
 }
 
+// NEVER-SILENT BACKSTOP. The continuing-sweeper above only catches status `continuing`.
+// A run whose invocation is KILLED mid-`running` (or whose continuations keep failing —
+// e.g. the sandbox died and every re-fire re-dies) is never caught: it sits `running`
+// forever, the user is never told, and the client may even have shown a false "Ready" when
+// the stream closed. This reaps any run still alive far past the hard design ceiling
+// (MAX_CONT_ROUNDS ≈ 40 min): it marks it `error` (stops the orphan + any infinite re-fire)
+// and appends a plain-words message the user sees on reconnect/refresh. Age is measured from
+// `created_at` (NOT updated_at, which can be stale mid-generation) so a genuinely in-progress
+// build is NEVER killed — 45 min is 5 min past the system's own 40-min cap.
+export async function reapAbandonedRuns(maxAgeMs = 2_700_000, limit = 20): Promise<number> {
+  try {
+    const sb = getAdminSupabase()
+    const cutoff = new Date(Date.now() - maxAgeMs).toISOString()
+    const { data, error } = await sb
+      .from('runs')
+      .select('id')
+      .in('status', ['running', 'continuing'])
+      .lt('created_at', cutoff)
+      .limit(limit)
+    if (error) {
+      console.warn('[runs] reapAbandonedRuns query failed:', error.message)
+      return 0
+    }
+    const rows = (data ?? []) as { id: string }[]
+    for (const r of rows) {
+      await updateRun(r.id, { status: 'error' })
+      appendRunEvent(r.id, 'data-narration', {
+        id: 'srv-abandoned',
+        type: 'data-narration',
+        data: {
+          text:
+            "This build hit a snag and I couldn't finish it in time — please hit send again and I'll pick it right back up.",
+        },
+      })
+    }
+    return rows.length
+  } catch (e) {
+    console.warn('[runs] reapAbandonedRuns threw:', e instanceof Error ? e.message : e)
+    return 0
+  }
+}
+
 // ── Durable-runs STEP 4: per-run reliability metrics ──────────────────────────
 // The run row + its append-only event log ARE the metrics source — every timestamp we
 // need is already recorded. This derives the proof numbers for a run with no extra

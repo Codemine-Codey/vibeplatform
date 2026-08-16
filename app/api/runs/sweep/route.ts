@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { listStuckContinuingRuns, fireContinuation } from '@/lib/runs'
+import { listStuckContinuingRuns, fireContinuation, reapAbandonedRuns } from '@/lib/runs'
 
 // Durable-runs STEP 3: cron backstop. The primary continuation mechanism is the chained
 // self-call inside waitUntil; this sweeper is the safety net for the rare case where that
@@ -25,7 +25,9 @@ async function sweep(): Promise<Response> {
   // that). Re-fire each; claimRunForContinuation inside /continue guards double-processing.
   const stuck = await listStuckContinuingRuns(120_000, 20)
   await Promise.all(stuck.map((r) => fireContinuation(r.id)))
-  return NextResponse.json({ ok: true, refired: stuck.length })
+  // Never-silent backstop: fail + message any run alive past the 40-min design ceiling.
+  const reaped = await reapAbandonedRuns()
+  return NextResponse.json({ ok: true, refired: stuck.length, reaped })
 }
 
 export async function GET(req: Request) {
