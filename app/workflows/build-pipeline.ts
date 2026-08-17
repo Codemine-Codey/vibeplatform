@@ -1011,7 +1011,12 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       try { await ensureNavShells(sandbox, brandName ?? undefined) } catch { /* non-fatal */ }
     }
 
-    await verifyAndRepair({ sandbox, sandboxId, writer })
+    const { vitePassed } = await verifyAndRepair({ sandbox, sandboxId, writer })
+    // G5a: a FAILED production build (unresolved import, type error, etc.) is disk truth that
+    // the app is broken — seed rtStatus='broken' so the reveal gate MUST run its render-check +
+    // missing-import repair before showing anything. Never let a failed build reveal a
+    // "best-effort" preview (that is exactly how the ./lib/image-utils blank shipped).
+    if (!vitePassed) rtStatus = 'broken'
 
     writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { status: 'loading' } })
     devError = await waitForDevServer(resolvedUrl)

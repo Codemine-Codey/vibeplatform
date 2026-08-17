@@ -441,7 +441,7 @@ export async function verifyAndRepair({
   sandbox: Sandbox
   sandboxId: string
   writer: PipelineWriter
-}): Promise<void> {
+}): Promise<{ vitePassed: boolean }> {
   writer.write({
     id: 'srv-finalize',
     type: 'data-run-command',
@@ -615,8 +615,27 @@ export async function verifyAndRepair({
               if (fixed !== css) await sandbox.writeFiles([{ path: 'src/index.css', content: Buffer.from(fixed, 'utf8') }])
             }
           }
-          // Note: we don't re-run vite build after this final repair — we tried our best
-          // and the dev server + headless check will catch anything that slipped through
+          // FIXPOINT (G5b): re-run vite build after the final repair. A repair that did
+          // NOT actually fix the build must never be reported as passing — that "tried our
+          // best, hope the dev server catches it" gap is exactly how a blank (unresolved
+          // import) shipped. Re-verify so vitePassed reflects DISK TRUTH after the repair.
+          if (Date.now() < deadline) {
+            let viteLog3 = ''
+            try {
+              const cmd3 = await sandbox.runCommand({
+                detached: true,
+                cmd: 'bash',
+                args: ['-c', '(./node_modules/.bin/vite build 2>&1; echo "##EXIT:$?") | tee /tmp/cm-verify.log >/dev/null'],
+              })
+              await Promise.race([
+                cmd3.wait(),
+                new Promise<void>((_, rej) => setTimeout(() => rej(new Error('build timeout')), 60_000)),
+              ])
+            } catch { /* timeout — vitePassed stays false */ }
+            viteLog3 = (await readSandboxFile(sandbox, '/tmp/cm-verify.log')) ?? ''
+            const m3 = viteLog3.match(/##EXIT:(\d+)/)
+            if (m3) vitePassed = m3[1] === '0'
+          }
         }
       }
     }
@@ -638,6 +657,9 @@ export async function verifyAndRepair({
       data: { sandboxId, command: 'Getting your project ready', args: [], status: 'done', exitCode: 0 },
     })
   }
+  // G5a: hand the build's TRUE compile status back to the caller so reveal can be gated on
+  // it (a failed vite build must never silently reveal a "best-effort" broken preview).
+  return { vitePassed }
 }
 
 // Vision verdict: AI sees screenshot and judges if page is visually broken.
