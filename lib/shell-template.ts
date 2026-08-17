@@ -6,6 +6,13 @@
 // the shell-vs-empty-render-gate conflict. Enrichment later REPLACES each shell with the
 // full page, live via HMR.
 
+// Machine marker written into every stamped SHELL (page or component). A shell RENDERS and
+// COMPILES (valid JSX, no imports) so vite build + the headless render-check both PASS it —
+// which is exactly why an unfilled shell shipped as a "finished" page. The completeness gate
+// (stepVerify) greps for this marker to treat any still-shelled page as INCOMPLETE and either
+// complete it or withhold the reveal. Invisible to users (JS comment on line 1).
+export const SHELL_MARKER = '__CM_SHELL__'
+
 // Human title from a component/page path: src/pages/MenuGallery.tsx → "Menu Gallery".
 function titleFromPath(path: string): string {
   const base = (path.split('/').pop() ?? 'Page').replace(/\.(tsx|jsx|ts|js)$/i, '')
@@ -37,7 +44,8 @@ export function stampShell(opts: {
   const sig = exportSignature(opts.exports)
   const eyebrow = (opts.brandName || 'Coming together').replace(/[<>{}`]/g, '')
   const fnName = /^[A-Za-z_]\w*$/.test(sig.name) ? sig.name : 'Page'
-  return `${sig.keyword} ${fnName}() {
+  return `/* ${SHELL_MARKER} */
+${sig.keyword} ${fnName}() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <section className="max-w-6xl mx-auto px-6 py-24">
@@ -75,7 +83,8 @@ export function stampComponentShell(opts: {
   const sig = exportSignature(opts.exports)
   const fnName = /^[A-Za-z_]\w*$/.test(sig.name) ? sig.name : 'Component'
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return `${sig.keyword} ${fnName}(_props?: any) {
+  return `/* ${SHELL_MARKER} */
+${sig.keyword} ${fnName}(_props?: any) {
   return <div className="animate-pulse rounded-xl bg-muted/40 h-40 w-full" />
 }
 `

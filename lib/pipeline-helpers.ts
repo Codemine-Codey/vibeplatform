@@ -17,7 +17,7 @@ import {
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { ensureValidCss } from '@/lib/css-guard'
 import { SCAFFOLD_PATH_SET } from '@/ai/tools/scaffold'
-import { stampShell, navTargetPageFiles } from '@/lib/shell-template'
+import { stampShell, navTargetPageFiles, SHELL_MARKER } from '@/lib/shell-template'
 import type { Skill } from '@/ai/types/project-brief'
 
 // Minimal writer interface used by verify-phase helpers. Accepts the same
@@ -131,6 +131,32 @@ export async function findStubPaths(sandbox: Sandbox, paths: string[]): Promise<
     relevant.map(async (path) => ({ path, stub: isStubContent(await readSandboxFile(sandbox, path)) }))
   )
   return results.filter(r => r.stub).map(r => r.path)
+}
+
+// COMPLETENESS gate (NEW1): return the pages/components that are still INCOMPLETE — either a
+// STUB_SENTINEL placeholder (never written) OR a stamped SHELL (renders "being crafted…" but was
+// never enriched). Shells compile + render, so vite build and the headless check both pass them —
+// this is the ONLY detector that catches "the site looks done but a page is a placeholder". Scans
+// the given manifest paths PLUS every nav-linked page (a page the model forgot but the nav links to).
+export async function findIncompletePages(sandbox: Sandbox, paths: string[]): Promise<string[]> {
+  const navPages = await (async () => {
+    try {
+      const layout = await readSandboxFile(sandbox, 'src/components/Layout.tsx')
+      return layout ? navTargetPageFiles(layout) : []
+    } catch { return [] }
+  })()
+  const all = [...new Set([...paths, ...navPages])].filter(
+    p => /\.(tsx?|jsx?)$/.test(p) && !SCAFFOLD_PATH_SET.has(p)
+  )
+  if (all.length === 0) return []
+  const results = await Promise.all(
+    all.map(async (path) => {
+      const c = await readSandboxFile(sandbox, path)
+      const incomplete = isStubContent(c) || (!!c && c.includes(SHELL_MARKER))
+      return { path, incomplete }
+    })
+  )
+  return results.filter(r => r.incomplete).map(r => r.path)
 }
 
 // Stamp build-safe placeholders (marked with STUB_SENTINEL) for any manifest-declared

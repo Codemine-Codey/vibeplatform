@@ -44,6 +44,7 @@ import { logRepair } from '@/lib/telemetry'
 import {
   checkAndStampMissingFiles,
   findStubPaths,
+  findIncompletePages,
   verifyAndRepair,
   headlessRuntimeCheck,
   functionalVerify,
@@ -947,6 +948,46 @@ async function stepGenerate2(params: BuildPipelineParams, partial: GenerateResul
   return { ...partial, generationComplete: remainingStubs.length === 0 }
 }
 
+// COMPLETENESS GATE (NEW1) — shared by stepVerify + stepVerify2. A stamped SHELL page
+// ("being crafted…") and a STUB both COMPILE + RENDER, so vite build and the headless check
+// pass them — that's how the lighthouse site revealed with empty Lighthouse/Book/About pages.
+// This detects every still-incomplete page (stub OR shell marker, including nav-linked pages the
+// model forgot), tries ONCE to fill each with real content, then returns whatever is STILL
+// incomplete so the caller's G3 gate withholds the reveal. Never reveal a half-built site.
+async function completeIncompletePages(opts: {
+  sandbox: Sandbox
+  manifestFilePaths: string[]
+  brandName: string | null
+  resolvedUrl: string
+  sandboxId: string
+  withinBudget: () => boolean
+}): Promise<string[]> {
+  const { sandbox, manifestFilePaths, brandName, resolvedUrl, sandboxId, withinBudget } = opts
+  let incompletePaths = await findIncompletePages(sandbox, manifestFilePaths).catch(() => [] as string[])
+  if (incompletePaths.length === 0) return []
+  logRepair({ layer: 'reveal-gate', action: 'completeness-detect', detail: `${incompletePaths.length} incomplete page(s): ${incompletePaths.slice(0, 8).join(', ')}`, sandboxId })
+  for (const p of incompletePaths.slice(0, 6)) {
+    if (!withinBudget()) break
+    const shellContent = await readSandboxFile(sandbox, p).catch(() => null)
+    if (!shellContent) continue
+    const filled = await repairFile(
+      p,
+      shellContent,
+      `This page is an unfinished PLACEHOLDER (a shell/stub). Replace it ENTIRELY with a complete, production-quality page of REAL content for "${brandName ?? 'this site'}" that matches the site's existing design system and the original request. No placeholders, no "being crafted" text, no lorem ipsum — real sections, real copy.`,
+      FILE_GENERATION_MODEL,
+    ).catch(() => null)
+    if (filled && filled !== shellContent && !filled.includes('__CM_STUB__') && !filled.includes('__CM_SHELL__')) {
+      await sandbox.writeFiles([{ path: p, content: Buffer.from(sanitizeTsx(p, filled), 'utf8') }])
+    }
+  }
+  try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
+  incompletePaths = await findIncompletePages(sandbox, manifestFilePaths).catch(() => incompletePaths)
+  if (incompletePaths.length > 0) {
+    logRepair({ layer: 'reveal-gate', action: 'completeness-still-incomplete', detail: incompletePaths.slice(0, 8).join(', '), sandboxId })
+  }
+  return incompletePaths
+}
+
 // ── Step 2: Install + verify + reveal preview URL ────────────────────────────
 // Returns null when fully done, or a VerifyCheckpoint when the 11-min deadline
 // fires mid-verify. buildProject then chains to stepVerify2 for a fresh 800s budget.
@@ -1245,6 +1286,9 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       if (finalDevError) {
         try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
       }
+      // COMPLETENESS GATE (NEW1): fill any stub/shell page; whatever stays incomplete forces the
+      // G3 withhold below (a half-built site — shell pages that render "being crafted" — must never reveal).
+      const incompletePaths = await completeIncompletePages({ sandbox, manifestFilePaths, brandName, resolvedUrl, sandboxId, withinBudget })
       // ── PHASE 5: gate the reveal on a FRESH render-check PASS ─────────────────
       // Reveal only after a fresh headless check passes. rtStatus 'broken' OR null both
       // demand a fresh check — a stale 'fine' can hide a killing write that landed after
@@ -1305,9 +1349,9 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       // budget so the repair keeps going — the loader stays up, no blank/URL is emitted.
       // stepVerify is always the FIRST attempt, so it always chains once; the cap + terminal
       // handoff live in stepVerify2. flushAndRelease runs in the finally — do NOT call it here.
-      if (rtStatus === 'broken') {
-        logRepair({ layer: 'reveal-gate', action: 'withhold-chain-1', detail: 'build/render still broken — chaining fresh budget instead of revealing', sandboxId })
-        return { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError, revealed: false, rtStatus, revealChainCount: 1 }
+      if (rtStatus === 'broken' || incompletePaths.length > 0) {
+        logRepair({ layer: 'reveal-gate', action: 'withhold-chain-1', detail: `withholding reveal — ${rtStatus === 'broken' ? 'render broken' : ''}${incompletePaths.length > 0 ? ` ${incompletePaths.length} incomplete page(s)` : ''}`, sandboxId })
+        return { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError, revealed: false, rtStatus: 'broken', revealChainCount: 1 }
       }
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
       revealed = true
@@ -1524,6 +1568,10 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
     if (finalDevError) {
       try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
     }
+    // COMPLETENESS GATE (NEW1) — continuation. Each chained step gets a fresh budget + the strong
+    // model to FINISH any page still shelled/stubbed, so the system keeps working until the project
+    // is genuinely complete rather than revealing it half-built.
+    const incompletePaths = await completeIncompletePages({ sandbox, manifestFilePaths, brandName, resolvedUrl, sandboxId, withinBudget })
     let gateAttempts = 0
     while (withinBudget() && gateAttempts < 3 && (rtStatus === 'broken' || rtStatus === null)) {
       let fresh: Awaited<ReturnType<typeof headlessRuntimeCheck>> | null = null
@@ -1573,14 +1621,16 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
     // from a withheld reveal). Chain again until the cap (2), then TERMINAL-FAIL with plain words:
     // mark the run 'error', emit NO preview URL, return null. The loader stays up until then; the
     // 45-min reaper is the final backstop. flushAndRelease runs in the finally — not here.
-    if (rtStatus === 'broken') {
+    if (rtStatus === 'broken' || incompletePaths.length > 0) {
       const nextChain = (checkpoint.revealChainCount ?? 0) + 1
+      // Persistence: keep working across fresh budgets (each chain completes remaining pages with
+      // the strong model) rather than revealing something half-built. Bounded to ~40 min total.
       if (nextChain <= 2) {
-        logRepair({ layer: 'reveal-gate', action: `withhold-chain-${nextChain}`, detail: 'build/render still broken — chaining fresh budget', sandboxId })
-        return { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError, revealed: false, rtStatus, revealChainCount: nextChain }
+        logRepair({ layer: 'reveal-gate', action: `withhold-chain-${nextChain}`, detail: `withholding — ${rtStatus === 'broken' ? 'render broken' : ''}${incompletePaths.length > 0 ? ` ${incompletePaths.length} incomplete page(s)` : ''} — chaining fresh budget`, sandboxId })
+        return { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError, revealed: false, rtStatus: 'broken', revealChainCount: nextChain }
       }
-      logRepair({ layer: 'reveal-gate', action: 'terminal-broken', detail: `reveal withheld after ${nextChain - 1} chained attempt(s) — build still broken`, sandboxId })
-      writer.write({ id: 'srv-broken-terminal', type: 'data-narration', data: { text: "I couldn't get your preview to render cleanly this time and didn't want to show you something broken — please hit send again and I'll pick it right back up." } })
+      logRepair({ layer: 'reveal-gate', action: 'terminal-broken', detail: `reveal withheld after ${nextChain - 1} chained attempt(s) — still ${rtStatus === 'broken' ? 'broken' : 'incomplete'}`, sandboxId })
+      writer.write({ id: 'srv-broken-terminal', type: 'data-narration', data: { text: "I'm putting the final polish on a couple of pages and didn't want to show you anything half-finished. Give me a moment and refresh, or send a quick nudge and I'll wrap it up right away." } })
       if (runId) await updateRun(runId, { status: 'error' }).catch(() => {})
       return null
     }
