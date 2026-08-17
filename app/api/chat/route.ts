@@ -1870,8 +1870,35 @@ async function runAgenticLoop({
         console.error(JSON.stringify(error, null, 2))
       },
     })
+    // NEW3: silence the model's tool-planning narration on the edit/chat path (the build path
+    // already does this). Same v2 global-hold as the pipeline: the opening reply passes through,
+    // text after the first tool call is held + cleared on each new tool, and only the final
+    // completion line survives at stream end. This stops the "Now I need to update each lighthouse
+    // entry... let me patchFile..." monologue from leaking into chat. THEN scrub infra/model leaks.
+    // (A pure Q&A turn makes no tool call, so its full answer passes through untouched.)
+    let _eFirstTool = false
+    const _eHold: unknown[] = []
+    const editSilence = new TransformStream({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      transform(part: any, controller: TransformStreamDefaultController) {
+        const t: string = part?.type ?? ''
+        if (t === 'text-delta') {
+          if (!_eFirstTool) controller.enqueue(part)
+          else _eHold.push(part)
+        } else if (t === 'tool-input-delta' || t === 'tool-result') {
+          _eFirstTool = true
+          _eHold.length = 0
+          controller.enqueue(part)
+        } else {
+          controller.enqueue(part)
+        }
+      },
+      flush(controller: TransformStreamDefaultController) {
+        for (const b of _eHold) controller.enqueue(b)
+      },
+    })
     // Scrub leaks (sandbox / model / infra names) deterministically before the user sees them.
-    writer.merge(result.toUIMessageStream({ sendReasoning: false, sendStart: false }).pipeThrough(makeScrubStream()))
+    writer.merge(result.toUIMessageStream({ sendReasoning: false, sendStart: false }).pipeThrough(editSilence).pipeThrough(makeScrubStream()))
     try {
       await result.text
     } catch {
