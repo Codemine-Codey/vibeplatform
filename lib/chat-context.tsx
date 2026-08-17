@@ -43,7 +43,15 @@ async function reconnectAndDrain(
         signal: abortSignal,
         headers: { Accept: 'text/event-stream' },
       })
-      if (!res.ok || !res.body) break
+      // A PERMANENT failure (run not found / not owned) means there's nothing to reconnect to —
+      // stop. But a TRANSIENT failure (5xx cold start, a brief window where the run row isn't
+      // visible yet, a 429) must NOT kill the whole loop and abandon the UI — retry with a short
+      // backoff. Killing the loop on any non-ok was a real abandonment path on long builds.
+      if (res.status === 401 || res.status === 404) break
+      if (!res.ok || !res.body) {
+        await new Promise(r => setTimeout(r, 2000))
+        continue
+      }
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
