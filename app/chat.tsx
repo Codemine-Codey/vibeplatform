@@ -428,7 +428,12 @@ export function Chat({ className }: Props) {
           </span>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
-          {status === 'streaming' || status === 'submitted' ? (
+          {/* G8: "Ready" is driven by the server's terminal reveal (previewUrl), NOT by stream-close.
+              The durable build runs server-side; when the SSE stream closes mid-build the status
+              leaves 'streaming' but the run is still going — pollingForPreview keeps us in "Building"
+              until a real preview URL arrives (or the poll times out). This is what stops the false
+              "Ready + blank preview" that appeared when the stream closed before the build finished. */}
+          {isWorking || pollingForPreview ? (
             <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
               Building
@@ -438,7 +443,7 @@ export function Chat({ className }: Props) {
               <span className="w-1.5 h-1.5 rounded-full bg-destructive" />
               Error
             </span>
-          ) : messages.length > 0 ? (
+          ) : previewUrl ? (
             <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
               Ready
