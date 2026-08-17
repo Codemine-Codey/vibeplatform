@@ -134,6 +134,8 @@ interface VerifyCheckpoint {
   devError: string | null       // null = server healthy, string = error text
   revealed: boolean             // true if URL was already emitted to the client
   rtStatus: 'ok' | 'broken' | 'skipped' | null  // headless check result
+  revealChainCount?: number     // G3: # of times reveal was withheld (broken) + chained to a fresh
+                                // stepVerify2 budget. Capped so a permanently-broken build can't loop.
 }
 
 // ── Helper: make a PipelineWriter backed by getWritable() + run_events ───────
@@ -959,8 +961,10 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
   const { sandboxId, resolvedUrl: initialUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText } = genResult
 
   if (!sandboxId) {
+    // No workspace ever came back from generation — a failure, NOT a silent success.
+    writer.write({ id: 'srv-no-workspace', type: 'data-narration', data: { text: "I couldn't finish setting up your workspace this time — please hit send again and I'll pick it right back up." } })
     await flushAndRelease()
-    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
+    if (runId) await updateRun(runId, { status: 'error' }).catch(() => {})
     return null
   }
 
@@ -969,8 +973,10 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
     sandbox = await Sandbox.get({ sandboxId })
   } catch (err) {
     console.warn('[stepVerify] sandbox reconnect failed:', err instanceof Error ? err.message : err)
+    // Sandbox died before verify — surface it (was silently 'done'). Never claim success.
+    writer.write({ id: 'srv-sandbox-lost', type: 'data-narration', data: { text: "I lost your workspace before I could finish — please hit send again and I'll pick it right back up." } })
     await flushAndRelease()
-    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
+    if (runId) await updateRun(runId, { status: 'error' }).catch(() => {})
     return null
   }
 
@@ -1288,15 +1294,28 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
             if (fixed && fixed !== content) { await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }]); wrote = true }
           }
         }
-        if (!wrote) break // nothing to change → reveal (avoid spinning)
+        if (!wrote) break // nothing to change → fall through to the G3 gate below
         try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
         gateAttempts++
+      }
+      // ── G3: NEVER reveal a broken build ──────────────────────────────────────
+      // All three loop exits (budget-exhaust, check-unavailable, nothing-to-repair) fall
+      // through here with rtStatus still 'broken' (G5a also seeds 'broken' when the production
+      // build failed). Instead of the old "reveal ANYWAY" hatch, CHAIN to a fresh stepVerify2
+      // budget so the repair keeps going — the loader stays up, no blank/URL is emitted.
+      // stepVerify is always the FIRST attempt, so it always chains once; the cap + terminal
+      // handoff live in stepVerify2. flushAndRelease runs in the finally — do NOT call it here.
+      if (rtStatus === 'broken') {
+        logRepair({ layer: 'reveal-gate', action: 'withhold-chain-1', detail: 'build/render still broken — chaining fresh budget instead of revealing', sandboxId })
+        return { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError, revealed: false, rtStatus, revealChainCount: 1 }
       }
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
       revealed = true
     }
     const brand = brandName ?? 'your project'
-    const isHavingIssues = !!devError || rtStatus === 'broken'
+    // After G3, a 'broken' rtStatus never reaches reveal (it chains/terminal-fails above), so
+    // the only residual "issue" at reveal is a dev-server warning.
+    const isHavingIssues = !!devError
     const readyText = isHavingIssues
       ? `${brand.charAt(0).toUpperCase() + brand.slice(1)} is available — we're still polishing a few things. If the preview looks off, describe what you'd like changed and we'll fix it right away.`
       : `${brand.charAt(0).toUpperCase() + brand.slice(1)} is ready — open the Preview tab to see it live.`
@@ -1352,9 +1371,14 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
     sandbox = await Sandbox.get({ sandboxId })
   } catch (err) {
     console.warn('[stepVerify2] sandbox reconnect failed:', err instanceof Error ? err.message : err)
-    if (resolvedUrl) writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
+    // Sandbox is DEAD. Revealing its URL now = a guaranteed blank. Only preserve a reveal that
+    // ALREADY happened (user has a working preview from an earlier step); otherwise surface the
+    // failure in plain words and mark 'error' — never freshly reveal a dead-sandbox URL.
+    if (!checkpoint.revealed) {
+      writer.write({ id: 'srv-sandbox-lost', type: 'data-narration', data: { text: "I lost your workspace before I could finish — please hit send again and I'll pick it right back up." } })
+    }
     await flushAndRelease()
-    if (runId) await updateRun(runId, { status: 'done' }).catch(() => {})
+    if (runId) await updateRun(runId, { status: checkpoint.revealed ? 'done' : 'error' }).catch(() => {})
     return null
   }
 
@@ -1508,8 +1532,10 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
       rtStatus = fresh.status
       if (fresh.status !== 'broken') break
       // 3-try escalation: attempts 1-2 Flash, 3rd Claude (same rule as stepVerify).
-      const repairModel = gateAttempts >= 2 ? FILE_GENERATION_MODEL : REPAIR_MODEL
-      logRepair({ layer: 'runtime-check', action: `reveal-gate2-r${gateAttempts + 1}${gateAttempts >= 2 ? '-claude' : ''}`, detail: (fresh.detail || '').slice(0, 180), sandboxId })
+      // Escalation: a CHAINED attempt (revealChainCount>0) already burned 3 Flash tries in the
+      // prior step, so start on the frontier model instead of repeating what failed.
+      const repairModel = (gateAttempts >= 2 || (checkpoint.revealChainCount ?? 0) > 0) ? FILE_GENERATION_MODEL : REPAIR_MODEL
+      logRepair({ layer: 'runtime-check', action: `reveal-gate2-r${gateAttempts + 1}${repairModel === FILE_GENERATION_MODEL ? '-claude' : ''}`, detail: (fresh.detail || '').slice(0, 180), sandboxId })
       let wrote = false
       const resolveMatch2 = (fresh.detail || '').match(/Failed to resolve import "([^"]+)" from "([^"]+)"/)
       if (resolveMatch2) {
@@ -1542,11 +1568,29 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
       try { await restartDevServer(sandbox); await waitForDevServer(resolvedUrl, 25_000, sandbox) } catch { /* best-effort */ }
       gateAttempts++
     }
+    // ── G3: NEVER reveal a broken build (continuation) ───────────────────────
+    // Same enforcement as stepVerify. This is a CHAINED attempt (revealChainCount>0 when it came
+    // from a withheld reveal). Chain again until the cap (2), then TERMINAL-FAIL with plain words:
+    // mark the run 'error', emit NO preview URL, return null. The loader stays up until then; the
+    // 45-min reaper is the final backstop. flushAndRelease runs in the finally — not here.
+    if (rtStatus === 'broken') {
+      const nextChain = (checkpoint.revealChainCount ?? 0) + 1
+      if (nextChain <= 2) {
+        logRepair({ layer: 'reveal-gate', action: `withhold-chain-${nextChain}`, detail: 'build/render still broken — chaining fresh budget', sandboxId })
+        return { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError, revealed: false, rtStatus, revealChainCount: nextChain }
+      }
+      logRepair({ layer: 'reveal-gate', action: 'terminal-broken', detail: `reveal withheld after ${nextChain - 1} chained attempt(s) — build still broken`, sandboxId })
+      writer.write({ id: 'srv-broken-terminal', type: 'data-narration', data: { text: "I couldn't get your preview to render cleanly this time and didn't want to show you something broken — please hit send again and I'll pick it right back up." } })
+      if (runId) await updateRun(runId, { status: 'error' }).catch(() => {})
+      return null
+    }
     writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
     revealed = true
 
     const brand = brandName ?? 'your project'
-    const isHavingIssues = !!devError || rtStatus === 'broken'
+    // After G3, a 'broken' rtStatus never reaches reveal (it chains/terminal-fails above), so
+    // the only residual "issue" at reveal is a dev-server warning.
+    const isHavingIssues = !!devError
     const readyText = isHavingIssues
       ? `${brand.charAt(0).toUpperCase() + brand.slice(1)} is available — we're still polishing a few things. If the preview looks off, describe what you'd like changed and we'll fix it right away.`
       : `${brand.charAt(0).toUpperCase() + brand.slice(1)} is ready — open the Preview tab to see it live.`
