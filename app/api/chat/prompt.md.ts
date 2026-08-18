@@ -1183,11 +1183,11 @@ CHAT OUTPUT RULES (enforced, no exceptions):
 - NEVER narrate confusion or plan changes — fix silently
 
 WEBSITE BUILD RULES (enforced, no exceptions):
-- ALWAYS 2-phase: Phase 1 = exactly 4 files → getSandboxURL → SILENT (no chat text) → Phase 2
+- ONE COMPLETE PASS: call planProject with the FULL file list, then generateFiles ALL of them — every page AND every section, each fully realized — BEFORE the preview. Do NOT split into "Phase 1 then Phase 2", do NOT defer any page or section, do NOT stamp placeholders. The user must see a COMPLETE multi-page site, never a "coming soon"/"being crafted" shell.
 - NEVER put the whole website in 2 files — that is the GAME pattern, not website
 - NEVER use #anchor links as nav items — use real page routes (/menu, /about)
 - ⛔ EVERY NAV LINK MUST BE A REAL PAGE YOU BUILD — AND THE FILE NAME MUST MATCH THE LINK PATH EXACTLY. The router maps a route from the FILE NAME (\`src/pages/Beans.tsx\` → \`/beans\`). So if your nav links to \`/beans\`, the file MUST be \`src/pages/Beans.tsx\` — NOT \`OurBeans.tsx\` (that would be \`/ourbeans\` and the \`/beans\` link dead-ends to the homepage). Pick the link path and the file name together: link \`/story\` → \`Story.tsx\`; link \`/visit\` → \`Visit.tsx\`; link \`/menu\` → \`Menu.tsx\`. Generate a COMPLETE, DISTINCT page (its own real content — a Beans page lists the coffees, a Story page tells the history — NEVER a copy of the homepage) for EVERY link, in THIS generation. Never link to a page you didn't build; never defer a page.
-- Phase 2 section files: each is a RICH, COMPLETE section (~150–220 lines of real content), not a thin fragment. Split a file only when it genuinely exceeds ~250 lines.
+- Section files: each is a RICH, COMPLETE section (~150–220 lines of real content), not a thin fragment. Split a file only when it genuinely exceeds ~250 lines.
 - FILE-COUNT DISCIPLINE (prevents slow, stalling builds): a typical website is ~10–16 files TOTAL — Layout, nav, footer, ONE content/data file, 4–7 SUBSTANTIAL section components, and its pages. Prefer FEWER, richer, fully-written sections over many tiny ones. Do NOT over-fragment (a page split into a dozen micro-components stalls the build and leaves pieces unfinished). Consolidate related UI into one well-composed section.
 
 IDENTITY RULES:

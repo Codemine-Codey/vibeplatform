@@ -89,56 +89,17 @@ export function normalizeManifest(
 ): NormalizedManifest {
   if (raw.length === 0) return { files: [], phaseCount: 1, multiPhase: false, extraPackages }
 
-  // Small projects: one shot is faster than phasing overhead
-  if (raw.length < SMALL_PROJECT_FILES) {
-    const files = raw.map((f) => ({ path: f.path, exports: f.exports, phase: 1 }))
-    return { files, phaseCount: 1, multiPhase: false, extraPackages }
-  }
-
-  // Find pages that can be deferred (non-home, non-foundation, non-chrome page files)
-  const enrichable = raw.filter((f) => isEnrichablePage(f.path))
-  const enrichableSet = new Set(enrichable.map((f) => f.path))
-
-  // Not enough enrichable pages → try component-based phasing fallback before giving up.
-  // Webapps often use SPA architecture (all in src/components/ with one Home page) instead
-  // of multi-route pages. Defer visual components to Phase 2 with skeleton stubs — same
-  // guarantee as page phasing, same HMR enrichment — so the preview fires in ~4 min
-  // regardless of whether the AI chose pages or components.
-  if (enrichable.length < AUTO_PHASE_MIN_PAGES || enrichable.length < MIN_ENRICHMENT_FILES) {
-    const deferrableComponents = raw.filter((f) => isDeferrableComponent(f.path))
-    if (deferrableComponents.length >= MIN_DEFERRABLE_COMPONENTS) {
-      const deferSet = new Set(deferrableComponents.map((f) => f.path))
-      const files: ManifestFile[] = raw.map((f) => ({
-        path: f.path,
-        exports: f.exports,
-        phase: deferSet.has(f.path) ? 2 : 1,
-      }))
-      return { files, phaseCount: 2, multiPhase: true, extraPackages }
-    }
-    const files = raw.map((f) => ({ path: f.path, exports: f.exports, phase: 1 }))
-    return { files, phaseCount: 1, multiPhase: false, extraPackages }
-  }
-
-  // Phase 1: everything except enrichable non-home pages
-  const files: ManifestFile[] = []
-  for (const f of raw) {
-    if (!enrichableSet.has(f.path)) {
-      files.push({ path: f.path, exports: f.exports, phase: 1 })
-    }
-  }
-
-  // Phases 2..N: batch deferred pages AUTO_PHASE_GROUP at a time
-  let phaseNum = 2
-  for (let i = 0; i < enrichable.length; i += AUTO_PHASE_GROUP) {
-    const batch = enrichable.slice(i, i + AUTO_PHASE_GROUP)
-    for (const f of batch) {
-      files.push({ path: f.path, exports: f.exports, phase: phaseNum })
-    }
-    phaseNum++
-  }
-
-  const phaseCount = phaseNum - 1
-  return { files, phaseCount, multiPhase: phaseCount > 1, extraPackages }
+  // NO SHELLS + COMPLETE MULTI-PAGE (user directive 2026-08-18): build EVERY file up front — no
+  // phase-2 deferral, no server-stamped "being crafted" shells. The reveal shows a COMPLETE site
+  // (every page + every section is real). This deliberately trades the shell-first fast-first-preview
+  // for a complete result — the user's explicit choice ("no putting-changes shells ever; time taken
+  // doesn't matter, the durable workflow keeps it capable"). The frozen manifest + surgical gates keep
+  // even a large build convergent, and enrichment (phaseCount 1) becomes a no-op. The old page/
+  // component phasing (isEnrichablePage/isDeferrableComponent/AUTO_PHASE_*) is intentionally unused now.
+  void isEnrichablePage; void isDeferrableComponent; void SMALL_PROJECT_FILES
+  void AUTO_PHASE_MIN_PAGES; void AUTO_PHASE_GROUP; void MIN_ENRICHMENT_FILES; void MIN_DEFERRABLE_COMPONENTS
+  const files: ManifestFile[] = raw.map((f) => ({ path: f.path, exports: f.exports, phase: 1 }))
+  return { files, phaseCount: 1, multiPhase: false, extraPackages }
 }
 
 // Durable-runs STEP 3: rebuild a NormalizedManifest from the bare files array that was
@@ -358,19 +319,20 @@ export const planProject = (
         )
       }
 
-      // ── Multi-phase (SHELL-FIRST) — the model builds ONLY the phase-1 real files ──
-      // The deferred (phase-2+) pages are SERVER-STAMPED as on-brand shells (zero tokens,
-      // instant) and enriched into full pages automatically after the preview goes live.
-      // So the model generates ONLY the phase-1 files — the small, fast first-preview set.
-      const phase1 = manifest.files.filter((f) => f.phase === 1).map((f) => f.path)
-      const deferred = manifest.files.filter((f) => f.phase > 1).map((f) => f.path)
+      // ── BUILD EVERY PAGE (user directive: websites are MULTI-PAGE + NO shells ever) ──
+      // The old shell-first deferral stamped phase-2 sub-pages as "being crafted" placeholders to be
+      // enriched live after the preview — but that enrichment does NOT reliably run in the durable
+      // workflow, so those sub-pages shipped as broken "putting changes" shells. Per the goal (a
+      // complete multi-page site, every clickable a real page, no shells), the model now builds ALL
+      // files up front — every page fully realized before reveal. Terra/cheap models handle the extra
+      // files fine, and the frozen manifest + surgical gates keep it convergent.
       return (
-        `Manifest locked — ${manifest.files.length} files across ${manifest.phaseCount} progressive build phases. ` +
-        `This is the export CONTRACT; every import must match it exactly:\n${contract}${pkgNote}\n\n` +
-        `Now call generateFiles with ONLY these ${phase1.length} phase-1 paths (build each COMPLETE and ` +
-        `production-quality): ${phase1.join(', ')}.\n\n` +
-        `Do NOT generate these ${deferred.length} pages — they are created automatically as on-brand placeholders ` +
-        `and filled in live right after the preview goes online: ${deferred.join(', ')}.\n\n` +
+        `Manifest locked — ${manifest.files.length} files. This is the export CONTRACT; every import must match it exactly:\n` +
+        `${contract}${pkgNote}\n\n` +
+        `Now call generateFiles with ALL ${allPaths.length} paths — EVERY page and EVERY section, each ` +
+        `COMPLETE and production-quality with its OWN distinct real content (a Programs page lists the ` +
+        `programs, an About page tells the story — NEVER a copy of the homepage). This is a MULTI-PAGE ` +
+        `site: build every page fully, NEVER defer a page or leave it a placeholder: ${allPaths.join(', ')}.\n\n` +
         `Every file you generate must export precisely the names declared above.`
       )
     },

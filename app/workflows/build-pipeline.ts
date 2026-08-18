@@ -660,16 +660,13 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
           if (tc.toolName === 'generateFiles' && Array.isArray(tc.args?.paths)) allGenPaths.push(...tc.args.paths)
         }
       }
-      const PHASE1_CORE_SET = new Set(['src/index.css', 'src/components/Layout.tsx', 'src/pages/Home.tsx', 'src/components/Phase2Sections.tsx'])
-      const phase2Paths = [...new Set(allGenPaths)].filter(p => !PHASE1_CORE_SET.has(p))
-      const phase1Paths = [...new Set(allGenPaths)].filter(p => PHASE1_CORE_SET.has(p))
-      if (phase2Paths.length >= 2) {
+      // Synthetic manifest fallback (model skipped planProject) — SINGLE-PHASE (no shells): every
+      // file is phase 1 so nothing gets deferred as a "being crafted" placeholder.
+      const allUnique = [...new Set(allGenPaths)]
+      if (allUnique.length >= 2) {
         planBox.manifest = {
-          files: [
-            ...phase1Paths.map(p => ({ path: p, phase: 1, exports: ['default'] })),
-            ...phase2Paths.map(p => ({ path: p, phase: 2, exports: ['default'] })),
-          ],
-          phaseCount: 2, multiPhase: true, extraPackages: [],
+          files: allUnique.map(p => ({ path: p, phase: 1, exports: ['default'] })),
+          phaseCount: 1, multiPhase: false, extraPackages: [],
         }
       }
     } catch { /* non-fatal */ }
