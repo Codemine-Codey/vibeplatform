@@ -261,28 +261,13 @@ export async function runResumableEnrichment(opts: {
       .replace(/\.(tsx|jsx|ts|js)$/i, '')
       .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
       .trim()
-  const deferredPageNames = [
-    ...new Set(
-      manifest.files.filter((f) => f.phase >= 2 && isSubPageRoute(f.path)).map((f) => prettyPageName(f.path))
-    ),
-  ]
-  // SAFETY: only defer sub-pages if there are real homepage SECTIONS still to build.
-  // Otherwise deferring would leave a hero with an empty Phase2Sections (blank lower
-  // homepage) — worse than just building everything. This should be rare; the planner
-  // is steered to always create section components.
-  const homepageSectionsToBuild = manifest.files.some(
-    (f) => f.phase >= 2 && !isSubPageRoute(f.path)
-  )
-  if (homepageSectionsToBuild) {
-    // Remove sub-page routes from the build loop (mutate in place — the FULL manifest was
-    // already persisted to the run row before enrichment started, so continuations still
-    // see every file and re-filter identically).
-    manifest.files = manifest.files.filter((f) => !(f.phase >= 2 && isSubPageRoute(f.path)))
-    manifest.phaseCount = manifest.files.reduce((mx, f) => Math.max(mx, f.phase), 1)
-  } else {
-    // No dedicated sections — build everything (incl. sub-pages) so the homepage isn't blank.
-    deferredPageNames.length = 0
-  }
+  // MULTI-PAGE ALWAYS (user directive 2026-08-18): NEVER defer sub-pages. A website must be a
+  // complete multi-page site from one prompt — every planned page (About/Menu/Contact/…) is BUILT,
+  // not left as an offered "being crafted" shell. The old MVP-first deferral (which stripped sub-page
+  // routes from the enrichment loop and offered them instead) is removed: all pages stay in the loop
+  // and get fully enriched. `isSubPageRoute`/`prettyPageName` are still used elsewhere; keep the refs.
+  void isSubPageRoute; void prettyPageName
+  const deferredPageNames: string[] = []
 
   const allPaths = manifest.files.map((f) => f.path)
   const reference = await readDesignReference(sandbox, manifest)
@@ -430,20 +415,9 @@ export async function runResumableEnrichment(opts: {
     }
   }
 
-  // MVP-first completion: the homepage is complete. OFFER the sub-pages (built on request)
-  // instead of auto-building them. If there were none to defer, invite the next step.
-  if (deferredPageNames.length > 0) {
-    const list =
-      deferredPageNames.length === 1
-        ? `a ${deferredPageNames[0]} page`
-        : `${deferredPageNames.slice(0, -1).map((n) => `a ${n} page`).join(', ')} and a ${deferredPageNames[deferredPageNames.length - 1]} page`
-    narrate(
-      writer,
-      `Your homepage is live and complete. Whenever you're ready I can add ${list} — just tell me which and I'll build it.`
-    )
-  } else {
-    narrate(writer, 'Your homepage is live and complete. Want another section or a new page? Just tell me.')
-  }
+  // MULTI-PAGE completion: every planned page was built (no deferral). Invite the next step.
+  void deferredPageNames // multi-page-always: never populated; kept for type-compat with earlier refs
+  narrate(writer, 'Your site is live — every page is built and ready. Want to tweak the design, add a section, or change anything? Just tell me.')
   if (runId) await updateRun(runId, { phase_cursor: manifest.phaseCount }).catch(() => {})
   return { chained: false }
 }
