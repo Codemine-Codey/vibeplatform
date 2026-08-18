@@ -232,12 +232,15 @@ function makeSilenceFilter() {
         return
       }
 
-      // Text events: pass before first tool, drop after. Scrub leaks on the way out.
+      // Text events: DROP ALL of them. The opening line and the completion line are BOTH emitted
+      // DETERMINISTICALLY by the workflow (srv-opening below + srv-ready-narration at reveal), so the
+      // model's own text is redundant AND unreliable — Sonnet sometimes skips the opening entirely
+      // (the "no AI reply" bug). Dropping every text-* event guarantees exactly one warm opening +
+      // one completion, and can never orphan a text part. Tool events + data-* still pass (below).
       if (t === 'text-start' || t === 'text-delta' || t === 'text-end' || t === 'text') {
-        if (!firstToolSeen) controller.enqueue(scrubPart(part))
-        // after firstToolSeen: drop entirely — no orphaned start/end pairs
         return
       }
+      void firstToolSeen
 
       // Everything else (step-start, step-finish, data-*, finish-step, etc.) passes always
       // — scrubbed so data-narration can never leak infra/model/"sandbox" to the user.
@@ -289,6 +292,21 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
   // Emit the run ID so the client can reconnect via /api/runs/[id]/stream
   if (params.runId) {
     writer.write({ id: 'srv-run', type: 'data-run', data: { runId: params.runId } })
+  }
+
+  // DETERMINISTIC WARM OPENING (fixes "no AI reply"): the model's own opening line is unreliable —
+  // Sonnet sometimes skips it entirely — so the workflow ALWAYS emits one warm, brand-aware line
+  // here. Paired with the deterministic completion line at reveal, the user always sees a friendly
+  // bookended conversation. The model itself is kept silent (silence filter drops all its text).
+  {
+    const brand = (params.brandName ?? '').trim() || 'your project'
+    const openings: Record<string, string> = {
+      website: `Love this — I'm designing ${brand} now. Give me a few minutes and I'll have your preview ready to look at.`,
+      game: `Nice — I'm building ${brand} now, physics and controls and all. Your playable preview is coming right up.`,
+      webapp: `On it — I'm building ${brand} now and wiring everything up. I'll have your working preview ready shortly.`,
+    }
+    const text = openings[params.skill as string] ?? `On it — I'm building ${brand} now. I'll have your preview ready shortly.`
+    writer.write({ id: 'srv-opening', type: 'data-narration', data: { text } })
   }
 
   // Sandbox: reconnect if pre-created, otherwise create fresh

@@ -476,8 +476,12 @@ export function Chat({ className }: Props) {
         </Conversation>
       )}
 
-      {/* Connection error — auto-resumes during generation, manual button after it's done */}
-      {streamError && !isWorking && (
+      {/* Connection error — auto-resumes during generation, manual button after it's done.
+          GATED so it can't show a BASELESS error: a durable build's SSE closes normally (which can
+          set streamError) while the run keeps going server-side and the client is recovering. Only
+          surface this when recovery is genuinely NOT happening — no preview yet AND not polling for
+          one. If a preview arrived (success) or we're mid-recovery-poll, there is no real problem. */}
+      {streamError && !isWorking && !previewUrl && !pollingForPreview && (
         <div className="mx-3 mb-3 px-4 py-3 rounded-lg bg-destructive/8 border border-destructive/20 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="flex items-start gap-2">
             <span className="inline-block w-2 h-2 rounded-full bg-destructive/70 shrink-0 mt-1 animate-pulse" />
