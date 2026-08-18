@@ -541,14 +541,16 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
         const inject = pageMapPaths.filter((p) => !have.has(p))
         if (inject.length > 0) paths = [...paths, ...inject]
       }
-      // FAN-OUT: spine (Home/Layout/pages/data) on Sonnet, section leaves on DeepSeek Pro.
-      // Runtime toggle so we can A/B fan-out (cheaper, ~2x slower) vs all-Sonnet (faster, pricier
-      // per-token but cached) from the Vercel env WITHOUT a redeploy — the decision is data-driven
-      // off the per-build cost telemetry. Set FANOUT_ENABLED=false to route the whole site on Sonnet.
-      if (process.env.FANOUT_ENABLED === 'false') {
-        return rawGF.execute({ ...args, paths }, ctx)
+      // SINGLE-MODEL BY DEFAULT (2026-08-18). Fan-out (Sonnet spine + DeepSeek Pro leaves) is now
+      // OPT-IN only (FANOUT_ENABLED=true) because a live build proved it DRIFTS: a DeepSeek leaf
+      // (ValueProps.tsx) shipped no default export while the spine imported it as default → blank →
+      // a 15-min repair loop + cost OVER a single-model build. One model = one consistent export/
+      // prop/type contract across every file = no cross-boundary drift. The whole site routes on the
+      // single FILE_GENERATION_MODEL unless fan-out is explicitly turned on.
+      if (process.env.FANOUT_ENABLED === 'true') {
+        return fanoutGenerate(rawGF, { ...args, paths }, ctx)
       }
-      return fanoutGenerate(rawGF, { ...args, paths }, ctx)
+      return rawGF.execute({ ...args, paths }, ctx)
     },
   }
 

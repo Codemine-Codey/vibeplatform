@@ -17,6 +17,6 @@ export function GET() {
     // override is actually live on this deployment BEFORE spending money on a build.
     fileModel: FILE_GENERATION_MODEL,
     leafModel: LEAF_MODEL,
-    fanout: process.env.FANOUT_ENABLED !== 'false',
+    fanout: process.env.FANOUT_ENABLED === 'true',
   })
 }
