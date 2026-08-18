@@ -51,3 +51,4 @@ scripts/*.log
 scripts/*-test-run.log
 scripts/*.png
 dev-server.log
+scripts/.or-cost-log.json
