@@ -1711,19 +1711,46 @@ export async function POST(req: Request) {
           .slice(0, 5)
           .join(' ')
           .trim() || (brief.brandName || 'business')
-      const mods = ['', ' interior', ' close up', ' lifestyle', ' detail', ' ambiance', ' product', ' texture']
+      // CONTEXT-AWARE + NON-REPEATING: derive a DISTINCT search term per section (hero, about,
+      // gallery, menu item, etc.) so each section gets a DIFFERENT, on-topic photo. The old 8
+      // generic theme-mods returned repeats + off-context tiles (user: "images were repeated and
+      // not really context aware"). Section-keyed keywords + a bigger distinct pool fix both.
+      const sectionKeys = (brief.sections ?? [])
+        .map((s) => String(s).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 2).join(' ').trim())
+        .filter((s) => s.length > 1)
+        .map((s) => `${theme} ${s}`)
+      const baseKeys = [theme, `${theme} interior`, `${theme} detail`, `${theme} lifestyle`, `${theme} product`, `${theme} ambiance`, `${theme} team`, `${theme} close up`]
+      const wanted = [...new Set([...baseKeys, ...sectionKeys])].filter(Boolean).slice(0, 16)
       const key = process.env.UNSPLASH_ACCESS_KEY
       const urls = await Promise.all(
-        mods.map((m, i) => fetchOne(`${theme}${m}`.trim(), i % 2 === 0 ? 'landscape' : 'portrait', key).catch(() => null)),
+        wanted.map((kw, i) => fetchOne(kw, i % 2 === 0 ? 'landscape' : 'portrait', key).catch(() => null)),
       )
       const good = [...new Set(urls.filter((u): u is string => typeof u === 'string' && u.length > 0))]
       if (good.length > 0) {
-        imageCatalogSection = `\n\n## IMAGE CATALOG — REAL PHOTOGRAPHY (use ONLY these exact URLs)\nThis site MUST be rich with real imagery — a full-bleed hero photo AND photos in sections/cards (a premium site is photography-led, never flat colour blocks). Use ONLY the URLs below — they are verified real photos for "${theme}". NEVER invent, guess, or shorten an image URL; invented URLs 404 into broken grey tiles (the "cheap website" look). Assign the best-fitting URL to the hero and to each section/card that needs an image:\n${good.map((u) => `- ${u}`).join('\n')}`
+        imageCatalogSection = `\n\n## IMAGE CATALOG — REAL PHOTOGRAPHY (use ONLY these exact URLs)\nThis site MUST be rich with real imagery — a full-bleed hero photo AND photos in sections/cards (a premium site is photography-led, never flat colour blocks). Use ONLY the URLs below — they are verified real photos for "${theme}". NEVER invent, guess, or shorten an image URL; invented URLs 404 into broken grey tiles (the "cheap website" look).\n**Use each URL AT MOST ONCE** — assign a DIFFERENT photo to the hero and to each section/card. NEVER repeat the same image across sections; repeats are the #1 tell of a cheap site. There are ${good.length} distinct photos — spread them across the sections:\n${good.map((u) => `- ${u}`).join('\n')}`
       }
     } catch { /* non-fatal — model can still call getUnsplashBatch */ }
   }
 
-  const designContext = `${formatBrief(brief)}${researchContext}${apiCatalogSection}${imageCatalogSection}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
+  // FORCE MULTI-FILE GAMES SERVER-SIDE (2026-08-18): games came out as ONE giant file (Flappy Bird
+  // = 1 file in 13 min, un-editable + truncation-prone; user: "poor, very poor... should be broken
+  // into multiple files like a website"). Don't trust the model to split — inject the REQUIRED file
+  // manifest, the SAME server-forcing approach as the website pageMap + image catalog. planProject
+  // MUST commit to these files and generateFiles MUST build them all in one call.
+  let gameFilesSection = ''
+  if (skill === 'game') {
+    gameFilesSection = `\n\n## REQUIRED GAME FILES — build ALL of these in ONE generateFiles call (NON-NEGOTIABLE)
+A game is NEVER a single file — one big App.tsx truncates, can't be edited later, and is a REJECTED build. Split the game across AT LEAST these files (add more entity/scene files for richer games):
+- src/game/config.ts — ALL constants: sizes as RATIOS of the live canvas (never hard-coded pixels), gravity, speeds, spawn cadence, difficulty. No logic, no imports from other game files.
+- src/game/state.ts — the GameState type + createInitialState() (positions, velocities, entity arrays, score, phase: 'start'|'playing'|'over').
+- src/game/input.ts — keyboard + touch handlers that write to an input state (no rendering, no game logic).
+- src/game/loop.ts — update(state, dt, input) in strict order: input → physics → collision → gameplay → score. NO canvas calls.
+- src/game/render.ts — draw(ctx, state): ALL canvas drawing, reads state only, never mutates.
+- src/components/GameCanvas.tsx — owns the <canvas>, the requestAnimationFrame loop, and ONE useRef<GameState>. FIT-TO-VIEWPORT: wrap in a w-full h-full container; set canvas.width/height from the container's clientWidth/clientHeight × devicePixelRatio; re-fit on a resize listener. The playfield must ALWAYS fill the preview — never letterboxed, never scrolling.
+Then App.tsx renders <GameCanvas/> full-viewport. Every mutable game value lives in the useRef — NEVER useState (that re-renders 60×/sec and kills the loop).`
+  }
+
+  const designContext = `${formatBrief(brief)}${researchContext}${apiCatalogSection}${imageCatalogSection}${gameFilesSection}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
 
   // Create run row so the client can reconnect via /api/runs/[id]/stream if needed.
   const runId = await createRun({ userId: authedUser.id }).catch(() => null)
