@@ -105,7 +105,7 @@ Use the create_brief tool.`,
               page: z.string().describe('Page name, e.g. "Home", "About", "Services", "Contact"'),
               route: z.string().describe('Route path, e.g. "/", "/about", "/services"'),
               sections: z.array(z.string()).describe('Ordered sections that render on this page'),
-            })).optional().describe('WEBSITES: the multi-page routing plan. 3-5 pages for a substantial site (Home is a rich 5-7 section landing); ONE entry (route "/") only for a true one-pager. Omit for webapps/games.'),
+            })).default([]).describe('WEBSITES: the multi-page routing plan — REQUIRED, NOT optional. Websites are MULTI-PAGE by default: ALWAYS return 3-5 pages (Home "/" is a rich 5-7 section landing, plus business-appropriate pages like About/Menu/Services/Work/Gallery/Pricing/Contact), sections distributed across them, each page distinct. Return a SINGLE entry (route "/") ONLY when the user EXPLICITLY says "one-page"/"single page"/"landing page only". For webapps/games return an empty array [].'),
             sections: z.array(z.string()).describe('Ordered list of sections/screens/views to build (for websites: the union across all pages; pageMap defines per-page placement)'),
             features: z.array(z.string()).describe('Specific features or mechanics to implement'),
             gameDesign: z.object({

@@ -1567,7 +1567,8 @@ export async function POST(req: Request) {
   // came out single-page). If a website brief lacks a multi-page pageMap, build one: prefer the pages
   // the user EXPLICITLY named ("...a Home page, an Our Beans page..."), else a sensible default. Routes
   // are derived from the page name so file + route + nav stay consistent (scaffold routes filename→route).
-  if (brief && skill === 'website' && (!brief.pageMap || brief.pageMap.length < 2)) {
+  const wantsSinglePage = /\b(one[-\s]?page|single[-\s]?page|1[-\s]?page|landing page only|just a landing|no (?:sub|other|separate)[-\s]?pages)\b/i.test(userText)
+  if (brief && skill === 'website' && !wantsSinglePage && (!brief.pageMap || brief.pageMap.length < 2)) {
     const explicit: string[] = []
     const re = /\b(?:a|an|the)?\s*([A-Z][A-Za-z]*(?:\s+[A-Z&][A-Za-z]*){0,2})\s+page\b/g
     let m: RegExpExecArray | null
