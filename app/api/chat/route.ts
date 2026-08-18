@@ -17,7 +17,7 @@ import { getModelOptions } from '@/ai/gateway'
 import { tools } from '@/ai/tools'
 import { generateSuggestions } from '@/ai/suggestions'
 import { generateFiles } from '@/ai/tools/generate-files'
-import { getUnsplashBatch } from '@/ai/tools/get-unsplash-batch'
+import { getUnsplashBatch, fetchOne } from '@/ai/tools/get-unsplash-batch'
 import { planProject, type NormalizedManifest } from '@/ai/tools/plan-project'
 import { lookupReference, tavilySearch } from '@/ai/tools/lookup-reference'
 import { classifyPrompt } from '@/ai/classifier'
@@ -1664,7 +1664,39 @@ export async function POST(req: Request) {
       })()
     : ''
 
-  const designContext = `${formatBrief(brief)}${researchContext}${apiCatalogSection}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
+  // FORCE IMAGES SERVER-SIDE (2026-08-18): cheaper models skip getUnsplashBatch → image-less "$50"
+  // sites. Instead of depending on the model to choreograph the image tool, the PIPELINE prefetches a
+  // catalog of REAL photos here and injects them, so ANY model just uses provided, verified URLs.
+  // fetchOne has a built-in Pexels/picsum fallback, so this never fails a build. Website only.
+  let imageCatalogSection = ''
+  if (skill === 'website') {
+    try {
+      const stop = new Set(['for', 'and', 'the', 'that', 'this', 'with', 'page', 'pages', 'home', 'site', 'website', 'landing', 'build', 'make', 'create'])
+      const theme =
+        (userText || brief.brandName || '')
+          .toLowerCase()
+          .replace(/build (me )?(a |an )?(website|landing page|site|web ?app|app|game)( for)?/g, ' ')
+          .replace(/called [a-z0-9 ]+/g, ' ')
+          .split(/[—\-–]|,|\bwith\b/)[0]
+          .replace(/[^a-z0-9 ]/g, ' ')
+          .split(/\s+/)
+          .filter((w) => w.length > 2 && !stop.has(w))
+          .slice(0, 5)
+          .join(' ')
+          .trim() || (brief.brandName || 'business')
+      const mods = ['', ' interior', ' close up', ' lifestyle', ' detail', ' ambiance', ' product', ' texture']
+      const key = process.env.UNSPLASH_ACCESS_KEY
+      const urls = await Promise.all(
+        mods.map((m, i) => fetchOne(`${theme}${m}`.trim(), i % 2 === 0 ? 'landscape' : 'portrait', key).catch(() => null)),
+      )
+      const good = [...new Set(urls.filter((u): u is string => typeof u === 'string' && u.length > 0))]
+      if (good.length > 0) {
+        imageCatalogSection = `\n\n## IMAGE CATALOG — REAL PHOTOGRAPHY (use ONLY these exact URLs)\nThis site MUST be rich with real imagery — a full-bleed hero photo AND photos in sections/cards (a premium site is photography-led, never flat colour blocks). Use ONLY the URLs below — they are verified real photos for "${theme}". NEVER invent, guess, or shorten an image URL; invented URLs 404 into broken grey tiles (the "cheap website" look). Assign the best-fitting URL to the hero and to each section/card that needs an image:\n${good.map((u) => `- ${u}`).join('\n')}`
+      }
+    } catch { /* non-fatal — model can still call getUnsplashBatch */ }
+  }
+
+  const designContext = `${formatBrief(brief)}${researchContext}${apiCatalogSection}${imageCatalogSection}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
 
   // Create run row so the client can reconnect via /api/runs/[id]/stream if needed.
   const runId = await createRun({ userId: authedUser.id }).catch(() => null)
