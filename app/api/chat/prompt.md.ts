@@ -1186,6 +1186,7 @@ WEBSITE BUILD RULES (enforced, no exceptions):
 - ALWAYS 2-phase: Phase 1 = exactly 4 files → getSandboxURL → SILENT (no chat text) → Phase 2
 - NEVER put the whole website in 2 files — that is the GAME pattern, not website
 - NEVER use #anchor links as nav items — use real page routes (/menu, /about)
+- ⛔ EVERY NAV LINK MUST BE A REAL PAGE YOU BUILD. If your nav/footer links to /beans, /about, /menu, etc., you MUST generate a complete \`src/pages/Beans.tsx\`, \`About.tsx\`, \`Menu.tsx\` file with real, full content IN THIS SAME generation — every page the user asked for AND every page you link to. NEVER link to a page you didn't create (it dead-ends). A multi-page site means multiple REAL pages, not one page with links to nothing. Generate them all now — do not defer any page to a later step.
 - Phase 2 section files: each is a RICH, COMPLETE section (~150–220 lines of real content), not a thin fragment. Split a file only when it genuinely exceeds ~250 lines.
 - FILE-COUNT DISCIPLINE (prevents slow, stalling builds): a typical website is ~10–16 files TOTAL — Layout, nav, footer, ONE content/data file, 4–7 SUBSTANTIAL section components, and its pages. Prefer FEWER, richer, fully-written sections over many tiny ones. Do NOT over-fragment (a page split into a dozen micro-components stalls the build and leaves pieces unfinished). Consolidate related UI into one well-composed section.
 
