@@ -139,8 +139,8 @@ try {
   if (!started) throw new Error('build never started — input never went busy (clarify not skipped / prompt not accepted)')
   log(`submitted ${KIND} prompt — BUILD STARTED (input busy) ✅`)
 
-  // Poll for the preview iframe URL + scan chat for leaks, up to 20 min
-  const DEADLINE = Date.now() + 20 * 60 * 1000
+  // Poll for the preview iframe URL + scan chat for leaks, up to 25 min
+  const DEADLINE = Date.now() + 25 * 60 * 1000
   let previewAt = null
   let lastChatLen = 0
   let lastPhase = null

@@ -740,10 +740,39 @@ export async function visualVerdict(
 }
 
 // Full headless render check with Puppeteer + Chromium.
+type RuntimeCheckResult = { status: 'ok' | 'broken' | 'skipped'; detail: string; score?: number | null; screenshot?: Buffer }
+
+// HARD-TIMEOUT WRAPPER (2026-08-18): the inner check does many page.evaluate() calls — DOM scans,
+// scroll walking, and a canvas game-loop probe (Space press + getImageData). A GAME runs a
+// continuous requestAnimationFrame loop that can starve those evaluate() calls so they never
+// resolve → the whole step hangs → the run never flushes or goes terminal → the client is frozen
+// on "Building and starting preview…" forever (observed: flappy-bird run 926e7c12 stalled 21 min at
+// exactly this check). This wrapper GUARANTEES the check returns. On timeout it returns 'skipped'
+// (NOT 'broken'): the vite BUILD gate is the hard compile-correctness gate; a best-effort runtime
+// probe that times out must let the (compiled) game REVEAL, never withhold or freeze it.
 export async function headlessRuntimeCheck(
   url: string,
   sandboxId?: string
-): Promise<{ status: 'ok' | 'broken' | 'skipped'; detail: string; score?: number | null; screenshot?: Buffer }> {
+): Promise<RuntimeCheckResult> {
+  const TIMEOUT_MS = 45_000
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const timeout = new Promise<RuntimeCheckResult>((resolve) => {
+    timer = setTimeout(
+      () => resolve({ status: 'skipped', detail: `render check exceeded ${TIMEOUT_MS}ms — skipped so the build can never hang (common for games whose animation loop starves the probe)` }),
+      TIMEOUT_MS,
+    )
+  })
+  try {
+    return await Promise.race([headlessRuntimeCheckInner(url, sandboxId), timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function headlessRuntimeCheckInner(
+  url: string,
+  sandboxId?: string
+): Promise<RuntimeCheckResult> {
   let browser: unknown = null
   try {
     const chromiumMod = await import('@sparticuz/chromium')
