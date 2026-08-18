@@ -52,6 +52,15 @@ export const REPAIR_MODEL = 'deepseek/deepseek-v4-flash-20260731'
 // against the spine's pinned contract). Cuts the Sonnet output ~in half → big cost drop on the
 // initial build, while the spine keeps design + cross-file consistency. Website-only.
 export const LEAF_MODEL = process.env.CM_LEAF_MODEL || 'deepseek/deepseek-v4-pro'
+// ── AKAMI RECIPE (user's PROVEN $0.4-0.5 perfect-design architecture) ──────────
+// ROLE-BASED split (NOT the file-based leaf fan-out above, which drifted): the SKELETON model does
+// the light structural/design work (plan + per-file skeletons: exports, imports, section layout,
+// minimal bodies — where DESIGN TASTE lives, few tokens = cheap), then the CODE model fills each
+// skeleton body with real content (the bulk, cheap per token). Because the skeleton model defines
+// every export/import/prop contract first, the code-fill CANNOT drift. Env-overridable so the split
+// is testable without a redeploy. Default: Sonnet 5 skeleton, DeepSeek v4 Pro code.
+export const SKELETON_MODEL = process.env.CM_SKELETON_MODEL || 'anthropic/claude-sonnet-5'
+export const CODE_MODEL = process.env.CM_CODE_MODEL || 'deepseek/deepseek-v4-pro'
 // Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
 // gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
 // and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),
