@@ -1240,6 +1240,18 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       } catch { /* non-fatal */ }
     }
 
+    // REVEAL-FIRST FOR GAMES (2026-08-18, additive + game-only): the render check passed → show the
+    // playable preview NOW, at generation cost, BEFORE the model-cost functional-verify/QA polish.
+    // This is purely an EXTRA early URL emit — it does NOT change control flow or the `revealed` flag,
+    // so the normal reveal (with narration) still fires at the end and websites are COMPLETELY
+    // untouched (skill guard). A duplicate get-sandbox-url 'done' with the SAME url is idempotent on
+    // the client. Fixes games stranding/never-revealing before the paid polish (runs 926e7c12/
+    // 006d0fe9); the polish then HMRs into the already-shown preview.
+    if (skill === 'game' && !devError && rtStatus !== 'broken' && rtStatus !== null) {
+      writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
+      if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
+    }
+
     // ── 11-min deadline check again: hand off functional verify + QA to stepVerify2 ─
     if (!devError && !withinBudget()) {
       console.warn(`[stepVerify] 11-min deadline reached after headless — handing off functional verify to stepVerify2`)
