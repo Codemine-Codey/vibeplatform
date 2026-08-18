@@ -943,11 +943,14 @@ async function headlessRuntimeCheckInner(
           }).catch(() => null)
 
           if (pixelsAfter && pixelsAfter === pixelsBefore) {
-            // Pixels unchanged after input — game loop is frozen or Start button not wired
-            return {
-              status: 'broken',
-              detail: 'Game canvas detected but pixel data did not change after Space key + click input. The game loop appears frozen or the Start/Play interaction is not wired. Check that the game loop starts on input and useGameLoop is running.',
-            }
+            // WEAK SIGNAL — do NOT block reveal on this (2026-08-18). Pixels-unchanged in a 500ms
+            // headless probe trips on a Start screen, an idle-until-first-input loop, or animation
+            // outside the 200x200 sample. Returning 'broken' here drove an expensive, NON-converging
+            // repair→chain loop that burned ~490k tokens and froze flappy-bird for 30-40 min without
+            // ever revealing (live runs 926e7c12 / 006d0fe9). A canvas that MOUNTED with no console
+            // errors + meaningful paint is structurally live; per the product rule "reveal the working
+            // core, the user iterates", we reveal and let the user tune gameplay. Log softly only.
+            console.warn('[runtime-check] canvas pixels unchanged after input probe — revealing anyway (weak signal, never a reveal blocker)')
           }
         }
       } catch {
