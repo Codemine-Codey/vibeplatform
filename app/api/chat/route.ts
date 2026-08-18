@@ -1562,6 +1562,32 @@ export async function POST(req: Request) {
   let brief = null
   try { brief = await expandPrompt(userText, skill) } catch { /* expansion failed — fallback */ }
 
+  // FORCE MULTI-PAGE server-side (user: websites MUST be multi-page; don't depend on the expander —
+  // its pageMap is optional and a cheap model can omit it, which is exactly why Ember's first build
+  // came out single-page). If a website brief lacks a multi-page pageMap, build one: prefer the pages
+  // the user EXPLICITLY named ("...a Home page, an Our Beans page..."), else a sensible default. Routes
+  // are derived from the page name so file + route + nav stay consistent (scaffold routes filename→route).
+  if (brief && skill === 'website' && (!brief.pageMap || brief.pageMap.length < 2)) {
+    const explicit: string[] = []
+    const re = /\b(?:a|an|the)?\s*([A-Z][A-Za-z]*(?:\s+[A-Z&][A-Za-z]*){0,2})\s+page\b/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(userText)) !== null) {
+      const name = m[1].trim()
+      if (name && !/^(this|that|one|single|landing|web|the|a|an|each|every|other|new|first|next|same)$/i.test(name)) explicit.push(name)
+    }
+    let pageNames = [...new Set(explicit)]
+    if (!pageNames.some((p) => /home|index|landing/i.test(p))) pageNames = ['Home', ...pageNames]
+    if (pageNames.length < 2) pageNames = ['Home', 'About', 'Contact']
+    pageNames = [...new Set(pageNames)].slice(0, 5)
+    const secs = brief.sections ?? []
+    brief.pageMap = pageNames.map((p, i) => {
+      const isHome = i === 0 || /home|index|landing/i.test(p)
+      const route = isHome ? '/' : '/' + p.replace(/[^A-Za-z0-9]/g, '').toLowerCase()
+      return { page: p, route, sections: isHome ? secs.slice(0, 6) : [] }
+    })
+    console.log(`[force-multipage] synthesized ${brief.pageMap.length}-page map: ${brief.pageMap.map((p) => p.route).join(' ')}`)
+  }
+
   if (!brief) {
     return createUIMessageStreamResponse({
       stream: createUIMessageStream({
