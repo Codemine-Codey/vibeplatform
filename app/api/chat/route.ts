@@ -55,6 +55,7 @@ import { createProjectRow, getProject, snapshotProject, updateProjectRow, getPro
 import { tokenStore } from '@/lib/token-context'
 import { ensureValidCss } from '@/lib/css-guard'
 import { makeScrubStream } from '@/lib/leak-guard'
+import { getOpenRouterRemaining, minStartBalanceUsd } from '@/lib/cost'
 import { trimStaleReadResults } from '@/lib/trim-history'
 import prompt from './prompt.md.ts'
 
@@ -1557,6 +1558,32 @@ export async function POST(req: Request) {
         },
       }),
     })
+  }
+
+  // ── COST PREFLIGHT (mechanical kill-cap, safe half) ─────────────────────────
+  // Refuse to START a new build when the balance is below a configured floor, BEFORE
+  // any sandbox/model spend. ENV-GATED + OFF by default (CM_MIN_START_BALANCE_USD unset)
+  // so production/paying users are unaffected; set it to 4 to enforce the test floor.
+  // FAIL-OPEN: a null/flaky balance read never blocks a build. This is the no-workflow-
+  // surgery half of the kill-cap — it can only prevent a start, never abort a good build.
+  const minStart = minStartBalanceUsd()
+  if (minStart > 0) {
+    const remaining = await getOpenRouterRemaining()
+    if (remaining !== null && remaining < minStart) {
+      console.warn(`[cost-preflight] balance $${remaining.toFixed(2)} < floor $${minStart} — refusing to start build`)
+      return createUIMessageStreamResponse({
+        stream: createUIMessageStream({
+          originalMessages: messages,
+          execute: async ({ writer }) => {
+            writer.write({
+              id: 'srv-paused',
+              type: 'data-narration',
+              data: { text: "I'm briefly paused and can't start a new build right now — please try again in a little while." },
+            })
+          },
+        }),
+      })
+    }
   }
 
   let brief = null
