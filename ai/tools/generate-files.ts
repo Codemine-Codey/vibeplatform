@@ -176,6 +176,35 @@ export function findExportMismatches(files: { path: string; content: string }[])
   return out
 }
 
+// ── SURGICAL export fix (AKAMI-2) ─────────────────────────────────────────────
+// The Akami recipe's key to making cheap multi-model generation reliable: when a file is imported
+// as DEFAULT but has no default export (the exact fan-out contract drift that blanked ValueProps →
+// the preview), FIX IT SURGICALLY — append `export default <MainNamedExport>` to the target file.
+// One deterministic line, no model, no full-file rebuild. Mutates the passed file objects' content
+// and returns the paths changed so the caller can write them. Kills the drift class in ~1ms.
+export function surgicalFixExports(files: { path: string; content: string }[]): string[] {
+  const byPath = new Map(files.map(f => [f.path, f]))
+  const changed = new Set<string>()
+  for (const f of files) {
+    if (!/\.(tsx|ts|jsx|js)$/.test(f.path)) continue
+    for (const imp of extractNamedImports(f.content)) {
+      if (!imp.hasDefault) continue
+      const cand = importCandidates(imp.spec, f.path).find(c => byPath.has(c))
+      if (!cand || changed.has(cand)) continue
+      const tgtFile = byPath.get(cand)!
+      const tgt = extractExportNames(tgtFile.content)
+      if (tgt.hasDefault || tgt.wildcard) continue
+      // Imported as default but no default export → add one from its main named export
+      // (prefer a component-like PascalCase name, else the first named export).
+      const main = [...tgt.names].find(n => /^[A-Z]/.test(n)) ?? [...tgt.names][0]
+      if (!main) continue
+      tgtFile.content = tgtFile.content.replace(/\s*$/, '') + `\n\nexport default ${main}\n`
+      changed.add(cand)
+    }
+  }
+  return [...changed]
+}
+
 // Runs inside the sandbox after file generation to guarantee Vite allowedHosts.
 const VITE_PATCH_SCRIPT = `
 const fs = require('fs');
@@ -592,10 +621,23 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
         console.warn('[closure] pass failed (non-fatal):', e instanceof Error ? e.message : e)
       }
 
+      // ── SURGICAL export fix (AKAMI-2) — BEFORE any model rebuild ─────────────
+      // Deterministically patch the "imported as default, no default export" drift (add the missing
+      // default export) so it never triggers an expensive full-file model rebuild. This is the exact
+      // fan-out contract drift that blanked previews; a one-line surgical patch fixes it in ~1ms.
+      try {
+        const exportFixed = surgicalFixExports(uploaded)
+        if (exportFixed.length > 0) {
+          await writeFiles({ files: exportFixed.map(p => uploaded.find(u => u.path === p)!), paths: exportFixed, written: uploaded.map(f => f.path) })
+          console.warn(`[surgical-export] added default export to ${exportFixed.length} file(s): ${exportFixed.join(', ')}`)
+        }
+      } catch (e) { console.warn('[surgical-export] non-fatal:', e instanceof Error ? e.message : e) }
+
       // ── Footgun scan + repair ────────────────────────────────────────────────
       // Catch the runtime bug classes that compile cleanly (Zustand selectors that loop,
       // purged dynamic Tailwind classes, index keys, keyless AnimatePresence) and rewrite
       // the offending files ONCE — so they never reach the preview. Deterministic catcher.
+      // (findExportMismatches now finds FEWER — the missing-default class was surgically fixed above.)
       try {
         const violations = [...scanFootguns(uploaded), ...findExportMismatches(uploaded), ...scanUndefinedVars(uploaded)]
         if (violations.length > 0) {
