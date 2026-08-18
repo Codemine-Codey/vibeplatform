@@ -68,7 +68,7 @@ The hero headline and key section titles deserve motion — this is a big part o
 - **Character stagger** — for short punchy headlines (kinetic-type/agency), animate letters in with a tight stagger.
 - **Gradient sweep / shimmer** — an animated gradient across the headline text (background-clip:text) for premium/dark brands.
 - **Scroll-linked emphasis** — \`useScroll\`+\`useTransform\` to fade/scale a title as it enters, or a word that highlights on scroll.
-- **Type-in / counter** — \`react-countup\` for stats; a subtle type-on for a tagline (sparingly).
+- **Type-in / counter** — the scaffolded \`<CountUp to={1200} suffix="+" />\` from \`@/components/blocks\` for stats (it scroll-triggers on view — reliable). Do NOT use raw \`react-countup\` directly: without \`enableScrollSpy\` it does NOT animate on scroll, so stats below the fold silently never count (the "counter isn't working" bug). A subtle type-on for a tagline (sparingly).
 - **Marquee** — a looping \`react-fast-marquee\` band of words for kinetic-type/retro brands.
 Respect \`prefers-reduced-motion\` (render final state, no animation). Never animate every heading on the page — restraint reads premium; the hero + 1–2 key titles is enough.
 
@@ -90,7 +90,7 @@ Pick a DIFFERENT pattern for each section so no two look alike. Every section is
 - **Sticky-stack cards** — cards that pin and stack on scroll (\`position: sticky; top: 6rem\` per card, slight scale/offset).
 - **Horizontal scroll gallery** — \`flex overflow-x-auto snap-x\` row of work/menu cards, or a framer \`useScroll\` → \`x\` translate rail.
 - **Zig-zag alternating** — alternating \`md:flex-row\` / \`md:flex-row-reverse\` image+text pairs (NOT three equal cards).
-- **Stat strip** — a band of 3-4 big animated numbers (\`react-countup\`) over a token-tinted surface.
+- **Stat strip** — a band of 3-4 big animated numbers (the scaffolded \`<CountUp to={98} suffix="%" />\` from \`@/components/blocks\`, NOT raw react-countup) over a token-tinted surface.
 - **Pull-quote band** — one oversized testimonial in display type, portrait to the side, generous negative space.
 - **Marquee row** — \`react-fast-marquee\` of logos/accolades/menu items.
 - **Split feature list** — sticky heading left, a tall scannable list of features right (numbered or iconed).
