@@ -1782,11 +1782,20 @@ export async function POST(req: Request) {
       }
       try {
         let cursor = 0
+        // Self-close cleanly ~60s before Vercel's 800s hard-kill. A hard-kill drops the
+        // connection mid-message with NO clean end, so the client's Chat neither finishes nor
+        // errors — the UI freezes forever and no reconnect ever fires (the exact "stops at 13
+        // min, only shows after I type continue" symptom). Breaking here closes the stream
+        // cleanly → onFinish/onError fires → chat-context reconnects to /api/runs/[id]/stream
+        // (a fresh invocation) and keeps tailing to the reveal. Deadline is measured from
+        // invocationStart because the 800s clock started at route entry, not at stream open.
+        const streamDeadline = (invocationStart ?? Date.now()) + 740_000
         // Brief initial delay to let stepGenerate start writing events to Supabase.
         // Without this, the first poll fires before the first appendRunEvent call.
         await new Promise(r => setTimeout(r, 1200))
         while (true) {
           if (closed) break
+          if (Date.now() >= streamDeadline) break // clean self-close → client reconnects
           const events = await getRunEventsSince(runId, cursor, 500)
           for (const ev of events) {
             emit(ev.payload)
@@ -1941,7 +1950,11 @@ async function runAgenticLoop({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       transform(part: any, controller: TransformStreamDefaultController) {
         const t: string = part?.type ?? ''
-        if (t === 'text-delta') {
+        // Hold the WHOLE text triplet (start/delta/end/text) as a unit after the first tool.
+        // Holding only text-delta while passing text-start/text-end through orphaned the part:
+        // the flush released deltas into a part already closed by its text-end → the client threw
+        // "text-delta for missing text part". Buffering start+delta+end together preserves framing.
+        if (t === 'text-start' || t === 'text-delta' || t === 'text-end' || t === 'text') {
           if (!_eFirstTool) controller.enqueue(part)
           else _eHold.push(part)
         } else if (t === 'tool-input-delta' || t === 'tool-result') {
@@ -2623,11 +2636,14 @@ The server does NOT enforce a 2-file limit — you decide the correct structure 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     transform(part: any, controller: TransformStreamDefaultController) {
       const t: string = part.type ?? ''
-      if (t === 'text-delta') {
+      // Hold the WHOLE text triplet (start/delta/end/text) together — see editSilence above:
+      // holding text-delta alone while passing text-start/text-end orphaned the part and crashed
+      // the client with "text-delta for missing text part". Buffer the triplet as a unit.
+      if (t === 'text-start' || t === 'text-delta' || t === 'text-end' || t === 'text') {
         if (!_gFirstToolSeen) {
-          controller.enqueue(part) // opening line — passes through before any tool
+          controller.enqueue(part) // opening line triplet — passes through before any tool
         } else {
-          _gHoldBuf.push(part) // hold; cleared by next tool call or flushed at end
+          _gHoldBuf.push(part) // hold WHOLE triplet; cleared by next tool call or flushed at end
         }
       } else if (t === 'tool-input-delta' || t === 'tool-result') {
         _gFirstToolSeen = true

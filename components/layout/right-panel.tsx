@@ -37,7 +37,15 @@ export function RightPanel({ className }: Props) {
   const chatStatus = useSandboxStore((s) => s.chatStatus)
   const previewUrl = useSandboxStore((s) => s.url)
   const deployedUrl = useSandboxStore((s) => s.deployedUrl)
-  const isWorking = chatStatus === 'streaming' || chatStatus === 'submitted'
+  const activeRunId = useSandboxStore((s) => s.activeRunId)
+  const streamError = useSandboxStore((s) => s.streamError)
+  // Stay in the "Building..." state through the SSE self-close → reconnect handoff: when the
+  // primary stream cleanly closes at ~12min, chatStatus drops to 'ready' but the durable run is
+  // still building server-side (activeRunId set, no preview yet). Without this the indicator would
+  // vanish mid-build and look stopped. Clears when the preview arrives OR the drain sets streamError
+  // on a terminal fail — so it can never spin forever.
+  const isWorking = chatStatus === 'streaming' || chatStatus === 'submitted' ||
+    (!!activeRunId && !previewUrl && !streamError)
 
   // CSS fullscreen — fixed overlay covering the whole viewport, no browser API needed.
   // Avoids the browser's "site is now fullscreen" OS-level notification entirely.

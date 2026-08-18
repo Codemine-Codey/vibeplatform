@@ -50,6 +50,12 @@ export async function GET(
 
   const encoder = new TextEncoder()
 
+  // Self-close ~60s before Vercel's 800s hard-kill so a very long build's reconnect also hands
+  // off cleanly (client gets a clean end → chat-context opens the NEXT reconnect from the cursor)
+  // instead of dying abruptly and freezing the UI. Measured from handler entry.
+  const handlerStart = Date.now()
+  const STREAM_DEADLINE_MS = 740_000
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let closed = false
@@ -80,6 +86,7 @@ export async function GET(
         // eslint-disable-next-line no-constant-condition
         while (true) {
           if (request.signal.aborted || closed) break
+          if (Date.now() - handlerStart >= STREAM_DEADLINE_MS) break // clean self-close → client re-reconnects
 
           const events = await getRunEventsSince(runId, cursor, BATCH)
           for (const ev of events) {

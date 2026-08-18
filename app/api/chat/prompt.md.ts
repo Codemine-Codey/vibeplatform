@@ -758,6 +758,10 @@ import { Physics, RigidBody, CuboidCollider } from '@react-three/rapier'
 
 ### 5.6 GAME FILE STRUCTURE — dynamic, rules-based (never a fixed template)
 
+**HARD MINIMUM — NON-NEGOTIABLE (this is enforced): a game is NEVER one file.** Even the simplest arcade game MUST split into at least: \`src/game/config.ts\` (constants), \`src/game/loop.ts\` (update/tick), \`src/game/render.ts\` (draw), and the React mount component that owns the \`<canvas>\` + rAF loop + game-state \`useRef\`. Cramming the whole game into a single App.tsx is a REJECTED build — it truncates, it can't be edited later, and it's the #1 cause of the broken/one-file games we will not ship. Your \`planProject\` manifest MUST list these files up front and \`generateFiles\` MUST build every one in the same call (never defer).
+
+**CANVAS FIT-TO-VIEWPORT (fixes "screen not fit to size") — REQUIRED:** the game must fill its container responsively. Mount the canvas in a wrapper that is \`w-full h-full\` (or \`w-screen h-[100dvh]\` for fullscreen games), and in a \`useEffect\` set \`canvas.width = wrapper.clientWidth\` and \`canvas.height = wrapper.clientHeight\` (device-pixel-ratio scaled), re-running on a \`resize\` listener. ALL gameplay positions/speeds derive from these live canvas dimensions (the \`_RATIO\` constants in §5.5) — never hard-code 800×600. The playfield must never overflow, letterbox awkwardly, or require scrolling inside the preview.
+
 **Rule: one file per concern that changes independently.** A designer edits config.ts. An engine programmer edits loop.ts. A level designer edits levels.ts. If two things always change together, merge them.
 
 **Always start with these three (every game):**

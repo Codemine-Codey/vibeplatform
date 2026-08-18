@@ -90,6 +90,16 @@ async function reconnectAndDrain(
 
     if (useSandboxStore.getState().url) break
   }
+
+  // Drain loop ended WITHOUT ever getting a preview URL. For a terminal (failed) run the tail
+  // stream closes immediately on each attempt, so we land here within seconds — surface a
+  // friendly, actionable line so the loader (which stays up while activeRunId && !url) can't
+  // spin forever waiting on the 45-min reaper. A still-live build would not have exited the loop.
+  if (!abortSignal.aborted && !useSandboxStore.getState().url) {
+    useSandboxStore.getState().setStreamError(
+      "That one took longer than expected — tap continue and I'll pick up right where I left off."
+    )
+  }
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
