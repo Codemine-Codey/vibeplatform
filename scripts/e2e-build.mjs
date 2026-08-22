@@ -52,6 +52,11 @@ const log = (...a) => console.log(`[${secs()}s]`, ...a)
 const consoleErrors = []
 const failedRequests = []
 const leakHits = new Set()
+// Outer-scope so the finally block can decide whether to kill the sandbox. On a CLEAN
+// success we LEAVE the sandbox running (idle-times out in ~30 min) so the preview URL
+// stays viewable; on any abort/timeout/error we fire the kill-beacon to stop the bleed.
+let buildSucceeded = false
+let previewUrlForReport = null
 
 // ── VERSION PREFLIGHT — refuse to run against stale code (no false results) ────
 // Fetch the deployed commit and compare to local git HEAD. Uses a browser UA because
@@ -274,11 +279,19 @@ try {
     if (end !== null) finalSpend = startRemaining - end
   }
 
+  // CLEAN SUCCESS = a preview appeared and we were NOT cost-killed. On success we keep the
+  // sandbox alive so the URL below is viewable; the finally block skips the kill-beacon.
+  buildSucceeded = !!previewAt && !costKilled
+  previewUrlForReport = previewSrc
+
   console.log('\n================ E2E REPORT ================')
   console.log('kind:', KIND)
   if (costKilled) console.log('STATUS: 🛑 COST-KILLED —', costKilled)
   console.log('time-to-preview:', previewAt ? previewAt + 's' : (costKilled ? 'killed before preview' : 'NO PREVIEW (timed out)'))
   console.log('PREVIEW RENDER:', renderVerdict)
+  console.log('PREVIEW URL:', previewUrlForReport
+    ? `${previewUrlForReport}   ${buildSucceeded ? '(sandbox left alive ~30 min for viewing)' : '(sandbox stopped)'}`
+    : 'none')
   console.log('total elapsed:', secs() + 's')
   console.log('cost (this build):', finalSpend !== null ? `$${finalSpend.toFixed(3)}` : 'unknown (balance read failed)')
   console.log('leaked words:', leakHits.size ? [...leakHits].join(', ') : 'NONE ✅')
@@ -291,14 +304,13 @@ try {
   console.log('\nE2E ERROR:', e.message)
   await page.screenshot({ path: 'scripts/e2e-error.png' }).catch(() => {})
 } finally {
-  // KILL-BEACON ON EVERY EXIT — success, timeout, or error. Navigating the app tab to
-  // about:blank fires the app's pagehide handler → POST /api/sandbox/stop → the sandbox
-  // stops. This is what prevents the abandoned-run bleed (a build that keeps generating
-  // after the harness leaves). Safe if the cost-watchdog already navigated (about:blank
-  // → about:blank is a no-op) or if the sandbox is already gone. Runs BEFORE close() so
-  // the beacon has a live page to send from; render-verdict + screenshots already ran.
+  // KILL-BEACON ON NON-SUCCESS EXIT — timeout, error, or cost-kill. Navigating the app tab
+  // to about:blank fires the app's pagehide handler → POST /api/sandbox/stop → the sandbox
+  // stops. This prevents the abandoned-run bleed (a build still generating after the harness
+  // leaves). On a CLEAN success we deliberately SKIP this so the preview URL stays viewable
+  // (the sandbox idle-times out on its own in ~30 min). Safe if the watchdog already navigated.
   try {
-    if (!page.isClosed() && page.url() !== 'about:blank') {
+    if (!buildSucceeded && !page.isClosed() && page.url() !== 'about:blank') {
       await page.goto('about:blank', { waitUntil: 'load', timeout: 15000 }).catch(() => {})
       await page.waitForTimeout(3000) // let sendBeacon flush
     }
