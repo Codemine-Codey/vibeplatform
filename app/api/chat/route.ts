@@ -12,6 +12,7 @@ import { start } from 'workflow/api'
 import type { UIMessage, UIMessageStreamWriter } from 'ai'
 import type { DataPart } from '@/ai/messages/data-parts'
 import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL, VISION_MODEL, ERROR_MODEL, getMaxOutputTokens } from '@/ai/constants'
+import { makeNarrationSilenceFilter } from '@/lib/silence-filter'
 import { NextResponse } from 'next/server'
 import { getModelOptions } from '@/ai/gateway'
 import { tools } from '@/ai/tools'
@@ -1998,31 +1999,10 @@ async function runAgenticLoop({
     // completion line survives at stream end. This stops the "Now I need to update each lighthouse
     // entry... let me patchFile..." monologue from leaking into chat. THEN scrub infra/model leaks.
     // (A pure Q&A turn makes no tool call, so its full answer passes through untouched.)
-    let _eFirstTool = false
-    const _eHold: unknown[] = []
-    const editSilence = new TransformStream({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      transform(part: any, controller: TransformStreamDefaultController) {
-        const t: string = part?.type ?? ''
-        // Hold the WHOLE text triplet (start/delta/end/text) as a unit after the first tool.
-        // Holding only text-delta while passing text-start/text-end through orphaned the part:
-        // the flush released deltas into a part already closed by its text-end → the client threw
-        // "text-delta for missing text part". Buffering start+delta+end together preserves framing.
-        if (t === 'text-start' || t === 'text-delta' || t === 'text-end' || t === 'text') {
-          if (!_eFirstTool) controller.enqueue(part)
-          else _eHold.push(part)
-        } else if (t === 'tool-input-delta' || t === 'tool-result') {
-          _eFirstTool = true
-          _eHold.length = 0
-          controller.enqueue(part)
-        } else {
-          controller.enqueue(part)
-        }
-      },
-      flush(controller: TransformStreamDefaultController) {
-        for (const b of _eHold) controller.enqueue(b)
-      },
-    })
+    // Shared, invariant-safe filter (lib/silence-filter.ts) — closes open parts at the
+    // first-tool boundary + sanitizes the flush buffer, so a held/dropped text-end can never
+    // orphan a part (the "text-end/text-delta for missing text part ID 0" client crash).
+    const editSilence = makeNarrationSilenceFilter()
     // Scrub leaks (sandbox / model / infra names) deterministically before the user sees them.
     writer.merge(result.toUIMessageStream({ sendReasoning: false, sendStart: false }).pipeThrough(editSilence).pipeThrough(makeScrubStream()))
     try {
@@ -2684,34 +2664,10 @@ The server does NOT enforce a 2-file limit — you decide the correct structure 
   //   • Text in any step after the first tool → buffered globally
   //   • New tool call arrives → global buffer cleared (repair narration discarded)
   //   • End of stream → global buffer flushed (the completion line)
-  let _gFirstToolSeen = false
-  const _gHoldBuf: unknown[] = []
-  const _silenceFilter = new TransformStream({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    transform(part: any, controller: TransformStreamDefaultController) {
-      const t: string = part.type ?? ''
-      // Hold the WHOLE text triplet (start/delta/end/text) together — see editSilence above:
-      // holding text-delta alone while passing text-start/text-end orphaned the part and crashed
-      // the client with "text-delta for missing text part". Buffer the triplet as a unit.
-      if (t === 'text-start' || t === 'text-delta' || t === 'text-end' || t === 'text') {
-        if (!_gFirstToolSeen) {
-          controller.enqueue(part) // opening line triplet — passes through before any tool
-        } else {
-          _gHoldBuf.push(part) // hold WHOLE triplet; cleared by next tool call or flushed at end
-        }
-      } else if (t === 'tool-input-delta' || t === 'tool-result') {
-        _gFirstToolSeen = true
-        _gHoldBuf.length = 0 // discard any held repair narration — a new tool is running
-        controller.enqueue(part)
-      } else {
-        controller.enqueue(part)
-      }
-    },
-    flush(controller: TransformStreamDefaultController) {
-      // Stream ended: whatever is in the hold buffer is the completion line
-      for (const b of _gHoldBuf) controller.enqueue(b)
-    },
-  })
+  // Shared, invariant-safe filter (lib/silence-filter.ts) — same as the edit path. Closes any
+  // open text part at the first-tool boundary and sanitizes the flush buffer so a held/dropped
+  // text-end can never orphan a part on the client.
+  const _silenceFilter = makeNarrationSilenceFilter()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   writer.merge((aiResult.toUIMessageStream({ sendReasoning: false, sendStart: false }) as any).pipeThrough(_silenceFilter))
 

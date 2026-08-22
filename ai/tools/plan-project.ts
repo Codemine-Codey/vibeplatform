@@ -285,6 +285,50 @@ export const planProject = (
           `Keep it modular but not bloated — merge trivially-small files, and only create a file when it earns its place. Call planProject again with ≤ ${maxFiles} files.`
         )
       }
+      // ── Structural FLOOR gate (multi-file MINIMUM) — FLAG-GATED, default OFF ─────
+      // The maxFiles cap above stops SPRAWL; this stops the OPPOSITE failure the user hit
+      // repeatedly: a whole game/app crammed into one page file (un-editable, truncation-
+      // prone, "poor, very poor"). We reject a DEGENERATE plan BEFORE any generation spend
+      // and make the model re-plan with real separation. The model still chooses WHICH files
+      // (dynamic — scales to complexity, no fixed template); the server only refuses
+      // "everything in one or two files." Encodes the real failure (logic not split out of
+      // the page), NOT a blunt count, so a legitimately tiny 3-file Pong still passes. OFF
+      // until CM_PLAN_FLOOR=true so it is validated on one live build before it can affect prod.
+      if (process.env.CM_PLAN_FLOOR === 'true') {
+        const nonCss = files.filter(f => !/\.css$/i.test(f.path))
+        const gameLogic = files.filter(f => /^src\/(game|components\/game)\//i.test(f.path))
+        const support = files.filter(f => /^src\/(components|hooks|store|stores|services|lib|data|context|reducers|state)\//i.test(f.path))
+        let floorError = ''
+        if (isGame) {
+          // A real game splits loop/state/render/input out of the page. Degenerate = the
+          // whole game lives in Home.tsx with no src/game/ (or src/components/game/) files.
+          if (nonCss.length < 3 || gameLogic.length < 1) {
+            floorError = `A game must split its logic OUT of the page: at least src/game/ files (e.g. config, ` +
+              `loop, render, input/state) plus a canvas component — not everything in Home.tsx. ` +
+              `You planned ${files.length} file(s) with ${gameLogic.length} under src/game/.`
+          }
+        } else if (isWebsite) {
+          // Websites already get multi-page forcing upstream; the floor just guards a 1-file site.
+          if (nonCss.length < 3) {
+            floorError = `A website is multi-section: split into a Layout, section components, and page ` +
+              `file(s) — not a single file. You planned ${files.length} file(s).`
+          }
+        } else {
+          // webapp — separate state/logic from UI (at least one support file beyond the page).
+          if (nonCss.length < 3 || support.length < 1) {
+            floorError = `A web app separates state/logic from UI: at least some src/components/ plus ` +
+              `hooks/store/services/types as the app needs — not everything in one page file. ` +
+              `You planned ${files.length} file(s).`
+          }
+        }
+        if (floorError) {
+          return (
+            `MANIFEST REJECTED — too few files. ${floorError}\n\n` +
+            `Re-plan with a PROPER modular split. YOU choose the exact files (adapt to complexity — ` +
+            `simple projects use fewer, but a real project is NEVER one or two files). Call planProject again.`
+          )
+        }
+      }
       // ── End structural recipe gate ────────────────────────────────────────────
 
       if (pathErrors.length > 0 || pkgErrors.length > 0) {

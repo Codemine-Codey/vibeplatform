@@ -101,6 +101,53 @@ const browser = await chromium.launch({ headless: process.env.PWHEADLESS !== 'fa
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } })
 const page = await ctx.newPage()
 
+// ── Shared helpers (used by both the build loop and the edit phase) ───────────
+// Returns a kill reason if this run has spent past the cap or hit the floor, else null.
+async function overBudget() {
+  if (startRemaining === null) return null
+  const now = await remainingUsd()
+  if (now === null) return null
+  const spent = startRemaining - now
+  if (spent > KILL_SPEND) return `spend $${spent.toFixed(3)} exceeded kill-cap $${KILL_SPEND}`
+  if (now <= FLOOR) return `balance $${now.toFixed(2)} hit floor $${FLOOR}`
+  return null
+}
+// Navigate the app tab to about:blank → fires the app's pagehide kill-beacon → sandbox stops.
+async function fireKillBeacon() {
+  if (page.isClosed() || page.url() === 'about:blank') return
+  await page.goto('about:blank', { waitUntil: 'load', timeout: 15000 }).catch(() => {})
+  await page.waitForTimeout(3000) // let sendBeacon flush
+}
+// Open a preview URL in its own page and return a human verdict string (also screenshots it).
+async function renderCheckOf(url, shot = 'scripts/e2e-preview.png') {
+  try {
+    const pv = await ctx.newPage()
+    await pv.goto(url, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => {})
+    await pv.waitForTimeout(4000)
+    const v = await getRenderVerdict(pv)
+    await pv.screenshot({ path: shot }).catch(() => {})
+    await pv.close()
+    return v.rendered
+      ? `RENDERED ✅ (${v.reason}; canvas=${v.info.hasCanvas}, text=${v.info.textLen}, nodes=${v.info.nodes})`
+      : `NOT RENDERED ❌ (${v.reason}; canvas=${v.info.hasCanvas}, text=${v.info.textLen}, nodes=${v.info.nodes})`
+  } catch (e) { return 'check failed: ' + e.message }
+}
+// Read the current preview iframe URL from the app tab (null if none yet).
+async function currentPreviewSrc() {
+  return page.evaluate(() => {
+    const f = [...document.querySelectorAll('iframe')].find(f => /vercel\.run|sb-/.test(f.getAttribute('src') || ''))
+    return f ? f.getAttribute('src') : null
+  })
+}
+// Capture the assistant's visible chat messages (what the AI actually says to the user).
+// Assistant bubbles render in div.mr-20 (components/chat/message.tsx). Returns trimmed text.
+async function captureAssistantText() {
+  return page.evaluate(() => {
+    const nodes = [...document.querySelectorAll('div.mr-20')]
+    return nodes.map(n => (n.innerText || '').replace(/\s+\n/g, '\n').trim()).filter(Boolean)
+  }).catch(() => [])
+}
+
 page.on('console', (m) => {
   if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 300))
 })
@@ -250,24 +297,66 @@ try {
   // ── Definitive blank-check: open the preview URL DIRECTLY and inspect its rendered DOM ──
   // (The panel iframe is cross-origin, so we open the URL in its own page where we CAN read it.)
   let renderVerdict = 'not checked'
-  const previewSrc = await page.evaluate(() => {
-    const f = [...document.querySelectorAll('iframe')].find(f => /vercel\.run|sb-/.test(f.getAttribute('src') || ''))
-    return f ? f.getAttribute('src') : null
-  })
-  if (previewSrc) {
-    try {
-      const pv = await ctx.newPage()
-      await pv.goto(previewSrc, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => {})
-      await pv.waitForTimeout(4000)
-      // Shared verdict (scripts/render-verdict.mjs) — agrees with the production headless
-      // gate: NotFound-at-home = broken (wrong page), plus a blank floor.
-      const v = await getRenderVerdict(pv)
-      await pv.screenshot({ path: 'scripts/e2e-preview.png' }).catch(() => {})
-      renderVerdict = v.rendered
-        ? `RENDERED ✅ (${v.reason}; canvas=${v.info.hasCanvas}, text=${v.info.textLen}, nodes=${v.info.nodes})`
-        : `NOT RENDERED ❌ (${v.reason}; canvas=${v.info.hasCanvas}, text=${v.info.textLen}, nodes=${v.info.nodes})`
-      await pv.close()
-    } catch (e) { renderVerdict = 'check failed: ' + e.message }
+  const previewSrc = await currentPreviewSrc()
+  if (previewSrc) renderVerdict = await renderCheckOf(previewSrc)
+
+  // ── EDIT PHASE (optional; set CM_EDIT_AFTER) — proves the EDIT path + live-update UX ──
+  // Reuses the SAME warm session: type a follow-up edit into the chat, watch the stream go
+  // busy→idle, confirm no leaks/errors, and re-check the preview still renders. The cost
+  // watchdog stays armed (edits are cheap but must still honor the kill-cap + floor).
+  let editVerdict = null, editSecs = null, editSpend = null, editKilled = null, editRender = null, editAiSaid = null
+  const editErrorsBefore = consoleErrors.length
+  if (previewAt && !costKilled && process.env.CM_EDIT_AFTER) {
+    const editMsg = process.env.CM_EDIT_AFTER
+    log(`EDIT PHASE — sending: "${editMsg}"`)
+    const remBeforeEdit = startRemaining !== null ? await remainingUsd() : null
+    const editInput = page.locator('input[placeholder*="message" i]:visible, input[placeholder*="building" i]:visible').first()
+    await editInput.waitFor({ state: 'visible', timeout: 30000 }).catch(() => {})
+    await editInput.fill(editMsg)
+    await editInput.press('Enter')
+    const editStart = Date.now()
+    const EDIT_DEADLINE = Date.now() + 12 * 60 * 1000
+    let sawBusy = false, editComplete = false, etick = 0, lastEditPhase = null
+    while (Date.now() < EDIT_DEADLINE) {
+      if (++etick % 6 === 0) {
+        const reason = await overBudget()
+        if (reason) { editKilled = reason; costKilled = reason; log(`🛑 COST KILL (edit) — ${reason}. Firing kill-beacon.`); await fireKillBeacon(); break }
+      }
+      const st = await page.evaluate(() => {
+        const inputs = [...document.querySelectorAll('input[placeholder]')].filter(i => /message|building/i.test(i.getAttribute('placeholder') || ''))
+        return {
+          anyBusy: inputs.some(i => i.disabled || /building|publishing/i.test(i.getAttribute('placeholder') || '')),
+          anyEnabled: inputs.some(i => !i.disabled && i.offsetParent !== null),
+        }
+      })
+      if (st.anyBusy) sawBusy = true
+      // Timestamp edit-phase step labels as they change — attributes where the edit time goes.
+      const ephase = await page.evaluate(() => {
+        const el = [...document.querySelectorAll('*')].find((n) =>
+          /thinking|reading|editing|updating|patch|applying|building|starting preview|almost/i.test(n.textContent || '') &&
+          (n.textContent || '').length < 80)
+        return el ? el.textContent.trim() : null
+      })
+      if (ephase && ephase !== lastEditPhase) { lastEditPhase = ephase; log(`  edit step → "${ephase}"`) }
+      const chatText = (await page.evaluate(() => document.body.innerText || '')).toLowerCase()
+      for (const w of BANNED) { if (chatText.includes(w) && !leakHits.has(w)) { leakHits.add(w); log(`⚠️ LEAK(edit): "${w}"`) } }
+      if (sawBusy && st.anyEnabled) { editComplete = true; break }
+      await page.waitForTimeout(4000)
+    }
+    // Capture what the AI actually said during the edit (last assistant bubble).
+    const editMsgs = await captureAssistantText()
+    if (editMsgs.length > 0) editAiSaid = editMsgs[editMsgs.length - 1].slice(0, 400)
+    editSecs = ((Date.now() - editStart) / 1000).toFixed(0)
+    if (remBeforeEdit !== null) { const e2 = await remainingUsd(); if (e2 !== null) editSpend = remBeforeEdit - e2 }
+    if (editKilled) {
+      editVerdict = 'COST-KILLED during edit'
+    } else {
+      const afterSrc = await currentPreviewSrc()
+      editRender = afterSrc ? await renderCheckOf(afterSrc, 'scripts/e2e-edit-preview.png') : 'no preview iframe after edit'
+      editVerdict = editComplete
+        ? 'APPLIED ✅ (stream completed, input re-enabled)'
+        : (sawBusy ? 'UNCLEAR ⚠️ (started but did not clearly finish before timeout)' : 'NOT STARTED ❌ (input never went busy)')
+    }
   }
 
   await page.screenshot({ path: 'scripts/e2e-result.png', fullPage: false }).catch(() => {})
@@ -293,7 +382,16 @@ try {
     ? `${previewUrlForReport}   ${buildSucceeded ? '(sandbox left alive ~30 min for viewing)' : '(sandbox stopped)'}`
     : 'none')
   console.log('total elapsed:', secs() + 's')
-  console.log('cost (this build):', finalSpend !== null ? `$${finalSpend.toFixed(3)}` : 'unknown (balance read failed)')
+  console.log('cost (build+edit):', finalSpend !== null ? `$${finalSpend.toFixed(3)}` : 'unknown (balance read failed)')
+  if (editVerdict !== null) {
+    console.log('--- EDIT PHASE ---')
+    console.log('  edit result:', editVerdict)
+    console.log('  edit time:', editSecs !== null ? editSecs + 's' : 'n/a')
+    console.log('  edit cost:', editSpend !== null ? `$${editSpend.toFixed(3)}` : 'n/a')
+    console.log('  edit preview render:', editRender || 'n/a')
+    console.log('  new console errors during edit:', consoleErrors.length - editErrorsBefore)
+    console.log('  AI said (last bubble):', editAiSaid ? `"${editAiSaid}"` : '(none captured)')
+  }
   console.log('leaked words:', leakHits.size ? [...leakHits].join(', ') : 'NONE ✅')
   console.log('console errors:', consoleErrors.length)
   consoleErrors.slice(0, 15).forEach((e) => console.log('   •', e))
@@ -310,10 +408,7 @@ try {
   // leaves). On a CLEAN success we deliberately SKIP this so the preview URL stays viewable
   // (the sandbox idle-times out on its own in ~30 min). Safe if the watchdog already navigated.
   try {
-    if (!buildSucceeded && !page.isClosed() && page.url() !== 'about:blank') {
-      await page.goto('about:blank', { waitUntil: 'load', timeout: 15000 }).catch(() => {})
-      await page.waitForTimeout(3000) // let sendBeacon flush
-    }
+    if (!buildSucceeded) await fireKillBeacon()
   } catch { /* best-effort teardown */ }
   await browser.close()
 }
