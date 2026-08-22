@@ -5,9 +5,18 @@
 // Run: node scripts/e2e-build.mjs [website|webapp|game]
 import { chromium } from 'playwright'
 import { renderVerdict as getRenderVerdict } from './render-verdict.mjs'
+import { remainingUsd } from './or-balance.mjs'
 import { execSync } from 'node:child_process'
 
 const BASE = process.env.CM_TEST_BASE || 'https://codemineapp.com'
+// ── COST GUARDRAILS (user mandate: kill a build past $0.75 no matter what; never
+// let the OpenRouter balance cross the $2 floor). Global balance = ground truth.
+// KILL_SPEND: abort this build if it has spent more than this since it started.
+// FLOOR: never let remaining drop below this — refuse to start unless there's room
+// for a full worst-case build on top of it.
+const KILL_SPEND = Number(process.env.CM_KILL_SPEND || '0.75')
+const FLOOR = Number(process.env.CM_BALANCE_FLOOR || '2.0')
+const START_MIN = FLOOR + KILL_SPEND // need this much remaining before we dare start
 // Real browser UA — codemineapp.com serves stubs/404s to bot/curl clients (bot-diff
 // layer). Every non-Playwright fetch here MUST use this or it gets lied to.
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
@@ -64,6 +73,24 @@ const leakHits = new Set()
   }
   log(`version preflight OK — ${BASE} serving commit ${deployed.commit.slice(0, 8)} (matches local) ✅`)
 }
+
+// ── COST PREFLIGHT — refuse to start if there isn't room for a worst-case build
+// above the $2 floor. The watchdog needs a valid START baseline to compute spend, so
+// a NULL read is NOT fail-open here: retry once, and if still null, HARD STOP. Starting
+// blind would disable the "$0.75 kill no matter what" for the whole build.
+let startRemaining = await remainingUsd()
+if (startRemaining === null) startRemaining = await remainingUsd()
+if (startRemaining === null) {
+  console.error('COST PREFLIGHT FAIL: could not read OpenRouter balance (twice). Refusing to start ' +
+    'a build with no cost baseline — the $0.75 kill-cap would be disabled. Check OPENROUTER_API_KEY / network.')
+  process.exit(3)
+}
+if (startRemaining < START_MIN) {
+  console.error(`COST PREFLIGHT FAIL: $${startRemaining.toFixed(2)} remaining < $${START_MIN.toFixed(2)} needed ` +
+    `(floor $${FLOOR} + kill-cap $${KILL_SPEND}). Top up before testing. Refusing to start.`)
+  process.exit(3)
+}
+log(`cost preflight OK — $${startRemaining.toFixed(2)} remaining (kill at $${KILL_SPEND} spend, floor $${FLOOR}) ✅`)
 
 const browser = await chromium.launch({ headless: process.env.PWHEADLESS !== 'false', slowMo: process.env.PWHEADLESS === 'false' ? 100 : 0 })
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } })
@@ -144,7 +171,29 @@ try {
   let previewAt = null
   let lastChatLen = 0
   let lastPhase = null
+  let costKilled = null   // set to a reason string if the cost-watchdog aborts the build
+  let tick = 0
   while (Date.now() < DEADLINE) {
+    // ── COST WATCHDOG — poll the balance every ~24s. If this build has spent past
+    // KILL_SPEND, or remaining has hit the FLOOR, KILL IT: navigate the app tab to
+    // about:blank, which fires the app's pagehide "kill-beacon" → POST /api/sandbox/stop
+    // → the sandbox is stopped and the build can no longer spend. This is the only kill
+    // lever that works WITHOUT knowing the sandboxId (the app owns it in its store).
+    if (++tick % 6 === 0 && startRemaining !== null) {
+      const now = await remainingUsd()
+      if (now !== null) {
+        const spent = startRemaining - now
+        if (spent > KILL_SPEND || now <= FLOOR) {
+          costKilled = spent > KILL_SPEND
+            ? `spend $${spent.toFixed(3)} exceeded kill-cap $${KILL_SPEND}`
+            : `balance $${now.toFixed(2)} hit floor $${FLOOR}`
+          log(`🛑 COST KILL — ${costKilled}. Firing kill-beacon (navigating app tab → about:blank).`)
+          await page.goto('about:blank', { waitUntil: 'load', timeout: 15000 }).catch(() => {})
+          await page.waitForTimeout(3000) // let sendBeacon flush before we tear down
+          break
+        }
+      }
+    }
     // preview iframe with a real sandbox URL
     if (!previewAt) {
       const src = await page.evaluate(() => {
@@ -218,11 +267,20 @@ try {
 
   await page.screenshot({ path: 'scripts/e2e-result.png', fullPage: false }).catch(() => {})
 
+  // Final cost read — the ground-truth spend for THIS build (single-build scenario).
+  let finalSpend = null
+  if (startRemaining !== null) {
+    const end = await remainingUsd()
+    if (end !== null) finalSpend = startRemaining - end
+  }
+
   console.log('\n================ E2E REPORT ================')
   console.log('kind:', KIND)
-  console.log('time-to-preview:', previewAt ? previewAt + 's' : 'NO PREVIEW (timed out)')
+  if (costKilled) console.log('STATUS: 🛑 COST-KILLED —', costKilled)
+  console.log('time-to-preview:', previewAt ? previewAt + 's' : (costKilled ? 'killed before preview' : 'NO PREVIEW (timed out)'))
   console.log('PREVIEW RENDER:', renderVerdict)
   console.log('total elapsed:', secs() + 's')
+  console.log('cost (this build):', finalSpend !== null ? `$${finalSpend.toFixed(3)}` : 'unknown (balance read failed)')
   console.log('leaked words:', leakHits.size ? [...leakHits].join(', ') : 'NONE ✅')
   console.log('console errors:', consoleErrors.length)
   consoleErrors.slice(0, 15).forEach((e) => console.log('   •', e))
@@ -233,5 +291,17 @@ try {
   console.log('\nE2E ERROR:', e.message)
   await page.screenshot({ path: 'scripts/e2e-error.png' }).catch(() => {})
 } finally {
+  // KILL-BEACON ON EVERY EXIT — success, timeout, or error. Navigating the app tab to
+  // about:blank fires the app's pagehide handler → POST /api/sandbox/stop → the sandbox
+  // stops. This is what prevents the abandoned-run bleed (a build that keeps generating
+  // after the harness leaves). Safe if the cost-watchdog already navigated (about:blank
+  // → about:blank is a no-op) or if the sandbox is already gone. Runs BEFORE close() so
+  // the beacon has a live page to send from; render-verdict + screenshots already ran.
+  try {
+    if (!page.isClosed() && page.url() !== 'about:blank') {
+      await page.goto('about:blank', { waitUntil: 'load', timeout: 15000 }).catch(() => {})
+      await page.waitForTimeout(3000) // let sendBeacon flush
+    }
+  } catch { /* best-effort teardown */ }
   await browser.close()
 }
