@@ -20,6 +20,43 @@ import { SCAFFOLD_PATH_SET } from '@/ai/tools/scaffold'
 import { stampShell, navTargetPageFiles, SHELL_MARKER } from '@/lib/shell-template'
 import type { Skill } from '@/ai/types/project-brief'
 
+// ── Repair-write safety: NEVER let a broken repair corrupt an already-good preview ──────────
+// A post-reveal repairFile whole-file regeneration can emit unparseable code (proven live:
+// "popups: x: HTMLElement[]") which HMR then loads into the live preview → vite 500 → the user
+// sees a build that broke AFTER it was revealed working. Before overwriting a working file, we
+// syntax-check the CANDIDATE in the sandbox (esbuild ships with the scaffold via vite) and REJECT
+// the write on a parse error — the working file stays. FAIL-OPEN if the checker can't run (esbuild
+// missing / timeout) so we never block a legit repair. Returns true = safe to write.
+export async function repairedFileParses(
+  sandbox: Sandbox,
+  path: string,
+  candidate: string,
+): Promise<boolean> {
+  if (!/\.(tsx|ts|jsx|js)$/.test(path)) return true // only JS/TS files have a parse step
+  const loader = /\.(tsx|jsx)$/.test(path) ? 'tsx' : 'ts'
+  const tmp = `/tmp/cm-rv-${Math.random().toString(36).slice(2)}.${loader === 'tsx' ? 'tsx' : 'ts'}`
+  try {
+    await sandbox.writeFiles([{ path: tmp, content: Buffer.from(candidate, 'utf8') }])
+    // node -e: transform the candidate; a SYNTAX error → exit 3 (reject). esbuild missing → exit 0
+    // (fail-open, allow). argv[1]=tmp file, argv[2]=loader.
+    const script = `try{require('esbuild').transformSync(require('fs').readFileSync(process.argv[1],'utf8'),{loader:process.argv[2]})}catch(e){if(!String(e).includes('Cannot find module'))process.exit(3)}`
+    const cmd = await sandbox.runCommand({
+      detached: true,
+      cmd: 'bash',
+      args: ['-c', `node -e "${script}" "${tmp}" "${loader}" >/tmp/cm-rv.log 2>&1; echo "##RV:$?" >>/tmp/cm-rv.log`],
+    })
+    await Promise.race([
+      cmd.wait(),
+      new Promise<void>((_, rej) => setTimeout(() => rej(new Error('rv timeout')), 12_000)),
+    ])
+    const log = (await readSandboxFile(sandbox, '/tmp/cm-rv.log')) ?? ''
+    if (!log.includes('##RV:')) return true // checker didn't run → fail-open
+    return log.includes('##RV:0')
+  } catch {
+    return true // fail-open — never block a repair because the checker itself errored
+  }
+}
+
 // Minimal writer interface used by verify-phase helpers. Accepts the same
 // { id?, type, data? } wire format that UIMessageStreamWriter.write() uses.
 export interface PipelineWriter {

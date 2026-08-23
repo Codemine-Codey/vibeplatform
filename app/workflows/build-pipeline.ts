@@ -54,6 +54,7 @@ import {
   ensureNavShells,
   applyFallbackTerminalState,
   sanitizeTsx,
+  repairedFileParses,
   type PipelineWriter,
 } from '@/lib/pipeline-helpers'
 import { appendRunEventBatch, updateRun, getRun } from '@/lib/runs'
@@ -1276,8 +1277,14 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
             if (!content) continue
             const fixed = await repairFile(path, content, issueText)
             if (fixed && fixed !== content) {
-              await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
-              changedAny = true
+              const out = sanitizeTsx(path, fixed)
+              // NEVER corrupt the already-revealed preview: reject a repair that doesn't parse.
+              if (await repairedFileParses(sandbox, path, out)) {
+                await sandbox.writeFiles([{ path, content: Buffer.from(out, 'utf8') }])
+                changedAny = true
+              } else {
+                logRepair({ layer: 'repair-validate', action: 'rejected-syntax', detail: `functional-verify ${path}`, sandboxId })
+              }
             }
           }
           if (!changedAny) break
@@ -1300,7 +1307,12 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
             if (!content) continue
             const fixed = await repairFile(path, content, issueText)
             if (fixed && fixed !== content) {
-              await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
+              const out = sanitizeTsx(path, fixed)
+              if (await repairedFileParses(sandbox, path, out)) {
+                await sandbox.writeFiles([{ path, content: Buffer.from(out, 'utf8') }])
+              } else {
+                logRepair({ layer: 'repair-validate', action: 'rejected-syntax', detail: `ai-qa ${path}`, sandboxId })
+              }
             }
           }
         }
@@ -1558,8 +1570,14 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
             if (!content) continue
             const fixed = await repairFile(path, content, issueText)
             if (fixed && fixed !== content) {
-              await sandbox.writeFiles([{ path, content: Buffer.from(sanitizeTsx(path, fixed), 'utf8') }])
-              changedAny = true
+              const out = sanitizeTsx(path, fixed)
+              // NEVER corrupt the already-revealed preview: reject a repair that doesn't parse.
+              if (await repairedFileParses(sandbox, path, out)) {
+                await sandbox.writeFiles([{ path, content: Buffer.from(out, 'utf8') }])
+                changedAny = true
+              } else {
+                logRepair({ layer: 'repair-validate', action: 'rejected-syntax', detail: `functional-verify ${path}`, sandboxId })
+              }
             }
           }
           if (!changedAny) break

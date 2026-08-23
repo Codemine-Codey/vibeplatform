@@ -20,6 +20,7 @@ export type RepairLayer =
   | 'dev-502'           // dev server never bound :3000 (persistent 502) → restart
   | 'runtime-check'     // headless browser DOM/console check
   | 'reveal-gate'       // G3: reveal withheld (build/render broken) → chained fresh budget or terminal fail
+  | 'repair-validate'   // a post-reveal repair was REJECTED because it didn't parse (would corrupt the preview)
   | 'fallback-terminal' // P0-B terminal state: swapped a page to the baked __fallback
   | 'visual-verdict'    // vision model judged screenshot broken
   | 'checkpoint'        // snapshot saved / restored
