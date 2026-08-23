@@ -77,6 +77,13 @@ These are automatic FAIL conditions (never ship output with any of these):
 - NO "tag-left / heading-right" hanging header pattern — the two-column layout where the section label sits left and the heading sits right. It's gate 54 in the Hallmark slop test. Just stack label → heading vertically.
 - Each section MUST have a distinctly different layout from the section above it.
 
+**Layout mechanics (automatic FAIL — these are the bugs that make output look broken, not just plain):**
+- NEVER use \`w-screen\` or \`100vw\` for width — it includes the scrollbar width and creates a horizontal/second scrollbar. Use \`w-full\` / \`max-w-*\` / \`100%\`. The page has exactly ONE (vertical) scrollbar.
+- NO nested scroll containers (a scrolling area inside the scrolling page) unless it is deliberately a fixed-height panel (sidebar, chat, table). A section must never have its own scrollbar.
+- Nothing may be wider than its parent — images/media/tables get \`max-w-full\`; long text wraps. No element bleeds past the viewport edge.
+- Use ONE consistent page container (same max-width + horizontal padding) on every section so content aligns down a shared vertical rhythm — misaligned left/right edges section-to-section is the "amateur layout" tell.
+- The nav is ONE bar with ONE set of links; never render the menu twice or leave duplicate/overlapping headers.
+
 **Nav and footer fingerprints:**
 - **N1a** (wordmark + 2 inline links + button-right) is the #1 AI-generated nav. Only use it when genuinely appropriate for simple 2-destination sites.
 - **Ft3** (4 columns of links + social row + copyright) is the #1 AI-generated footer. Avoid it. Use: single centered copyright + social icons; or a big editorial full-width footer; or a split footer with newsletter; not 4 generic columns.

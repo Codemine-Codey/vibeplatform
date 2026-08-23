@@ -649,6 +649,16 @@ export default function Fallback({ brand = 'This project', skill = 'website' }: 
 // CSS-closure treats these as defined (knownCss includes this file) and won't duplicate.
 const CM_UI_CSS = `/* Codemine UI utilities — persistent, token-driven. Do NOT edit index.css to add these. */
 
+/* LAYOUT SAFETY (mechanical, non-negotiable) — the #1 website layout bug is a horizontal /
+   second scrollbar, almost always from a 100vw / w-screen element or an unshrinkable flex/grid
+   child. This makes it impossible BY CONSTRUCTION: overflow-x is clipped (clip preferred — it
+   doesn't break position:sticky the way hidden does; hidden is the fallback for old browsers),
+   and media can never exceed its container. The AI cannot override this (it's in a file the AI
+   never edits, imported after index.css). */
+html, body { overflow-x: hidden; overflow-x: clip; max-width: 100%; }
+#root { overflow-x: clip; }
+img, video, canvas, svg, iframe { max-width: 100%; }
+
 .gradient-text { background-image: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent, var(--primary)))); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
 .gradient-text-accent { background-image: linear-gradient(135deg, hsl(var(--accent, var(--primary))), hsl(var(--primary))); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
 
@@ -2009,8 +2019,9 @@ export const VEHICLE_PHYSICS = {
 // at "/" exactly like a website page. Optional global chrome lives in src/components/Layout.tsx.
 // Model ONLY adds page files + Layout, NEVER writes this file — where recurring App.tsx
 // errors originated (unescaped quotes, missing imports, route/import mismatches).
-export const APP_TSX_ROUTER = `import { Routes, Route, Navigate } from 'react-router-dom'
+export const APP_TSX_ROUTER = `import { Routes, Route } from 'react-router-dom'
 import type { ComponentType, ReactNode } from 'react'
+import NotFound from './components/NotFound'
 
 // PATH GATE: auto-route pages at ./pages/*.tsx AND nested ./pages/**/*.tsx.
 const pageModules = import.meta.glob(['./pages/*.tsx', './pages/**/*.tsx'], { eager: true }) as Record<string, { default: ComponentType }>
@@ -2041,8 +2052,10 @@ export default function App() {
       {routes.map((r) => (
         <Route key={r.path} path={r.path} element={<r.Component />} />
       ))}
-      {/* PATH GATE: a link to a page that wasn't generated goes HOME, never a blank/404/error. */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* PATH GATE: an unmatched route renders the branded 404 — a "safe no-op", never a silent
+          redirect to home (which makes a missing page look like a broken/wrong link). Every real
+          nav target is built as its own page file, so only genuinely-missing routes reach here. */}
+      <Route path="*" element={<NotFound />} />
     </Routes>
   )
   return Layout ? <Layout>{content}</Layout> : content
