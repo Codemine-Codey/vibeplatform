@@ -321,6 +321,21 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
         return 'ERROR: paths list is empty. You must provide at least one file path to generate.'
       }
 
+      // HARD EDIT CAP (mechanical, fires even if the existence-guard below can't run) — an EDIT
+      // is a surgical change, never a project rebuild. If an edit asks generateFiles for more than
+      // EDIT_MAX_NEW files it is a mis-routed wholesale regeneration (the "Built 18 files" bug):
+      // reject it outright and force patchFile. Genuinely adding a page/section = 1-3 new files.
+      const EDIT_MAX_NEW = 4
+      if (editMode && paths.length > EDIT_MAX_NEW) {
+        console.log(`[gen-guard] REJECTED edit-mode bulk generate: ${paths.length} files`)
+        return (
+          `BLOCKED (edit mode): generateFiles was called with ${paths.length} files — that is a full ` +
+          `rebuild, not an edit. Edits must be SURGICAL. Use patchFile to change existing files, and ` +
+          `only call generateFiles for at most ${EDIT_MAX_NEW} genuinely NEW files (e.g. one new page ` +
+          `or section component). Re-do this as patchFile edits on the specific file(s) that need to change.`
+        )
+      }
+
       // ── Overwrite guard — never REGENERATE a file that is already COMPLETE (BUG2) ──────
       // EDIT mode: drop ANY path that already exists (changes go through patchFile) — an edit
       // can never silently re-theme the landing page. INITIAL build: drop a path only if it
@@ -340,8 +355,13 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
               : `test -f "${p}" && ! grep -qF '__CM_STUB__' "${p}"`
             const cmd = await sb.runCommand({ cmd: 'bash', args: ['-c', check], detached: true })
             const done = await cmd.wait()
-            if (done.exitCode === 0) dropped.push(p); else keep.push(p)
-          } catch { keep.push(p) }
+            if (done.exitCode === 0) dropped.push(p)
+            // FAIL CLOSED in edit mode: if we can't PROVE a file is new (check errored/ambiguous),
+            // assume it EXISTS and route it to patchFile — never regenerate an existing file just
+            // because the freshly-reopened sandbox hiccuped on the check (the 18-file "edit rebuild" bug).
+            else if (editMode && typeof done.exitCode !== 'number') dropped.push(p)
+            else keep.push(p)
+          } catch { if (editMode) dropped.push(p); else keep.push(p) }
         }))
         if (dropped.length > 0) {
           paths = keep
