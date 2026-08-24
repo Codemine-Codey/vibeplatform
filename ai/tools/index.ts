@@ -33,7 +33,7 @@ interface Params {
   isEdit?: boolean
 }
 
-export function tools({ modelId, writer, isEdit }: Params) {
+function allTools({ modelId, writer, isEdit }: Params) {
   return {
     createSandbox: createSandbox({ writer }),
     createDatabase: createDatabase({ writer }),
@@ -63,4 +63,22 @@ export function tools({ modelId, writer, isEdit }: Params) {
   }
 }
 
-export type ToolSet = InferUITools<ReturnType<typeof tools>>
+// The FULL tool surface — ToolSet (message-part typing) infers from this so it stays stable
+// regardless of which subset a given turn actually exposes.
+export type ToolSet = InferUITools<ReturnType<typeof allTools>>
+
+export function tools(params: Params): Partial<ReturnType<typeof allTools>> {
+  const all = allTools(params)
+  // EDIT MODE: expose ONLY the surgical/ops tools. Tool JSON is re-sent on EVERY round, so
+  // dropping the ~12 build/setup/research tools an edit never needs is a direct per-round input-
+  // token cut. patchFile/patchFileLines (search-replace) are the primary path; generateFiles stays
+  // ONLY for genuinely-new files (its guard caps it at ≤4 and blocks rewriting existing files) —
+  // steering the model to a surgical edit, not a full rewrite.
+  if (params.isEdit) {
+    const { readFile, readFiles, grepCode, patchFile, patchFileLines, generateFiles,
+      getUnsplashBatch, getSandboxURL, readConsoleLogs, installPackage, deleteFile, renameFile } = all
+    return { readFile, readFiles, grepCode, patchFile, patchFileLines, generateFiles,
+      getUnsplashBatch, getSandboxURL, readConsoleLogs, installPackage, deleteFile, renameFile }
+  }
+  return all
+}

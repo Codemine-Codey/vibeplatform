@@ -658,7 +658,10 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       // purged dynamic Tailwind classes, index keys, keyless AnimatePresence) and rewrite
       // the offending files ONCE — so they never reach the preview. Deterministic catcher.
       // (findExportMismatches now finds FEWER — the missing-default class was surgically fixed above.)
-      try {
+      // EDIT MODE: skipped — this is a full-file model REBUILD pass (expensive/slow) and a build-
+      // quality concern, not an edit-safety one. The syntax gate + import closure + surgical export
+      // fix above already guarantee an edit never ships code that fails to parse or resolve imports.
+      if (!editMode) try {
         const violations = [...scanFootguns(uploaded), ...findExportMismatches(uploaded), ...scanUndefinedVars(uploaded)]
         if (violations.length > 0) {
           const byPath = new Map<string, string[]>()
@@ -689,7 +692,8 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       // advisories) → regenerate that ONE file with an explicit "fill it with real
       // content" instruction. This NEVER strips or guesses — it asks the model to
       // paint the empty component, so a blank section can't reach the preview.
-      try {
+      // EDIT MODE: skipped — expensive model-rebuild, build-quality (not edit-safety) concern.
+      if (!editMode) try {
         // Phase-2+ shells are intentionally minimal (enriched later) — never regenerate
         // them here, or phase 1 balloons into a full build and the fast-preview win is lost.
         const findings = uploaded
