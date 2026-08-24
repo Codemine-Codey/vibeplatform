@@ -31,11 +31,13 @@ const openrouterProvider = createOpenAI({
       try {
         const body = JSON.parse(init.body as string)
         const m: string = typeof body.model === 'string' ? body.model : ''
-        // Some models REQUIRE reasoning and reject any attempt to disable it
-        // (Gemini, o-series like o1/o3/o4). Leave those at the provider default.
-        // GPT-5.6 Terra is NOT o-series — it supports reasoning:{enabled:false}
+        // Some models REQUIRE reasoning and reject any attempt to disable it — Gemini,
+        // o-series (o1/o3/o4), AND qwen3.x-max (OpenRouter returns HTTP 400 "Reasoning is
+        // mandatory for this endpoint and cannot be disabled" — this silently killed every
+        // Qwen file-generation call → empty build → 20-min reveal-gate stall). Leave those at
+        // the provider default. GPT-5.6 Terra is NOT in this set — it supports reasoning off
         // and we must disable it to avoid 3-8 minute silent think phases.
-        if (!/gemini|openai\/o\d/i.test(m)) {
+        if (!/gemini|openai\/o\d|qwen/i.test(m)) {
           body.reasoning = { enabled: false }
           body.include_reasoning = false
           body.thinking = { type: 'disabled' }
