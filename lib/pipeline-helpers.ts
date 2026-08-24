@@ -995,11 +995,22 @@ async function headlessRuntimeCheckInner(
       }
     }
 
-    const navCount = await page.evaluate(() => document.querySelectorAll('nav').length).catch(() => 1)
-    if (navCount > 1) {
+    const chrome = await page.evaluate(() => ({
+      navs: document.querySelectorAll('nav').length,
+      footers: document.querySelectorAll('footer').length,
+    })).catch(() => ({ navs: 1, footers: 1 }))
+    if (chrome.navs > 1) {
       return {
         status: 'broken',
-        detail: `Double navigation bar (${navCount} <nav> elements): remove <nav>/<header>/<footer> from page files — Layout.tsx provides them.`,
+        detail: `Double navigation bar (${chrome.navs} <nav> elements): remove <nav>/<header>/<footer> from page files — Layout.tsx provides them.`,
+      }
+    }
+    // Same fingerprint for the footer — a page/section rendering its own <footer> while Layout.tsx
+    // already provides one gives the duplicate-footer the user reported. One brand = one footer.
+    if (chrome.footers > 1) {
+      return {
+        status: 'broken',
+        detail: `Duplicate footer (${chrome.footers} <footer> elements): Layout.tsx already renders the footer, so no page or section file may render its own <footer>. Remove the extra <footer> from the page/section component — keep ONLY the one in Layout.tsx.`,
       }
     }
 
