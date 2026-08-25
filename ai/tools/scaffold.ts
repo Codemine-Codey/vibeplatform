@@ -339,11 +339,26 @@ export function Marquee({ children, className = '', speed = 30, reverse = false 
 }
 
 // Number that counts up (ease-out) when scrolled into view.
-export function CountUp({ to, duration = 2, suffix = '', prefix = '', className = '' }: { to?: number; duration?: number; suffix?: string; prefix?: string; className?: string }) {
-  // Bulletproof: coerce whatever the AI passes into a finite number. A missing or
-  // non-numeric \`to\` used to make setN(to) store undefined → n.toLocaleString()
-  // threw on scroll-into-view and tripped the error boundary in a reload loop.
-  const target = Number.isFinite(Number(to)) ? Number(to) : 0
+export function CountUp({ to, duration = 2, suffix, prefix, className = '' }: { to?: number | string; duration?: number; suffix?: string; prefix?: string; className?: string }) {
+  // Bulletproof: the AI writes stats as strings — "10K+", "98%", "$2.5M", "500+",
+  // "10,000". A bare Number("10K+") = NaN, which used to freeze the counter at 0
+  // (the reported bug). We split a leading prefix, the numeric core, and a trailing
+  // suffix, animate the number, and keep the affixes — so "10K+" counts 0→10 and
+  // renders "10K+", "$2.5M" counts to 2.5, "98%" to 98. Never NaN, never stuck at 0.
+  const parse = (raw: number | string | undefined) => {
+    if (typeof raw === 'number') return { num: Number.isFinite(raw) ? raw : 0, pre: '', suf: '', decimals: 0 }
+    const s = String(raw == null ? '' : raw).trim()
+    const m = s.match(/^([^\\d.-]*)(-?[\\d,]*\\.?\\d+)(.*)$/)
+    if (!m) return { num: 0, pre: '', suf: s, decimals: 0 }
+    const numStr = m[2].replace(/,/g, '')
+    const dot = numStr.split('.')[1]
+    const num = Number(numStr)
+    return { num: Number.isFinite(num) ? num : 0, pre: m[1] || '', suf: m[3] || '', decimals: dot ? dot.length : 0 }
+  }
+  const parsed = parse(to)
+  const target = parsed.num
+  const pre = prefix != null ? prefix : parsed.pre
+  const suf = suffix != null ? suffix : parsed.suf
   const ref = useRef(null)
   const inView = useInView(ref, { once: true, margin: '-60px' })
   const [n, setN] = useState(0)
@@ -353,14 +368,17 @@ export function CountUp({ to, duration = 2, suffix = '', prefix = '', className 
     const start = performance.now()
     const tick = (t: number) => {
       const p = Math.min((t - start) / (duration * 1000), 1)
-      setN(Math.floor((1 - Math.pow(1 - p, 3)) * target))
+      setN((1 - Math.pow(1 - p, 3)) * target)
       if (p < 1) raf = requestAnimationFrame(tick)
       else setN(target)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [inView, target, duration])
-  return <span ref={ref} className={className}>{prefix}{Number(n || 0).toLocaleString()}{suffix}</span>
+  const fmt = parsed.decimals > 0
+    ? n.toLocaleString(undefined, { minimumFractionDigits: parsed.decimals, maximumFractionDigits: parsed.decimals })
+    : Math.round(n).toLocaleString()
+  return <span ref={ref} className={className}>{pre}{fmt}{suf}</span>
 }
 `
 
