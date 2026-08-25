@@ -254,6 +254,7 @@ export const SCAFFOLD_AT_PATHS = new Set([
   '@/components/blocks',
   '@/components/blocks/index',
   '@/components/blocks/sections',
+  '@/components/blocks/fx',
   '@/components/game/engine',
   '@/components/NotFound',
 ])

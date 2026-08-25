@@ -265,15 +265,26 @@ The scaffold file tree below is what exists BEFORE you generate anything. Import
 @/components/blocks          → Section, Container, Reveal, Stagger, StaggerItem, Marquee, CountUp
 @/components/blocks/index    → (same as above — explicit index path)
 @/components/blocks/sections → Hero, Footer, FeatureGrid, CTASection, FAQ, PageHeader, StatCard, EmptyState
+@/components/blocks/fx       → Aurora, Spotlight, GradientText, TiltCard, ShimmerButton, BentoGrid, BentoCard, BlurFade  (PREMIUM MOTION — see below)
 @/components/game/engine     → useGameLoop, useHighScore, playTone, rectsOverlap, circlesHit, useShake, burst, stepParticles, SPEEDS, SPAWN
 @/components/NotFound        → default export NotFound
 @/styles/cm-ui.css           → CSS utility classes (import as side-effect)
 ```
 
 **The COMPLETE allow-list of @/ import paths:**
-`@/lib/utils` · `@/components/ui/button` · `@/components/ui/card` · `@/components/ui/input` · `@/components/ui/label` · `@/components/ui/badge` · `@/components/ui/textarea` · `@/components/ui/separator` · `@/components/ui/select` · `@/components/ui/dialog` · `@/components/ui/tabs` · `@/components/ui/accordion` · `@/components/ui/dropdown-menu` · `@/components/ui/switch` · `@/components/ui/slider` · `@/components/ui/tooltip` · `@/components/ui/avatar` · `@/components/ui/progress` · `@/components/ui/table` · `@/components/ui/checkbox` · `@/components/ui/popover` · `@/components/ui/scroll-area` · `@/components/ui/radio-group` · `@/components/ui/sheet` · `@/components/ui/skeleton` · `@/components/ui/alert` · `@/components/ui/toast` · `@/components/blocks` · `@/components/blocks/index` · `@/components/blocks/sections` · `@/components/game/engine` · `@/components/NotFound` + any path you declare yourself in `planProject`.
+`@/lib/utils` · `@/components/ui/button` · `@/components/ui/card` · `@/components/ui/input` · `@/components/ui/label` · `@/components/ui/badge` · `@/components/ui/textarea` · `@/components/ui/separator` · `@/components/ui/select` · `@/components/ui/dialog` · `@/components/ui/tabs` · `@/components/ui/accordion` · `@/components/ui/dropdown-menu` · `@/components/ui/switch` · `@/components/ui/slider` · `@/components/ui/tooltip` · `@/components/ui/avatar` · `@/components/ui/progress` · `@/components/ui/table` · `@/components/ui/checkbox` · `@/components/ui/popover` · `@/components/ui/scroll-area` · `@/components/ui/radio-group` · `@/components/ui/sheet` · `@/components/ui/skeleton` · `@/components/ui/alert` · `@/components/ui/toast` · `@/components/blocks` · `@/components/blocks/index` · `@/components/blocks/sections` · `@/components/blocks/fx` · `@/components/game/engine` · `@/components/NotFound` + any path you declare yourself in `planProject`.
 
 **Do NOT import any other @/ path.** If you need a component, either use one from this list or create the file yourself in `planProject` and `generateFiles`.
+
+**PREMIUM MOTION (`@/components/blocks/fx`) — use these to make sites look like $10k, not templates.** These are pre-built, tested, and free — always prefer them over hand-writing motion:
+- `<Aurora>…</Aurora>` — wrap a hero section for soft animated on-brand gradient blobs in the background.
+- `<Spotlight className="top-0 left-1/2 -translate-x-1/2" />` — a pulsing radial glow; position it behind a headline or section.
+- `<GradientText>word</GradientText>` — animated gradient fill for ONE emphasis word in a headline (not whole paragraphs).
+- `<TiltCard>…</TiltCard>` — wrap a feature card or image for a subtle 3D tilt toward the cursor.
+- `<ShimmerButton href="/signup">Get started</ShimmerButton>` — the primary hero CTA with a light-sweep.
+- `<BentoGrid><BentoCard colSpan={2}>…</BentoCard><BentoCard>…</BentoCard></BentoGrid>` — modern asymmetric feature grid.
+- `<BlurFade delay={0.1}>…</BlurFade>` — richer scroll reveal (blur-in) — a premium alternative to a plain fade.
+Use them tastefully: an Aurora or Spotlight hero, ONE GradientText accent word, TiltCard on the main cards, a ShimmerButton primary CTA, a BentoGrid features section. Do not stack every effect on one section.
 
 **Files you MUST NOT generate** (scaffold-owned, read-only, your version is discarded):
 - `src/main.tsx` — do not generate
