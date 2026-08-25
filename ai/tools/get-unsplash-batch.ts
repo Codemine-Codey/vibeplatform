@@ -4,6 +4,25 @@ import { resolveFallbackImage } from './image-fallback'
 
 const fmt = (regular: string) => `${regular.split('?')[0]}?auto=format&fit=crop&w=1200&q=80`
 
+// Disambiguate image-search keywords whose brand meaning drowns out the intended one on stock
+// sites. "amazon" returns Amazon.com boxes/logos, not the rainforest (user-reported). We strip the
+// ambiguous brand token and, if no descriptive noun remains, anchor it to the real subject. Small,
+// deterministic, and only touches known-ambiguous terms so normal keywords are unaffected.
+const AMBIGUOUS_TERMS: Record<string, { nature: RegExp; anchor: string }> = {
+  amazon: { nature: /rainforest|jungle|forest|river|canopy|wildlife|tropical|jaguar|dolphin|macaw|nature/i, anchor: 'rainforest jungle tropical' },
+}
+function disambiguateQuery(q: string): string {
+  let out = q
+  for (const [term, cfg] of Object.entries(AMBIGUOUS_TERMS)) {
+    if (!out.toLowerCase().includes(term)) continue
+    const re = new RegExp(term, 'ig')
+    const stripped = out.replace(re, ' ').replace(/\s+/g, ' ').trim()
+    // Keep the descriptive words; if the brand word was carrying the meaning, anchor to the subject.
+    out = cfg.nature.test(stripped) ? stripped : `${cfg.anchor} ${stripped}`.trim()
+  }
+  return out || q
+}
+
 async function searchTop(query: string, orientation: string, accessKey: string): Promise<string | null> {
   const params = new URLSearchParams({ query, orientation, content_filter: 'high', per_page: '1', order_by: 'relevant' })
   const res = await fetch(`https://api.unsplash.com/search/photos?${params}`,
@@ -22,6 +41,8 @@ export async function fetchOne(keyword: string, orientation: string, accessKey: 
   // No Unsplash key → straight to the multi-source fallback (Pexels/Picsum), which is
   // real + DISTINCT per keyword (never one repeated photo across the page).
   if (!accessKey) return resolveFallbackImage(keyword, orientation)
+  // Fix ambiguous brand terms ("amazon" → the rainforest, not the company) before searching.
+  keyword = disambiguateQuery(keyword)
   try {
     const full = await searchTop(keyword, orientation, accessKey)
     if (full) return full

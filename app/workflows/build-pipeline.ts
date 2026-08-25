@@ -1052,6 +1052,9 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
 
   // Start dev server
   writer.write({ id: 'srv-phase-build', type: 'data-build-phase', data: { phase: 'building', label: 'Building and starting preview...' } })
+  // Chattier progress (2026-08-25): a friendly line so the user isn't staring at a silent spinner
+  // between "files written" and "preview ready" (they asked for this). Deterministic, always fires.
+  writer.write({ id: 'srv-checks-note', type: 'data-narration', data: { text: 'Done writing your files — now installing everything and running quality + security checks. Your preview will appear the moment it\'s ready.' } })
   writer.write({ id: 'srv-dev', type: 'data-run-command', data: { sandboxId, command: 'bun', args: ['run', 'dev'], status: 'executing' } })
   try {
     const devCmd = await sandbox.runCommand({ detached: true, cmd: 'bash', args: ['-c', 'command -v bun >/dev/null 2>&1 && bun run dev || pnpm dev'] })
@@ -1241,15 +1244,16 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       } catch { /* non-fatal */ }
     }
 
-    // REVEAL-FIRST FOR GAMES (2026-08-18, additive + game-only): the render check passed → show the
-    // playable preview NOW, at generation cost, BEFORE the model-cost functional-verify/QA polish.
-    // This is purely an EXTRA early URL emit — it does NOT change control flow or the `revealed` flag,
-    // so the normal reveal (with narration) still fires at the end and websites are COMPLETELY
-    // untouched (skill guard). A duplicate get-sandbox-url 'done' with the SAME url is idempotent on
-    // the client. Fixes games stranding/never-revealing before the paid polish (runs 926e7c12/
-    // 006d0fe9); the polish then HMRs into the already-shown preview.
-    if (skill === 'game' && !devError && rtStatus !== 'broken' && rtStatus !== null) {
+    // REVEAL-FIRST FOR ALL SKILLS (2026-08-25): the headless render check passed → show the preview
+    // NOW, BEFORE the slow functional-verify/QA/repair tail. Extended from game-only to websites+apps
+    // because that tail (~5-8 min) pushed reveal PAST the ~12-min SSE cap → the "everything stops at
+    // 13 min, no preview until I message" bug (reproduced live 2026-08-25). Revealing here (~6-8 min,
+    // before the cap) means the client receives the URL while the stream is still open — no stall.
+    // Additive + safe: the render check already gates it (never reveal broken), the deep QA continues
+    // after and HMRs fixes into the shown preview, and the normal end-of-run reveal still fires.
+    if (!devError && rtStatus !== 'broken' && rtStatus !== null) {
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
+      writer.write({ id: 'srv-reveal-note', type: 'data-narration', data: { text: 'Your preview is live — take a look! I\'m running a few final quality checks in the background.' } })
       if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
     }
 
