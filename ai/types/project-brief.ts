@@ -130,6 +130,12 @@ export interface ProjectBrief {
   navStyle?: NavStyle
   backgroundTreatment?: BackgroundTreatment
   pageMap?: PageSpec[]       // websites — the multi-page routing plan
+  // PROJECT-SPECIFIC acceptance criteria ("done only when…") — a self-validation target the
+  // MODEL checks its own build against. MUST be specific to THIS project (e.g. "reservation form
+  // rejects past dates", "cart total updates live when qty changes", "snake speeds up every 5
+  // points") — NOT universals ("no console errors", "no dead links"), which are already enforced
+  // mechanically + stated in prompt.md. Kept short (4-6) so the uncached brief stays dense.
+  qualityBar?: string[]
 }
 
 function motionContract(intensity: ProjectBrief['motionIntensity']): string {
@@ -303,5 +309,14 @@ ${designLanguageBlock(brief)}${routingBlock(brief)}${gameBlock}${webappBlock}
 - **Tech:** ${brief.techStack}
 
 ### SECTION QUALITY BAR (non-negotiable — every section must be "aww", never a placeholder)
-Each section is a distinctly-composed, fully-realized block — NOT the same centered headline+paragraph repeated. Vary the composition section to section (split 60/40, offset, overlap, full-bleed, grid, marquee) so no two sections look alike. Every section: real contextual copy, real imagery, a scroll-reveal or scroll-linked motion, and craft in spacing/type/colour from the tokens. Fill it beautifully — empty, thin, or lorem sections are a failure.`
+Each section is a distinctly-composed, fully-realized block — NOT the same centered headline+paragraph repeated. Vary the composition section to section (split 60/40, offset, overlap, full-bleed, grid, marquee) so no two sections look alike. Every section: real contextual copy, real imagery, a scroll-reveal or scroll-linked motion, and craft in spacing/type/colour from the tokens. Fill it beautifully — empty, thin, or lorem sections are a failure.${acceptanceBlock(brief)}`
+}
+
+// PROJECT-SPECIFIC "done only when…" — a self-check target for the model. Only universals
+// live in prompt.md; here we surface THIS project's own acceptance criteria so the model
+// validates its build against them before finishing.
+function acceptanceBlock(brief: ProjectBrief): string {
+  if (!brief.qualityBar || brief.qualityBar.length === 0) return ''
+  const items = brief.qualityBar.map((c) => `- ${c}`).join('\n')
+  return `\n\n### DONE ONLY WHEN (this project's acceptance criteria — verify each before you finish)\n${items}`
 }

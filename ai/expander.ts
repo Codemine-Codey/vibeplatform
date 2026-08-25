@@ -2,13 +2,94 @@ import { BRIEF_MODEL } from './constants'
 import { getModelOptions } from './gateway'
 import { guardColorTokens } from '@/lib/contrast'
 import { generateText, stepCountIs, tool } from 'ai'
-import type { ProjectBrief, Skill } from './types/project-brief'
+import type { Archetype, GameDesignContract, ProjectBrief, Skill } from './types/project-brief'
 import z from 'zod/v3'
 
+// ── Deterministic guarantees so a brief is NEVER junk, even when the model call fails ──
+// A solid platform has no "sometimes": the worst case is a specific brief DERIVED from the
+// user's own prompt, never "My Project". These run only on the rare fallback path.
+
+// Pull a plausible brand from the prompt ("...called Ember & Ground", "a Sakura sushi site").
+export function deriveBrandName(prompt: string, skill: Skill): string {
+  const m = prompt.match(/\b(?:called|named)\s+([A-Z][\w&'’]*(?:\s+(?:&|and|[A-Z][\w'’]*)){0,3})/)
+  if (m) return m[1].replace(/\s+and\s+/gi, ' & ').trim()
+  const caps = prompt.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b/)
+  if (caps) return caps[1]
+  return skill === 'game' ? 'Nova Arcade' : skill === 'webapp' ? 'Flow' : 'Atelier'
+}
+
+// Keyword-heuristic archetype so even a fallback commits to a distinct look (never generic).
+function pickArchetype(prompt: string, skill: Skill): Archetype {
+  const p = prompt.toLowerCase()
+  if (skill === 'game') return /neon|cyber|space|retro|arcade|synth/.test(p) ? 'cyber-neon' : 'playful-rounded'
+  if (/luxur|fine|elegant|premium|jewel|couture/.test(p)) return 'dark-luxe'
+  if (/coffee|cafe|restaurant|food|bakery|bistro|artisan/.test(p)) return 'warm-boutique'
+  if (/tech|saas|startup|dashboard|\bai\b|developer|platform/.test(p)) return 'swiss-minimal'
+  if (/agency|studio|portfolio|creative|design|art/.test(p)) return 'editorial-magazine'
+  return 'corporate-clean'
+}
+
+// A complete generic game contract so a fallback game is never gameDesign:NONE (which is what
+// shipped the mechanic-less snake). Loosely seeded from the prompt; the real expansion is richer.
+function fallbackGameDesign(prompt: string): GameDesignContract {
+  return {
+    coreLoop: `Control the player, avoid hazards, collect/score, survive longer as difficulty rises — derived from: "${prompt.slice(0, 80)}"`,
+    controls: 'Arrow keys / WASD to move, Space for the primary action; touch buttons on mobile',
+    winCondition: 'N/A — endless, chase a high score',
+    loseCondition: 'Collide with a hazard or run out of lives → Game Over screen',
+    difficultyProgression: 'Speed and spawn rate increase steadily as the score climbs',
+    entities: ['player', 'obstacle/enemy', 'collectible', 'score display'],
+    physics: { playerSpeed: 220, enemySpeed: 180 },
+    juice: ['score popup on collect', 'flash + shake on hit', 'sound on key events'],
+  }
+}
+
+// Best-effort recovery of the model's args when the tool call malformed its JSON. The SDK
+// error carries the raw text; we extract it, repair common truncation (unbalanced braces),
+// and parse. Returns a partial brief or null — never throws.
+export function salvageArgs(blob: string | null): Record<string, unknown> | null {
+  if (!blob) return null
+  let raw: string | null = null
+  const m = blob.match(/"_raw_arguments"\s*:\s*"((?:[^"\\]|\\.)*)"/)
+  if (m) { try { raw = JSON.parse(`"${m[1]}"`) } catch { raw = m[1] } }
+  if (!raw) { const b = blob.indexOf('{'); if (b >= 0) raw = blob.slice(b) }
+  if (!raw) return null
+  const tryParse = (s: string): Record<string, unknown> | null => { try { const o = JSON.parse(s); return o && typeof o === 'object' ? o : null } catch { return null } }
+  let obj = tryParse(raw)
+  if (!obj) {
+    // Repair: cut to the last complete-looking point and balance braces/brackets.
+    let s = raw.replace(/,\s*$/, '')
+    const opens = (s.match(/{/g) || []).length, closes = (s.match(/}/g) || []).length
+    const bo = (s.match(/\[/g) || []).length, bc = (s.match(/\]/g) || []).length
+    s = s + ']'.repeat(Math.max(0, bo - bc)) + '}'.repeat(Math.max(0, opens - closes))
+    obj = tryParse(s)
+  }
+  return obj
+}
+
+// Per-type briefing, each ORDERED by what matters most for that type (a website prompt and a
+// game prompt must NOT follow the same template). High information density is the goal — each
+// decision specific to THIS product, not generic filler.
 const SKILL_CONTEXT: Record<Skill, string> = {
-  website: 'a multi-section marketing website. Plan: Hero, About/Story, Services/Features, Social Proof (testimonials or stats), CTA, Footer. Add 2+ sub-pages where relevant.',
-  webapp: 'a fully functional web application. Plan all views, user flows, states (empty/loading/error/success), and core features. Include localStorage persistence.',
-  game: 'a complete web game. Plan: Start Screen, Gameplay, Pause, Game Over, Score/High Score, Play Again. Define all game constants (colors, speeds, sizes).',
+  website:
+    'a multi-section marketing website. Build the brief in THIS priority order: ' +
+    '(1) brand + who it serves + the primary conversion action, (2) visual direction (archetype/colour/type/motion), ' +
+    '(3) page structure + per-page section breakdown, (4) real copy direction per section, ' +
+    '(5) interactions (nav, hover, forms, modals) + form/empty/error/success states where forms exist, ' +
+    '(6) responsive behaviour (desktop → tablet → mobile nav + stacking), (7) the CTA/conversion path. ' +
+    'Plan a real MULTI-PAGE site: Home (rich 5-7 sections) + About/Services/Menu/Work/Gallery/Pricing/Contact as fits.',
+  webapp:
+    'a fully functional web application. Build the brief in THIS priority order: ' +
+    '(1) the primary user + the ONE job they come to do, (2) core workflows end-to-end, (3) every screen/view + its route, ' +
+    '(4) state pattern, (5) the data model (typed entities + relationships) + persistence, (6) permissions/roles if any, ' +
+    '(7) interactions + EVERY state handled (empty, loading, error, success — never a blank screen), (8) UI polish, ' +
+    '(9) responsive (desktop → mobile: drawer nav, touch targets). The core loop must be 100% functional — no stubs.',
+  game:
+    'a complete web game. Build the brief in THIS priority order: ' +
+    '(1) the core game loop (moment-to-moment), (2) mechanics + rules, (3) controls (keyboard AND touch), ' +
+    '(4) scoring + difficulty progression, (5) game states (start → playing → pause → game over → restart), ' +
+    '(6) UI/HUD (score, lives, high score), (7) audio/juice, (8) visual style, (9) mobile controls + performance. ' +
+    'Define exact physics constants (gravity, speeds, sizes) — these numbers go verbatim into the code.',
 }
 
 export async function expandPrompt(
@@ -16,16 +97,24 @@ export async function expandPrompt(
   skill: Skill,
 ): Promise<ProjectBrief> {
   let output: Omit<ProjectBrief, 'skill'> | null = null
+  let salvageBlob: string | null = null  // raw args of a malformed tool call, for salvage below
 
-  try {
-    await generateText({
+  // RETRY before falling back: the brief step intermittently fails to emit a valid tool call
+  // (malformed JSON on a large payload). One clean retry turns a ~10-15% junk-fallback rate into
+  // near-zero at ~a cent extra. Only the bland fallback (below) is worse than a retry.
+  for (let attempt = 1; attempt <= 2 && output === null; attempt++) {
+   try {
+    const _diagRes = await generateText({
       // The brief runs on the strong BRIEF_MODEL. Reasoning was tried ON but the long silent
       // think caused the SSE stream to idle out and drop mid-build (E2E test 2026-07-21), for
       // little visible gain — so it's OFF. Token budget stays generous so the richer schema
       // (visualNarrative + pageMap + signature moves) never truncates into a fallback.
       ...getModelOptions(BRIEF_MODEL),
       maxOutputTokens: 16000,
-      stopWhen: stepCountIs(2),
+      // 5 (was 2): a large create_brief tool call occasionally malforms its JSON; the model
+      // detects it ("Let me fix that JSON parsing issue") but needs steps to re-emit. 2 left no
+      // room → silent fallback to a bland brief (root cause of blank websites + gameDesign:NONE).
+      stopWhen: stepCountIs(5),
       system: `You are a creative director for a premium web builder. Expand the user's prompt into a detailed project brief.
 
 The project is ${SKILL_CONTEXT[skill]}
@@ -67,7 +156,8 @@ Rules:
 - navStyle (fits the archetype): left-logo-right-links, centered-logo, split-cta, floating-pill, transparent-over-hero, minimal-underline, sidebar-drawer, or mega-menu. Pick what suits the layout (e.g. luxury → centered-logo or minimal-underline; immersive → transparent-over-hero; SaaS → split-cta; content-heavy multi-page → mega-menu).
 - backgroundTreatment (LEGIBILITY FIRST — the background must NEVER compete with content; it sits quietly BEHIND, at low opacity): flat, gradient-mesh, noise-grain, animated-gradient, scroll-parallax, aurora-glow, particles, dot-grid, topographic, spotlight-follow, video-loop, or 3d-scene. DEFAULT to flat or a very subtle treatment. Only choose a bolder one when it genuinely fits the brand AND stays subtle (e.g. dark premium → a faint aurora-glow; tech → a faint dot-grid or gradient-mesh; agency/product → a restrained 3d-scene or scroll-parallax). If in doubt, pick flat — a clean readable page beats a busy one. NEVER pick a loud/heavy background just to look "alive"; a noisy background that makes text hard to read is a failure.
 - pageMap (websites — MULTI-PAGE IS THE DEFAULT): an array of pages, each { page, route, sections[] }. A plain request like "create a website for my <business>" MUST become a real multi-page site — 3-5 pages typical (e.g. Home "/", About "/about", Services/Menu/Work "/services", maybe Gallery or Pricing, Contact "/contact"), sections distributed across them, with Home still a rich 5-7 section landing. Choose pages that fit the business (a restaurant → Home, Menu, About, Reservations/Contact; an agency → Home, Work, Services, About, Contact; a SaaS → Home, Features, Pricing, About/Blog, Contact). Use a SINGLE page (one entry, route "/") ONLY when the user explicitly asks for a "one-page", "single page", or "landing page", or the request is genuinely trivial. Each page's sections must be specific and distinct.
-- sections: be specific — this is exactly what will be built
+- sections: be specific AND say what each does, not just its name — "Hero — full-viewport headline + primary CTA + product shot", "Menu — filterable grid of dishes with prices", not just "Hero"/"Menu". This is exactly what will be built.
+- qualityBar: 4-6 PROJECT-SPECIFIC acceptance criteria — concrete "done only when…" checks unique to THIS product that the build must satisfy (e.g. "reservation form rejects past dates", "cart total updates live as quantity changes", "snake speeds up every 5 points", "dashboard shows an empty-state when there are no orders yet"). Do NOT list universals like "no console errors" or "no dead links" — those are always enforced. Make each one testable against this specific build.
 - features: list concrete, specific features (not vague like "user-friendly UI")
 - ${'gameDesign (ONLY for games)'}: a TYPED contract with exact sub-fields — fill every field precisely so the code uses these EXACT values. Skip for non-games.
 - ${'webappDesign (ONLY for webapps)'}: a TYPED architecture contract — enumerate every view/screen with route + key components, the core data models with typed fields, state pattern, and persistence. Skip for games/websites.
@@ -138,6 +228,7 @@ Use the create_brief tool.`,
               persistence: z.enum(['localStorage', 'sessionStorage', 'none']).describe('How user data is persisted across page loads'),
             }).optional().describe('WEBAPPS ONLY: typed architecture contract. Omit for games/websites.'),
             techStack: z.string().describe('Tech choices, e.g. "React + Vite, localStorage, React Router v6"'),
+            qualityBar: z.array(z.string()).min(3).max(6).describe('4-6 PROJECT-SPECIFIC acceptance criteria ("done only when…") unique to THIS product — testable against this build (e.g. "reservation form rejects past dates", "snake speeds up every 5 points"). NOT universals like "no console errors"/"no dead links" (always enforced separately).'),
           }),
           execute: async (args) => {
             output = args as Omit<ProjectBrief, 'skill'>
@@ -146,8 +237,24 @@ Use the create_brief tool.`,
         }),
       },
     })
-  } catch {
-    // Non-fatal — use fallback below
+    // DIAGNOSTIC: if the tool never set output, surface WHY (finishReason, tool calls made,
+    // any tool-call validation errors) instead of silently falling back to the bland brief.
+    if (!output) {
+      const toolNames = (_diagRes.toolCalls ?? []).map((t) => t.toolName)
+      console.error(`[expander-diag] attempt ${attempt}/2 skill=${skill} output=NULL finishReason=${_diagRes.finishReason} steps=${_diagRes.steps?.length} toolCalls=[${toolNames.join(',')}] text="${(_diagRes.text || '').slice(0, 160)}"`)
+      for (const step of _diagRes.steps ?? []) {
+        for (const c of (step.content ?? []) as Array<{ type?: string; toolName?: string; error?: unknown; input?: unknown }>) {
+          if (c?.type === 'tool-error' || (c as { type?: string })?.type === 'tool-call-error') {
+            const blob = JSON.stringify(c.error ?? c)
+            if (blob.includes('_raw_arguments') || blob.includes('brandName')) salvageBlob = blob
+            console.error(`[expander-diag]   tool-error ${c.toolName}: ${blob.slice(0, 300)}`)
+          }
+        }
+      }
+    }
+   } catch (e) {
+    console.error(`[expander-diag] attempt ${attempt}/2 skill=${skill} THREW: ${(e as Error)?.message} :: ${((e as Error)?.stack || '').slice(0, 200)}`)
+   }
   }
 
   if (output) {
@@ -170,10 +277,25 @@ Use the create_brief tool.`,
     return brief
   }
 
-  // Fallback brief when expansion fails. Even here we ship a committed archetype + a
-  // MULTI-PAGE plan + a background treatment, so a failed brief is still distinct and
-  // multi-page — never the old bland single-page default.
-  console.warn('[brief] expansion failed — using hardened fallback (archetype + multi-page)')
+  // SALVAGE FIRST: if the tool call malformed its JSON, recover the model's OWN data (zero
+  // extra model calls) and use whatever fields parsed. Turns most "failures" into real briefs.
+  const salvaged = salvageArgs(salvageBlob)
+  if (salvaged && typeof salvaged.brandName === 'string' && (salvaged.visualNarrative || salvaged.colorTokens)) {
+    console.warn('[brief] recovered a malformed tool call via salvage (no extra model call)')
+    output = salvaged as unknown as Omit<ProjectBrief, 'skill'>
+    const brief = { ...(output as Omit<ProjectBrief, 'skill'>), skill }
+    if (brief.colorTokens) {
+      const { tokens, changed } = guardColorTokens(brief.colorTokens)
+      if (changed.length > 0) brief.colorTokens = tokens
+    }
+    console.log(`[brief] SALVAGED skill=${skill} archetype=${brief.archetype ?? 'NONE'} pages=${brief.pageMap?.length ?? 0} sections=${brief.sections?.length ?? 0}`)
+    return brief
+  }
+
+  // DERIVED FALLBACK — the never-junk floor. Specific to THIS prompt (brand + archetype from the
+  // user's words, and for games a COMPLETE gameDesign so it's never mechanic-less). A solid
+  // platform's worst case is mediocre-but-specific, never "My Project" with no game rules.
+  console.warn('[brief] expansion failed after retry + salvage — using DERIVED fallback (from prompt)')
   const defaults: Record<Skill, Partial<ProjectBrief>> = {
     website: {
       sections: ['Hero', 'About', 'Services', 'Gallery', 'Testimonials', 'Contact', 'Footer'],
@@ -187,21 +309,41 @@ Use the create_brief tool.`,
         { page: 'Services', route: '/services', sections: ['Services', 'Process', 'Pricing'] },
         { page: 'Contact', route: '/contact', sections: ['Contact form', 'Map', 'Hours'] },
       ],
+      qualityBar: [
+        'Every nav link goes to a real page or a real on-page section — no dead links',
+        'The contact form validates required fields and shows a success state on submit',
+        'Each page has its own distinct content — no page is a copy of the homepage',
+        'Layout holds from desktop to a 375px phone with no horizontal overflow',
+      ],
     },
     webapp: {
       sections: ['Dashboard', 'Main View', 'Settings'],
       features: ['CRUD operations', 'localStorage persistence'],
+      qualityBar: [
+        'The core create/read/update/delete loop works end-to-end',
+        'Data persists across a page reload (localStorage)',
+        'Empty, loading, and error states are handled — never a blank screen',
+        'Works on mobile with reachable touch targets and a usable nav',
+      ],
     },
     game: {
       sections: ['Start Screen', 'Gameplay', 'Game Over'],
       features: ['Keyboard controls', 'Touch controls', 'Score tracking', 'High score'],
+      gameDesign: fallbackGameDesign(userPrompt),
+      qualityBar: [
+        'Full loop works: start screen → play → game over → restart',
+        'Both keyboard and touch controls move the player',
+        'Score increments during play and a high score persists across reloads',
+        'Difficulty ramps as the game progresses',
+      ],
     },
   }
 
   return {
-    brandName: 'My Project',
+    brandName: deriveBrandName(userPrompt, skill),
     tagline: 'Built with Codemine',
     skill,
+    archetype: pickArchetype(userPrompt, skill),
     colorPalette: 'modern neutrals with a bold accent',
     colorTokens: {
       background: '#FAFAF7',
