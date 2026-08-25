@@ -1837,6 +1837,13 @@ Then App.tsx renders <GameCanvas/> full-viewport. Every mutable game value lives
       }
       try {
         let cursor = 0
+        // CRITICAL for beyond-12-min continuation: emit the run-id FIRST so the client stores
+        // activeRunId. Without this, when the stream self-closes at 740s the client's reconnect
+        // guard (`if !activeRunId return`) bails → the build appears to DEAD-STOP with no preview
+        // until the user manually messages (the exact bug reproduced live 2026-08-25). With it, the
+        // client reconnects to /api/runs/[id]/stream and keeps tailing to the reveal — seamless,
+        // no matter how long a complex build runs. The server workflow never stops regardless.
+        emit({ id: 'srv-run', type: 'data-run', data: { runId } })
         // Self-close cleanly ~60s before Vercel's 800s hard-kill. A hard-kill drops the
         // connection mid-message with NO clean end, so the client's Chat neither finishes nor
         // errors — the UI freezes forever and no reconnect ever fires (the exact "stops at 13
