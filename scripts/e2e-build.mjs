@@ -219,7 +219,7 @@ try {
   log(`submitted ${KIND} prompt — BUILD STARTED (input busy) ✅`)
 
   // Poll for the preview iframe URL + scan chat for leaks, up to 25 min
-  const DEADLINE = Date.now() + 25 * 60 * 1000
+  const DEADLINE = Date.now() + 16 * 60 * 1000  // hard cap 16 min (user: 25 is too long)
   let previewAt = null
   let lastChatLen = 0
   let lastPhase = null
