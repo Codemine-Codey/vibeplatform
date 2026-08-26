@@ -435,10 +435,11 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     (skill !== 'website' ? `getUnsplashBatch is NOT available for this skill type.\n` : '') +
     `If you need packages not in the scaffold, include package.json in your generateFiles paths.\n`
 
+  const NO_DUP_SECTIONS = ` NO DUPLICATE SECTIONS: each section component is rendered EXACTLY ONCE and every section is DISTINCT — never render the same section/component twice, and never write two sections with the same heading, purpose, or content. Before you finish, scan the page's JSX: if any component tag or section heading appears more than once, delete the repeat. A page that shows the same section twice is a REJECTED build.`
   const fileCountGuidance = skill === 'website'
     ? (isMultiPage
-      ? `WEBSITE — MULTI-PAGE (${activePageMap!.length} pages). Generate ALL files, every page fully realized: src/index.css, Layout.tsx, one src/pages/*.tsx per page, src/components/sections/*.tsx per section. MOBILE-ADAPTIVE (required): mobile-first Tailwind, working hamburger.`
-      : `WEBSITE — SINGLE-PASS COMPLETE LANDING PAGE. Generate ALL files in ONE call: src/index.css, Layout.tsx, src/components/sections/*.tsx (6-7 sections), src/pages/Home.tsx. MOBILE-ADAPTIVE (required).`)
+      ? `WEBSITE — MULTI-PAGE (${activePageMap!.length} pages). Generate ALL files, every page fully realized: src/index.css, Layout.tsx, one src/pages/*.tsx per page, src/components/sections/*.tsx per section. MOBILE-ADAPTIVE (required): mobile-first Tailwind, working hamburger.${NO_DUP_SECTIONS}`
+      : `WEBSITE — SINGLE-PASS COMPLETE LANDING PAGE. Generate ALL files in ONE call: src/index.css, Layout.tsx, src/components/sections/*.tsx (6-7 sections), src/pages/Home.tsx. MOBILE-ADAPTIVE (required).${NO_DUP_SECTIONS}`)
     : skill === 'webapp'
     ? `WEBAPP BUILD SPLIT: Phase 1 = EXACTLY 2 files (src/index.css + src/pages/Home.tsx). Phase 2 = all remaining component files.`
     : `GAME — plan the COMPLETE file list yourself in planProject, then generateFiles exactly those files in ONE call. Split the game into focused files (see "REQUIRED GAME FILES" above) — a real game is NEVER one big file. Decide the right breakdown for THIS game; don't cram everything into a single Home.tsx.`
