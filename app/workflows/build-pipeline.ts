@@ -444,11 +444,12 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     : `GAME — plan the COMPLETE file list yourself in planProject, then generateFiles exactly those files in ONE call. Split the game into focused files (see "REQUIRED GAME FILES" above) — a real game is NEVER one big file. Decide the right breakdown for THIS game; don't cram everything into a single Home.tsx.`
 
   const referenceGuidance =
-    '\n\n## REFERENCE LOOKUP (optional, max 2-3 calls)\n' +
-    (skill === 'game'
-      ? 'Look up realistic physics/mechanics parameters if needed.'
-      : skill === 'webapp' ? 'Look up correct formulas/values if computing real things.'
-      : 'Look up factual CONTENT for specific real businesses.')
+    skill === 'game'
+      ? '\n\n## RESEARCH THE MECHANIC FIRST — REQUIRED before you write any game logic\n' +
+        'Do NOT jump from the prompt straight to code — that is the #1 cause of a game that looks right but plays wrong. FIRST use lookupReference to research how THIS game actually works (its rules, the exact win/lose conditions, the collision model, spawn logic, and tuning), then in planProject write the mechanic down as a short spec: the core loop, every rule, the fail condition, and the invariants that MUST hold (e.g. snake: fixed grid, moves one cell per tick, grows by one on eating, food spawns on a RANDOM EMPTY cell never on the snake, dies on wall OR self collision; there is no safe idle strategy). Then implement EXACTLY that spec. If your code does not satisfy an invariant you wrote, it is wrong — fix it, do not ship it.'
+      : '\n\n## REFERENCE LOOKUP (optional, max 2-3 calls)\n' +
+        (skill === 'webapp' ? 'Look up correct formulas/values if computing real things.'
+        : 'Look up factual CONTENT for specific real businesses.')
 
   const prdSection = params.prdContext
     ? `\n\n## TECHNICAL IMPLEMENTATION PRD (follow this exactly)\n${params.prdContext}`
