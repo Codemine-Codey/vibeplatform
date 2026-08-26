@@ -1783,7 +1783,16 @@ export async function POST(req: Request) {
   // MUST commit to these files and generateFiles MUST build them all in one call.
   let gameFilesSection = ''
   if (skill === 'game') {
-    gameFilesSection = `\n\n## REQUIRED GAME FILES — build ALL of these in ONE generateFiles call (NON-NEGOTIABLE)
+    gameFilesSection = `\n\n## UNDERSTAND THE GAME BEFORE YOU BUILD IT — reason first, then code (UNIVERSAL, applies to ANY game)
+Before writing a single file, work out what actually makes THIS the game the user asked for, and state it plainly in planProject. Then implement EXACTLY that:
+1. CORE LOOP — the moment-to-moment action the player repeats.
+2. WIN / LOSE — how the player progresses and how they FAIL. The fail state MUST be reachable and real.
+3. THE KEY MECHANIC + ITS INVARIANTS — the rules that MUST hold or it isn't really this game. Think hard about where the ACTUAL challenge comes from. (A pipe/gap flyer: obstacles come from BOTH sides leaving only a gap the player must thread — pipes on just one side is WRONG. A stacker: pieces fall and lock. A runner: obstacles force a timed action. A match game: only valid matches clear.)
+4. NO TRIVIAL SAFE STRATEGY (critical) — there must be NO way to never lose by doing nothing, sitting in one spot, or staying at one edge. If such a safe strategy exists, the mechanic is BROKEN — redesign it so the player is genuinely challenged. (This is the #1 way games come out wrong.)
+5. CONTROLS — keyboard AND touch, responsive; the game is fully playable on mobile.
+Getting the mechanic RIGHT matters more than any visual polish — a game that looks right but plays wrong is a FAILED build. Now build it across these files:
+
+## REQUIRED GAME FILES — build ALL of these in ONE generateFiles call (NON-NEGOTIABLE)
 A game is NEVER a single file — one big App.tsx truncates, can't be edited later, and is a REJECTED build. Split the game across AT LEAST these files (add more entity/scene files for richer games):
 - src/game/config.ts — ALL constants: sizes as RATIOS of the live canvas (never hard-coded pixels), gravity, speeds, spawn cadence, difficulty. No logic, no imports from other game files.
 - src/game/state.ts — the GameState type + createInitialState() (positions, velocities, entity arrays, score, phase: 'start'|'playing'|'over').

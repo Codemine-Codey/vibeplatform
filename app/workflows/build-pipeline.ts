@@ -441,7 +441,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
       : `WEBSITE — SINGLE-PASS COMPLETE LANDING PAGE. Generate ALL files in ONE call: src/index.css, Layout.tsx, src/components/sections/*.tsx (6-7 sections), src/pages/Home.tsx. MOBILE-ADAPTIVE (required).`)
     : skill === 'webapp'
     ? `WEBAPP BUILD SPLIT: Phase 1 = EXACTLY 2 files (src/index.css + src/pages/Home.tsx). Phase 2 = all remaining component files.`
-    : `TARGET FILE COUNT: 2 files ONLY — src/index.css + src/pages/Home.tsx. ALL game logic goes in Home.tsx.`
+    : `GAME — plan the COMPLETE file list yourself in planProject, then generateFiles exactly those files in ONE call. Split the game into focused files (see "REQUIRED GAME FILES" above) — a real game is NEVER one big file. Decide the right breakdown for THIS game; don't cram everything into a single Home.tsx.`
 
   const referenceGuidance =
     '\n\n## REFERENCE LOOKUP (optional, max 2-3 calls)\n' +
