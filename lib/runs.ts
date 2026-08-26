@@ -140,6 +140,32 @@ export async function priorVerifyAttempt(runId: string): Promise<boolean> {
   }
 }
 
+// Single-driver support: find an IN-FLIGHT run for a project so a new user message
+// (e.g. a "where's my preview?" nudge) can reconnect to it instead of spawning a SECOND
+// build that races the durable one (root of the duplicate 0-event runs + the 502). Only
+// considers non-terminal runs started within `maxAgeMs` — a stuck/abandoned run (its
+// status never flipped) is ignored so it can NEVER block future edits forever. Returns
+// the runId or null. Non-throwing (fail-open → caller proceeds normally).
+export async function getActiveRunForProject(projectId: string, maxAgeMs = 1_200_000): Promise<string | null> {
+  if (!projectId) return null
+  try {
+    const sb = getAdminSupabase()
+    const since = new Date(Date.now() - maxAgeMs).toISOString()
+    const { data, error } = await sb
+      .from('runs')
+      .select('id,status,created_at')
+      .eq('project_id', projectId)
+      .in('status', ['running', 'continuing'])
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(1)
+    if (error || !data || data.length === 0) return null
+    return (data[0] as { id: string }).id
+  } catch {
+    return null
+  }
+}
+
 // Patch a run row (status, phase_cursor, manifest, brief, sandbox_id, snapshot_path,
 // tokens_used, …). Non-throwing; keeps updated_at fresh.
 export async function updateRun(

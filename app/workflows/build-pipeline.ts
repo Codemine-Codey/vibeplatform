@@ -349,6 +349,9 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
   if (params.projectId && params.sandboxId !== sandboxId) {
     updateProjectRow(params.projectId, { sandbox_id: sandboxId }).catch(() => {})
   }
+  // Persist sandbox_id on the RUN row too (was null before) so runs↔sandboxes can be
+  // correlated for diagnostics + the single-driver active-run lookup.
+  if (params.runId) updateRun(params.runId, { sandbox_id: sandboxId }).catch(() => {})
 
   // Write scaffold + start background dep install
   let bgInstallPromise: Promise<void> | null = null

@@ -39,7 +39,7 @@ import { getWarmEntry } from '@/ai/warm-pool'
 import { restoreBakedDeps } from '@/lib/baked-deps'
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
-import { createRun, appendRunEvent, appendRunEventBatch, updateRun, getRun, getRunEventsSince, isTerminalRunStatus } from '@/lib/runs'
+import { createRun, appendRunEvent, appendRunEventBatch, updateRun, getRun, getRunEventsSince, isTerminalRunStatus, getActiveRunForProject } from '@/lib/runs'
 import { stampShell, navTargetPageFiles } from '@/lib/shell-template'
 import { reviewGeneratedCode } from '@/lib/code-review-gate'
 import {
@@ -1490,6 +1490,22 @@ export async function POST(req: Request) {
       stream: createUIMessageStream({
         originalMessages: messages,
         execute: async ({ writer: rawWriter }) => {
+          // ── SINGLE-DRIVER GUARD (2026-08-25) ────────────────────────────────
+          // If a build is already IN-FLIGHT for this project, a new user message (a
+          // "where's my preview?" nudge) must NOT start a second agentic turn that
+          // races the durable run — that spawned the duplicate 0-event runs and the
+          // 502. Reconnect the client to the active run and let it keep streaming; do
+          // NOT touch the sandbox or start a loop. Recency-bounded + fail-open, so a
+          // finished (terminal) or stuck/old run never blocks a legitimate edit.
+          const { projectId: activeProjId } = getProjectContext(messages)
+          if (activeProjId) {
+            const activeRunId = await getActiveRunForProject(activeProjId).catch(() => null)
+            if (activeRunId) {
+              rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId: activeRunId } })
+              rawWriter.write({ id: 'srv-still-working', type: 'data-narration', data: { text: "I'm still finishing your build — hang tight, your preview will appear here the moment it's ready. No need to resend." } })
+              return
+            }
+          }
           const runId = await createRun({ userId: authedUser.id })
           if (runId) rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
           const { writer, flush } = runId ? wrapWriterWithLog(rawWriter, runId) : { writer: rawWriter, flush: async () => {} }
@@ -1781,7 +1797,9 @@ Then App.tsx renders <GameCanvas/> full-viewport. Every mutable game value lives
   const designContext = `${formatBrief(brief)}${researchContext}${apiCatalogSection}${imageCatalogSection}${gameFilesSection}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
 
   // Create run row so the client can reconnect via /api/runs/[id]/stream if needed.
-  const runId = await createRun({ userId: authedUser.id }).catch(() => null)
+  // Persist projectId so an active-run lookup (single-driver guard) can correlate a
+  // later user message to an in-flight build for the SAME project (was null before).
+  const runId = await createRun({ userId: authedUser.id, projectId: projectId ?? undefined }).catch(() => null)
 
   // Launch the durable workflow. start() enqueues the build and returns IMMEDIATELY —
   // Vercel Workflows run asynchronously and do NOT stream back to the original HTTP
