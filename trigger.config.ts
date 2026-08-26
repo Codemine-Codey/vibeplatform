@@ -1,4 +1,15 @@
 import { defineConfig } from '@trigger.dev/sdk/v3'
+import { resolve } from 'path'
+
+// Resolve @/ path alias (tsconfig paths) for Trigger's esbuild bundler
+const pathAliasPlugin = {
+  name: 'path-alias',
+  setup(build: any) {
+    build.onResolve({ filter: /^@\// }, (args: any) => ({
+      path: resolve(process.cwd(), args.path.replace(/^@\//, '')),
+    }))
+  },
+}
 
 export default defineConfig({
   project: 'proj_nlmodrfbyggqvsxglojv',
@@ -7,7 +18,10 @@ export default defineConfig({
   retries: {
     enabledInDev: false,
     default: {
-      maxAttempts: 1, // NEVER retry automatically — re-entry storm prevention (learned from Vercel retry-storm)
+      maxAttempts: 1, // NEVER retry automatically — billing safety (retry-storm lesson)
     },
+  },
+  build: {
+    extensions: [pathAliasPlugin],
   },
 })
