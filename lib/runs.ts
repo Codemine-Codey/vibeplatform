@@ -114,6 +114,32 @@ export async function appendRunEventBatch(
   }
 }
 
+// Re-entry detector for a step that runs exactly once (stepVerify). If the killed
+// invocation is re-run by the workflow SDK, the step would re-execute its whole body
+// (install → build → hang) — the confirmed "retry storm" ($1.2 / 45-min / error). We
+// detect the re-run WITHOUT a schema/status change: the step emits a marker event the
+// FIRST time it runs, so if that event already exists, this is a re-invocation and the
+// step must short-circuit to a terminal state instead of re-doing expensive work.
+// Non-throwing; returns false on any error (fail-open — never block a legit first run).
+// Detection uses the EXISTING install-phase event stepVerify already emits (payload
+// `data.phase === 'installing'`) — unique to stepVerify (stepGenerate emits 'generating'),
+// so no new event is added and the reconnect stream is untouched.
+export async function priorVerifyAttempt(runId: string): Promise<boolean> {
+  if (!runId) return false
+  try {
+    const sb = getAdminSupabase()
+    const { count, error } = await sb
+      .from('run_events')
+      .select('seq', { count: 'exact', head: true })
+      .eq('run_id', runId)
+      .eq('payload->data->>phase', 'installing')
+    if (error) return false
+    return (count ?? 0) > 0
+  } catch {
+    return false
+  }
+}
+
 // Patch a run row (status, phase_cursor, manifest, brief, sandbox_id, snapshot_path,
 // tokens_used, …). Non-throwing; keeps updated_at fresh.
 export async function updateRun(

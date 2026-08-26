@@ -57,7 +57,7 @@ import {
   repairedFileParses,
   type PipelineWriter,
 } from '@/lib/pipeline-helpers'
-import { appendRunEventBatch, updateRun, getRun } from '@/lib/runs'
+import { appendRunEventBatch, updateRun, getRun, priorVerifyAttempt } from '@/lib/runs'
 import {
   updateProjectRow,
   snapshotProject,
@@ -1036,6 +1036,35 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
     writer.write({ id: 'srv-sandbox-lost', type: 'data-narration', data: { text: "I lost your workspace before I could finish — please hit send again and I'll pick it right back up." } })
     await flushAndRelease()
     if (runId) await updateRun(runId, { status: 'error' }).catch(() => {})
+    return null
+  }
+
+  // ── RE-ENTRY GUARD (retry-storm fix, 2026-08-25) ────────────────────────────
+  // stepVerify runs exactly once. If the Vercel invocation was killed mid-verify (a hung
+  // LLM repair on a huge single-file build was the confirmed cause), the workflow SDK
+  // re-invokes and re-runs this ENTIRE step — re-installing, re-verifying, RE-BILLING,
+  // then hanging again (run 7b21e029: 45 min / $1.2 / error). Detect the re-run from the
+  // install-phase event a prior attempt already logged, and short-circuit to a terminal
+  // state instead of repeating the expensive tail. Fail-open: a false negative just runs
+  // verify normally (pre-existing behaviour), so this can never block a legitimate build.
+  if (runId && await priorVerifyAttempt(runId)) {
+    logRepair({ layer: 'reveal-gate', action: 'reentry-terminal', detail: 'stepVerify re-invoked after kill — short-circuiting to terminal (no re-verify, no re-bill)', sandboxId })
+    let live = false
+    let termUrl = initialUrl
+    try { termUrl = sandbox.domain(3000) } catch { /* keep initialUrl */ }
+    try {
+      const st = await fetch(termUrl, { signal: AbortSignal.timeout(6000) }).then(r => r.status).catch(() => 0)
+      live = st > 0 && st !== 502 && st !== 503
+    } catch { /* treat as not live */ }
+    if (live) {
+      writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: termUrl, status: 'done' } })
+      writer.write({ id: 'srv-reentry-live', type: 'data-narration', data: { text: 'Your preview is ready — thanks for your patience!' } })
+      if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: termUrl }).catch(() => {})
+    } else {
+      writer.write({ id: 'srv-reentry-fail', type: 'data-narration', data: { text: "This build took longer than expected and I couldn't finish it cleanly — please hit send again and I'll pick it right back up." } })
+    }
+    await flushAndRelease()
+    await updateRun(runId, { status: live ? 'done' : 'error' }).catch(() => {})
     return null
   }
 
