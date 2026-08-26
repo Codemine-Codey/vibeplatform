@@ -420,7 +420,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
 
   const pipelineAddendum =
     `\n\n## SERVER PIPELINE — WORKSPACE READY\nsandboxId: ${sandboxId}\n` +
-    `⛔ ZERO TECHNICAL NARRATION during the build. You speak ONLY twice: (1) the one-line opening, (2) the completion line after the preview is live. Between them: NOTHING.\n` +
+    `⛔ NO TECHNICAL NARRATION during the build — never mention files, code, imports, errors, tools, or HOW you build. But DO be warm and specific about WHAT you're making. Your OPENING (before any tool call) should be 2-3 friendly sentences that name the project and the concrete things it'll include, in the user's own language — e.g. "Love it — I'm building your snake game now: a smooth grid board, arrow-key + swipe controls, a live score, a game-over screen, and a colour picker. Give me a few minutes to put it all together." That opening is the user's map of what's coming, so make it specific to THIS project (dynamic, never generic). After the opening, stay quiet while you build (the platform streams progress for you) until the single completion line once the preview is live.\n` +
     `Creative session ID: ${creativeSeed} — make UNIQUE design choices.\n` +
     `Scaffold pre-written (including shadcn/ui components). Dependencies installing in background.\n` +
     `DO NOT call createSandbox — it is already done.\nDO NOT call runCommand or getSandboxURL.\n` +
@@ -1299,6 +1299,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
     }
 
     // Functional verify
+    let functionalClean = false // true = passed clean on the FIRST pass (build was good from the start)
     if (!devError) {
       writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: skill === 'game' ? 'Playtesting your game and polishing it' : 'Testing every feature and polishing it', args: [], status: 'executing' } })
       try {
@@ -1306,7 +1307,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
         for (let round = 1; round <= 3; round++) {
           if (!withinBudget()) break
           const fv = await functionalVerify(resolvedUrl, request, skill)
-          if (fv.ok || fv.issues.length === 0) break
+          if (fv.ok || fv.issues.length === 0) { if (round === 1) functionalClean = true; break }
           logRepair({ layer: 'runtime-check', action: `functional-issues-r${round}`, detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
           const issueText = `Fix these SPECIFIC problems:\n- ${fv.issues.join('\n- ')}`
           let changedAny = false
@@ -1332,8 +1333,12 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: 'Playtest complete', args: [], status: 'done', exitCode: 0 } })
     }
 
-    // W6: AI QA — runs only if there's still budget
-    if (!devError && withinBudget()) {
+    // W6: AI QA — runs only if there's still budget. TAIL-TRIM (2026-08-26): skip this second
+    // vision pass when functionalVerify already passed CLEAN on the first try — the build is
+    // confirmed good, so a redundant QA pass just adds ~1-2 min before reveal. Only skips on an
+    // already-good build (a build that needed repairs still gets the full QA). CM_TAIL_TRIM=off disables.
+    const skipRedundantQa = process.env.CM_TAIL_TRIM !== 'off' && functionalClean
+    if (!devError && withinBudget() && !skipRedundantQa) {
       try {
         const request = firstUserText || lastUserText || ''
         const w6 = await aiDrivenQA(resolvedUrl, request, skill)
@@ -1592,6 +1597,7 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
     }
 
     // Functional verify
+    let functionalClean = false // true = passed clean on the FIRST pass (build was good from the start)
     if (!devError) {
       writer.write({ id: 'srv-playtest', type: 'data-run-command', data: { sandboxId, command: skill === 'game' ? 'Playtesting your game and polishing it' : 'Testing every feature and polishing it', args: [], status: 'executing' } })
       try {
