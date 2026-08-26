@@ -11,6 +11,7 @@
 // independently and writes events that Vercel delivers to the client.
 
 import { getWritable } from 'workflow'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { Sandbox } from '@vercel/sandbox'
 import {
   convertToModelMessages,
@@ -147,8 +148,16 @@ function makeStepWriter(runId: string | null): {
   writer: PipelineWriter
   flushAndRelease: () => Promise<void>
 } {
+  // getWritable() is only available inside a Vercel Workflow step. When called from Trigger.dev
+  // (or any non-Workflow context), it throws — we fall back to a no-op writer so all streaming
+  // goes through the Supabase run_events path instead (the client tails that via SSE).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const writable = getWritable<Record<string, any>>()
+  let writable: { getWriter(): { write(x: any): Promise<void>; releaseLock(): void } }
+  try {
+    writable = getWritable<Record<string, any>>()
+  } catch {
+    writable = { getWriter: () => ({ write: () => Promise.resolve(), releaseLock: () => {} }) }
+  }
   const gWriter = writable.getWriter()
   const pending: Promise<void>[] = []
 
@@ -315,9 +324,9 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
   let sandbox: Sandbox
   try {
     if (params.sandboxId) {
-      sandbox = await Sandbox.get({ sandboxId: params.sandboxId })
+      sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId: params.sandboxId })
     } else {
-      sandbox = await Sandbox.create({ timeout: 1_800_000, ports: [3000] })
+      sandbox = await Sandbox.create({ ...getSandboxCredentials(), timeout: 1_800_000, ports: [3000] })
     }
   } catch (err) {
     // Keep the real error in the server logs, but show the USER a plain, calm line — never a raw
@@ -510,7 +519,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
       // the leaves import the right names/shapes (no drift → no extra repair rounds that eat the
       // cost win). Best-effort: read failure → generate without it (the gates still protect).
       try {
-        const sandbox = await Sandbox.get({ sandboxId: args.sandboxId })
+        const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId: args.sandboxId })
         const parts: string[] = []
         for (const p of spinePaths) {
           const content = (await readSandboxFile(sandbox, p).catch(() => null)) ?? ''
@@ -867,7 +876,7 @@ async function stepGenerate2(params: BuildPipelineParams, partial: GenerateResul
   let sandbox: Sandbox | null = null
   for (let attempt = 0; attempt < 2 && !sandbox; attempt++) {
     try {
-      sandbox = await Sandbox.get({ sandboxId: partial.sandboxId })
+      sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId: partial.sandboxId })
     } catch (err) {
       console.warn(`[stepGenerate2] sandbox reconnect attempt ${attempt + 1} failed:`, err instanceof Error ? err.message : err)
       if (attempt === 0) await new Promise(r => setTimeout(r, 2000))
@@ -1034,7 +1043,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
 
   let sandbox: Sandbox
   try {
-    sandbox = await Sandbox.get({ sandboxId })
+    sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
   } catch (err) {
     console.warn('[stepVerify] sandbox reconnect failed:', err instanceof Error ? err.message : err)
     // Sandbox died before verify — surface it (was silently 'done'). Never claim success.
@@ -1506,7 +1515,7 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
 
   let sandbox: Sandbox
   try {
-    sandbox = await Sandbox.get({ sandboxId })
+    sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
   } catch (err) {
     console.warn('[stepVerify2] sandbox reconnect failed:', err instanceof Error ? err.message : err)
     // Sandbox is DEAD. Revealing its URL now = a guaranteed blank. Only preserve a reveal that

@@ -9,6 +9,8 @@ import {
 } from 'ai'
 import { buildProject } from '@/app/workflows/build-pipeline'
 import { start } from 'workflow/api'
+// CM_ORCHESTRATOR=worker → use Trigger.dev (no 12-min cap); =vercel → use Vercel Workflow (default)
+const USE_TRIGGER = process.env.CM_ORCHESTRATOR === 'worker'
 import type { UIMessage, UIMessageStreamWriter } from 'ai'
 import type { DataPart } from '@/ai/messages/data-parts'
 import { DEFAULT_MODEL, FILE_GENERATION_MODEL, EDIT_MODEL, VISION_MODEL, ERROR_MODEL, getMaxOutputTokens } from '@/ai/constants'
@@ -1817,7 +1819,7 @@ Then App.tsx renders <GameCanvas/> full-viewport. Every mutable game value lives
   // appendRunEvent(runId, ...), and THIS route returns a polling SSE stream that tails
   // those events from Supabase in real time. The client's Chat class reads it identically
   // to any other createUIMessageStreamResponse (same SSE format + x-vercel-ai-ui-message-stream: v1).
-  const run = await start(buildProject, [{
+  const buildParams = {
     runId,
     userId: user?.id ?? null,
     projectId,
@@ -1835,8 +1837,18 @@ Then App.tsx renders <GameCanvas/> full-viewport. Every mutable game value lives
     invocationStart,
     userText,
     prdContext: prdContext || null,
-  }])
-  void run // start() fires workflow; run.readable is NOT used — we poll Supabase instead
+  }
+
+  if (USE_TRIGGER) {
+    // Trigger.dev path: no 12-min cap, runs for up to 1 hour. Sandbox auth uses
+    // CM_VERCEL_TOKEN + CM_VERCEL_TEAM_ID + CM_VERCEL_PROJECT_ID set in Trigger env vars.
+    const { triggerBuild } = await import('@/lib/trigger-client')
+    await triggerBuild(buildParams).catch(err => console.error('[chat/route] triggerBuild failed:', err))
+  } else {
+    // Vercel Workflow path (default): durable, but capped at ~12 min visible stream.
+    const run = await start(buildProject, [buildParams])
+    void run // start() fires workflow; run.readable is NOT used — we poll Supabase instead
+  }
 
   // Supabase-backed polling SSE: polls run_events every ~800ms until the run is done.
   // Identical framing to /api/runs/[id]/stream — the Chat class parses it the same way.
