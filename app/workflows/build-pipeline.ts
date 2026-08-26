@@ -1285,7 +1285,14 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
     // line). The 13-min-cap concern that reveal-first originally solved is now handled by the
     // client reconnect (data-run emit) + the stepVerify re-entry guard, so late reveals still reach
     // the client. Set CM_REVEAL_FIRST=true to restore the old early-reveal behaviour (reversible).
-    if (process.env.CM_REVEAL_FIRST === 'true' && !devError && rtStatus !== 'broken' && rtStatus !== null) {
+    // 2026-08-26 SKILL-CONDITIONAL: reveal-when-ready is RIGHT for GAMES (short QA tail; a broken
+    // game must never show) but WRONG for WEBSITES/WEBAPPS (long ~6-8 min tail pushes the reveal
+    // PAST Vercel's ~12-min stream cap → the "everything froze at 12 min, had to nudge" bug the user
+    // hit live). So: games reveal only when ready (unless CM_REVEAL_FIRST=true); websites/webapps
+    // reveal-first (render-check-gated, never broken) to stay UNDER the cap. This is a stopgap — the
+    // Trigger.dev migration removes the 12-min cap entirely, after which all skills can reveal-when-ready.
+    const doRevealFirst = process.env.CM_REVEAL_FIRST === 'true' || skill !== 'game'
+    if (doRevealFirst && !devError && rtStatus !== 'broken' && rtStatus !== null) {
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
       writer.write({ id: 'srv-reveal-note', type: 'data-narration', data: { text: 'Your preview is live — take a look! I\'m running a few final quality checks in the background.' } })
       if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})
