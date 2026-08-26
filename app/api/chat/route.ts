@@ -39,7 +39,7 @@ import { getWarmEntry } from '@/ai/warm-pool'
 import { restoreBakedDeps } from '@/lib/baked-deps'
 import { logRepair, logDesign } from '@/lib/telemetry'
 import { getCurrentUser } from '@/lib/supabase/server'
-import { createRun, appendRunEvent, appendRunEventBatch, updateRun, getRun, getRunEventsSince, isTerminalRunStatus } from '@/lib/runs'
+import { createRun, appendRunEvent, appendRunEventBatch, updateRun, getRun, getRunEventsSince, isTerminalRunStatus, getActiveRunForProject } from '@/lib/runs'
 import { stampShell, navTargetPageFiles } from '@/lib/shell-template'
 import { reviewGeneratedCode } from '@/lib/code-review-gate'
 import {
@@ -1490,6 +1490,22 @@ export async function POST(req: Request) {
       stream: createUIMessageStream({
         originalMessages: messages,
         execute: async ({ writer: rawWriter }) => {
+          // ── SINGLE-DRIVER GUARD (2026-08-25) ────────────────────────────────
+          // If a build is already IN-FLIGHT for this project, a new user message (a
+          // "where's my preview?" nudge) must NOT start a second agentic turn that
+          // races the durable run — that spawned the duplicate 0-event runs and the
+          // 502. Reconnect the client to the active run and let it keep streaming; do
+          // NOT touch the sandbox or start a loop. Recency-bounded + fail-open, so a
+          // finished (terminal) or stuck/old run never blocks a legitimate edit.
+          const { projectId: activeProjId } = getProjectContext(messages)
+          if (activeProjId) {
+            const activeRunId = await getActiveRunForProject(activeProjId).catch(() => null)
+            if (activeRunId) {
+              rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId: activeRunId } })
+              rawWriter.write({ id: 'srv-still-working', type: 'data-narration', data: { text: "I'm still finishing your build — hang tight, your preview will appear here the moment it's ready. No need to resend." } })
+              return
+            }
+          }
           const runId = await createRun({ userId: authedUser.id })
           if (runId) rawWriter.write({ id: 'srv-run', type: 'data-run', data: { runId } })
           const { writer, flush } = runId ? wrapWriterWithLog(rawWriter, runId) : { writer: rawWriter, flush: async () => {} }
@@ -1767,7 +1783,16 @@ export async function POST(req: Request) {
   // MUST commit to these files and generateFiles MUST build them all in one call.
   let gameFilesSection = ''
   if (skill === 'game') {
-    gameFilesSection = `\n\n## REQUIRED GAME FILES — build ALL of these in ONE generateFiles call (NON-NEGOTIABLE)
+    gameFilesSection = `\n\n## UNDERSTAND THE GAME BEFORE YOU BUILD IT — reason first, then code (UNIVERSAL, applies to ANY game)
+Before writing a single file, work out what actually makes THIS the game the user asked for, and state it plainly in planProject. Then implement EXACTLY that:
+1. CORE LOOP — the moment-to-moment action the player repeats.
+2. WIN / LOSE — how the player progresses and how they FAIL. The fail state MUST be reachable and real.
+3. THE KEY MECHANIC + ITS INVARIANTS — the rules that MUST hold or it isn't really this game. Think hard about where the ACTUAL challenge comes from. (A pipe/gap flyer: obstacles come from BOTH sides leaving only a gap the player must thread — pipes on just one side is WRONG. A stacker: pieces fall and lock. A runner: obstacles force a timed action. A match game: only valid matches clear.)
+4. NO TRIVIAL SAFE STRATEGY (critical) — there must be NO way to never lose by doing nothing, sitting in one spot, or staying at one edge. If such a safe strategy exists, the mechanic is BROKEN — redesign it so the player is genuinely challenged. (This is the #1 way games come out wrong.)
+5. CONTROLS — keyboard AND touch, responsive; the game is fully playable on mobile.
+Getting the mechanic RIGHT matters more than any visual polish — a game that looks right but plays wrong is a FAILED build. Now build it across these files:
+
+## REQUIRED GAME FILES — build ALL of these in ONE generateFiles call (NON-NEGOTIABLE)
 A game is NEVER a single file — one big App.tsx truncates, can't be edited later, and is a REJECTED build. Split the game across AT LEAST these files (add more entity/scene files for richer games):
 - src/game/config.ts — ALL constants: sizes as RATIOS of the live canvas (never hard-coded pixels), gravity, speeds, spawn cadence, difficulty. No logic, no imports from other game files.
 - src/game/state.ts — the GameState type + createInitialState() (positions, velocities, entity arrays, score, phase: 'start'|'playing'|'over').
@@ -1781,7 +1806,9 @@ Then App.tsx renders <GameCanvas/> full-viewport. Every mutable game value lives
   const designContext = `${formatBrief(brief)}${researchContext}${apiCatalogSection}${imageCatalogSection}${gameFilesSection}\n\n## DESIGN SKILL — ${designSkill}\n${designBody}`
 
   // Create run row so the client can reconnect via /api/runs/[id]/stream if needed.
-  const runId = await createRun({ userId: authedUser.id }).catch(() => null)
+  // Persist projectId so an active-run lookup (single-driver guard) can correlate a
+  // later user message to an in-flight build for the SAME project (was null before).
+  const runId = await createRun({ userId: authedUser.id, projectId: projectId ?? undefined }).catch(() => null)
 
   // Launch the durable workflow. start() enqueues the build and returns IMMEDIATELY —
   // Vercel Workflows run asynchronously and do NOT stream back to the original HTTP

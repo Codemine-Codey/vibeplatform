@@ -339,11 +339,26 @@ export function Marquee({ children, className = '', speed = 30, reverse = false 
 }
 
 // Number that counts up (ease-out) when scrolled into view.
-export function CountUp({ to, duration = 2, suffix = '', prefix = '', className = '' }: { to?: number; duration?: number; suffix?: string; prefix?: string; className?: string }) {
-  // Bulletproof: coerce whatever the AI passes into a finite number. A missing or
-  // non-numeric \`to\` used to make setN(to) store undefined → n.toLocaleString()
-  // threw on scroll-into-view and tripped the error boundary in a reload loop.
-  const target = Number.isFinite(Number(to)) ? Number(to) : 0
+export function CountUp({ to, duration = 2, suffix, prefix, className = '' }: { to?: number | string; duration?: number; suffix?: string; prefix?: string; className?: string }) {
+  // Bulletproof: the AI writes stats as strings — "10K+", "98%", "$2.5M", "500+",
+  // "10,000". A bare Number("10K+") = NaN, which used to freeze the counter at 0
+  // (the reported bug). We split a leading prefix, the numeric core, and a trailing
+  // suffix, animate the number, and keep the affixes — so "10K+" counts 0→10 and
+  // renders "10K+", "$2.5M" counts to 2.5, "98%" to 98. Never NaN, never stuck at 0.
+  const parse = (raw: number | string | undefined) => {
+    if (typeof raw === 'number') return { num: Number.isFinite(raw) ? raw : 0, pre: '', suf: '', decimals: 0 }
+    const s = String(raw == null ? '' : raw).trim()
+    const m = s.match(/^([^\\d.-]*)(-?[\\d,]*\\.?\\d+)(.*)$/)
+    if (!m) return { num: 0, pre: '', suf: s, decimals: 0 }
+    const numStr = m[2].replace(/,/g, '')
+    const dot = numStr.split('.')[1]
+    const num = Number(numStr)
+    return { num: Number.isFinite(num) ? num : 0, pre: m[1] || '', suf: m[3] || '', decimals: dot ? dot.length : 0 }
+  }
+  const parsed = parse(to)
+  const target = parsed.num
+  const pre = prefix != null ? prefix : parsed.pre
+  const suf = suffix != null ? suffix : parsed.suf
   const ref = useRef(null)
   const inView = useInView(ref, { once: true, margin: '-60px' })
   const [n, setN] = useState(0)
@@ -353,14 +368,17 @@ export function CountUp({ to, duration = 2, suffix = '', prefix = '', className 
     const start = performance.now()
     const tick = (t: number) => {
       const p = Math.min((t - start) / (duration * 1000), 1)
-      setN(Math.floor((1 - Math.pow(1 - p, 3)) * target))
+      setN((1 - Math.pow(1 - p, 3)) * target)
       if (p < 1) raf = requestAnimationFrame(tick)
       else setN(target)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [inView, target, duration])
-  return <span ref={ref} className={className}>{prefix}{Number(n || 0).toLocaleString()}{suffix}</span>
+  const fmt = parsed.decimals > 0
+    ? n.toLocaleString(undefined, { minimumFractionDigits: parsed.decimals, maximumFractionDigits: parsed.decimals })
+    : Math.round(n).toLocaleString()
+  return <span ref={ref} className={className}>{pre}{fmt}{suf}</span>
 }
 `
 
@@ -702,6 +720,143 @@ export default function NotFound() {
 }
 `
 
+// ── Premium motion FX — the "21st.dev / Magic UI" look, baked + pre-verified once so
+// every project gets a $10k-grade hero/background/card for free, never breaks, and costs
+// zero output tokens. All Framer-Motion + Tailwind (installed), theme-inherited colours
+// (bg-primary/bg-accent), NO SVG, NO three.js. One import:
+//   import { Aurora, Spotlight, GradientText, TiltCard, ShimmerButton, BentoGrid, BentoCard, BlurFade } from '@/components/blocks/fx'
+const FX_TSX = `import { type MouseEvent, type ReactNode, useRef } from 'react'
+import { motion, useInView, useMotionValue, useSpring, useTransform } from 'framer-motion'
+
+const EASE = [0.22, 1, 0.36, 1] as const
+
+// AURORA — soft animated gradient blobs behind a hero. Wrap hero content. Colours
+// inherit from the theme, so it stays on-brand automatically.
+export function Aurora({ children, className = '' }: { children?: ReactNode; className?: string }) {
+  return (
+    <div className={'relative overflow-hidden ' + className}>
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+        <motion.div
+          className="absolute -top-1/4 left-1/4 h-[40rem] w-[40rem] rounded-full bg-primary/30 blur-3xl"
+          animate={{ x: [0, 60, -40, 0], y: [0, -40, 30, 0], scale: [1, 1.15, 0.95, 1] }}
+          transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="absolute top-1/3 right-1/4 h-[34rem] w-[34rem] rounded-full bg-accent/30 blur-3xl"
+          animate={{ x: [0, -50, 40, 0], y: [0, 40, -30, 0], scale: [1, 0.9, 1.1, 1] }}
+          transition={{ duration: 22, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// SPOTLIGHT — a soft pulsing radial glow. Position it with absolute utilities on the parent
+// (e.g. className="top-0 left-1/2 -translate-x-1/2"). Purely decorative.
+export function Spotlight({ className = '' }: { className?: string }) {
+  return (
+    <motion.div
+      aria-hidden
+      className={'pointer-events-none absolute -z-10 h-[30rem] w-[30rem] rounded-full bg-primary/20 blur-3xl ' + className}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: [0.15, 0.35, 0.15] }}
+      transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+    />
+  )
+}
+
+// GRADIENT TEXT — animated gradient fill for a headline word. Pass Tailwind gradient
+// stops to restyle: <GradientText from="from-primary" via="via-accent" to="to-primary">.
+export function GradientText({ children, className = '', from = 'from-primary', via = 'via-accent', to = 'to-primary' }: { children: ReactNode; className?: string; from?: string; via?: string; to?: string }) {
+  return (
+    <motion.span
+      className={'inline-block bg-gradient-to-r ' + from + ' ' + via + ' ' + to + ' bg-clip-text text-transparent ' + className}
+      style={{ backgroundSize: '200% auto' }}
+      animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
+      transition={{ duration: 6, repeat: Infinity, ease: 'linear' }}
+    >
+      {children}
+    </motion.span>
+  )
+}
+
+// TILT CARD — subtle 3D tilt toward the cursor. Wrap any card/image for a premium feel.
+export function TiltCard({ children, className = '', max = 10 }: { children: ReactNode; className?: string; max?: number }) {
+  const mx = useMotionValue(0)
+  const my = useMotionValue(0)
+  const rx = useSpring(useTransform(my, [-0.5, 0.5], [max, -max]), { stiffness: 200, damping: 20 })
+  const ry = useSpring(useTransform(mx, [-0.5, 0.5], [-max, max]), { stiffness: 200, damping: 20 })
+  const onMove = (e: MouseEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    mx.set((e.clientX - r.left) / r.width - 0.5)
+    my.set((e.clientY - r.top) / r.height - 0.5)
+  }
+  const reset = () => { mx.set(0); my.set(0) }
+  return (
+    <motion.div
+      onMouseMove={onMove}
+      onMouseLeave={reset}
+      style={{ rotateX: rx, rotateY: ry, transformPerspective: 800 }}
+      className={'will-change-transform ' + className}
+    >
+      {children}
+    </motion.div>
+  )
+}
+
+// SHIMMER BUTTON — CTA with a light sweep. Use for the primary hero action.
+export function ShimmerButton({ children, href = '#', className = '' }: { children: ReactNode; href?: string; className?: string }) {
+  return (
+    <a href={href} className={'group relative inline-flex items-center justify-center overflow-hidden rounded-full bg-primary px-8 py-3 text-sm font-medium text-primary-foreground shadow-sm transition-transform hover:scale-[1.02] ' + className}>
+      <span className="relative z-10">{children}</span>
+      <motion.span
+        aria-hidden
+        className="absolute inset-0 block"
+        style={{ background: 'linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%)' }}
+        animate={{ x: ['-120%', '120%'] }}
+        transition={{ duration: 2.2, repeat: Infinity, ease: 'linear' }}
+      />
+    </a>
+  )
+}
+
+// BENTO — asymmetric modern grid. Wrap BentoCards; set colSpan/rowSpan={2} for feature tiles.
+export function BentoGrid({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 ' + className}>{children}</div>
+}
+export function BentoCard({ children, className = '', colSpan = 1, rowSpan = 1 }: { children: ReactNode; className?: string; colSpan?: 1 | 2; rowSpan?: 1 | 2 }) {
+  const col = colSpan === 2 ? 'lg:col-span-2' : ''
+  const row = rowSpan === 2 ? 'lg:row-span-2' : ''
+  return (
+    <motion.div
+      whileHover={{ y: -4 }}
+      transition={{ duration: 0.3, ease: EASE }}
+      className={'group relative overflow-hidden rounded-2xl border border-border bg-card p-6 shadow-sm transition-shadow hover:shadow-lg ' + col + ' ' + row + ' ' + className}
+    >
+      {children}
+    </motion.div>
+  )
+}
+
+// BLUR FADE — reveal with a blur-in on scroll. A richer alternative to a plain fade.
+export function BlurFade({ children, className = '', delay = 0, y = 20 }: { children: ReactNode; className?: string; delay?: number; y?: number }) {
+  const ref = useRef(null)
+  const inView = useInView(ref, { once: true, margin: '-80px' })
+  return (
+    <motion.div
+      ref={ref}
+      initial={{ opacity: 0, y, filter: 'blur(10px)' }}
+      animate={inView ? { opacity: 1, y: 0, filter: 'blur(0px)' } : {}}
+      transition={{ duration: 0.7, ease: EASE, delay }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  )
+}
+`
+
 export const SCAFFOLD_FILES: Array<{ path: string; content: string }> = [
   {
     // Q1 template fallback — baked, validated once, swapped in at the P0-B terminal state.
@@ -721,6 +876,11 @@ export const SCAFFOLD_FILES: Array<{ path: string; content: string }> = [
   {
     path: 'src/components/blocks/index.tsx',
     content: BLOCKS_TSX,
+  },
+  {
+    // Premium motion FX — Aurora/Spotlight/GradientText/TiltCard/ShimmerButton/Bento/BlurFade.
+    path: 'src/components/blocks/fx.tsx',
+    content: FX_TSX,
   },
   {
     path: 'src/components/blocks/sections.tsx',
