@@ -1276,14 +1276,15 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       } catch { /* non-fatal */ }
     }
 
-    // REVEAL-FIRST FOR ALL SKILLS (2026-08-25): the headless render check passed → show the preview
-    // NOW, BEFORE the slow functional-verify/QA/repair tail. Extended from game-only to websites+apps
-    // because that tail (~5-8 min) pushed reveal PAST the ~12-min SSE cap → the "everything stops at
-    // 13 min, no preview until I message" bug (reproduced live 2026-08-25). Revealing here (~6-8 min,
-    // before the cap) means the client receives the URL while the stream is still open — no stall.
-    // Additive + safe: the render check already gates it (never reveal broken), the deep QA continues
-    // after and HMRs fixes into the shown preview, and the normal end-of-run reveal still fires.
-    if (!devError && rtStatus !== 'broken' && rtStatus !== null) {
+    // REVEAL TIMING (2026-08-26, user directive "NEVER show the preview until it's ready"):
+    // reveal-first is now OFF by default. The user saw a not-fit / not-yet-playable game the
+    // instant the render check passed, while the AI kept "working" for another 6-12 min — a bad
+    // experience. So the preview is now revealed ONLY at the terminal, fully-verified state (the
+    // reveal at the end of the functional-verify + QA + G3 gate below, paired with the "…is ready"
+    // line). The 13-min-cap concern that reveal-first originally solved is now handled by the
+    // client reconnect (data-run emit) + the stepVerify re-entry guard, so late reveals still reach
+    // the client. Set CM_REVEAL_FIRST=true to restore the old early-reveal behaviour (reversible).
+    if (process.env.CM_REVEAL_FIRST === 'true' && !devError && rtStatus !== 'broken' && rtStatus !== null) {
       writer.write({ id: 'srv-url', type: 'data-get-sandbox-url', data: { url: resolvedUrl, status: 'done' } })
       writer.write({ id: 'srv-reveal-note', type: 'data-narration', data: { text: 'Your preview is live — take a look! I\'m running a few final quality checks in the background.' } })
       if (projectId) updateProjectRow(projectId, { sandbox_id: sandboxId, preview_url: resolvedUrl }).catch(() => {})

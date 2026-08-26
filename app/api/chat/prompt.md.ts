@@ -267,7 +267,7 @@ The scaffold file tree below is what exists BEFORE you generate anything. Import
 @/components/blocks/index    → (same as above — explicit index path)
 @/components/blocks/sections → Hero, Footer, FeatureGrid, CTASection, FAQ, PageHeader, StatCard, EmptyState
 @/components/blocks/fx       → Aurora, Spotlight, GradientText, TiltCard, ShimmerButton, BentoGrid, BentoCard, BlurFade  (PREMIUM MOTION — see below)
-@/components/game/engine     → useGameLoop, useHighScore, playTone, rectsOverlap, circlesHit, useShake, burst, stepParticles, SPEEDS, SPAWN
+@/components/game/engine     → useGameLoop, useCanvasFit, useHighScore, playTone, rectsOverlap, circlesHit, useShake, burst, stepParticles, SPEEDS, SPAWN
 @/components/NotFound        → default export NotFound
 @/styles/cm-ui.css           → CSS utility classes (import as side-effect)
 \`\`\`

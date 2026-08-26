@@ -2069,6 +2069,43 @@ export function useGameLoop(opts: { update: (stepMs: number) => void; draw: (alp
   }, [running, step])
 }
 
+// Fit a <canvas> to its PARENT element: sets the backing-store size (logical × DPR) so
+// drawing is crisp, sets the CSS size to fill the parent, and re-fits on resize. Returns
+// { w, h } = the LOGICAL (CSS-pixel) size — use these for ALL game coordinates and draw in
+// logical units (the hook scales the 2D context by DPR for you). This is the RELIABLE fix
+// for "the game doesn't fill the screen": call it instead of hand-writing canvas.width =
+// window.innerWidth etc. The parent MUST have a real size — wrap the canvas in a
+// w-full h-full container (e.g. a full-viewport div). Usage:
+//   const canvasRef = useRef<HTMLCanvasElement>(null)
+//   const { w, h } = useCanvasFit(canvasRef)   // draw using w, h
+export function useCanvasFit(canvasRef: { current: HTMLCanvasElement | null }) {
+  const [size, setSize] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const parent = canvas?.parentElement
+    if (!canvas || !parent) return
+    const fit = () => {
+      const rect = parent.getBoundingClientRect()
+      const w = Math.max(1, Math.floor(rect.width))
+      const h = Math.max(1, Math.floor(rect.height))
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      canvas.width = Math.floor(w * dpr)
+      canvas.height = Math.floor(h * dpr)
+      canvas.style.width = w + 'px'
+      canvas.style.height = h + 'px'
+      const ctx = canvas.getContext('2d')
+      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0) // draw in logical pixels
+      setSize({ w, h })
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(parent)
+    window.addEventListener('resize', fit)
+    return () => { ro.disconnect(); window.removeEventListener('resize', fit) }
+  }, [canvasRef])
+  return size
+}
+
 // Persistent high score (localStorage). Returns [high, submit].
 export function useHighScore(key: string) {
   const [high, setHigh] = useState(0)
