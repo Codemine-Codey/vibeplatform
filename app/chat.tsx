@@ -33,28 +33,34 @@ const QUICK_PROMPTS = [
 
 function EmptyState({ onPrompt }: { onPrompt: (p: string) => void }) {
   return (
-    <div className="flex flex-col justify-center h-full px-4 gap-5">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-1.5">
-          <SparklesIcon className="w-3.5 h-3.5" />
-          <span className="text-sm font-semibold">Hello there, I&apos;m Codemine.</span>
+    <div className="flex flex-col justify-end h-full pb-3 gap-3">
+      {/* Welcome message styled as a Codemine chat bubble */}
+      <div className="px-3">
+        <div className="flex items-start gap-2.5">
+          <div className="shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
+            <SparklesIcon className="w-3 h-3 text-primary" />
+          </div>
+          <div className="flex flex-col gap-2.5 min-w-0">
+            <div className="rounded-2xl rounded-tl-sm bg-secondary border border-primary/8 px-3.5 py-3 text-sm leading-relaxed">
+              <p className="font-medium text-foreground mb-1">Hey there! I&apos;m Codemine.</p>
+              <p className="text-foreground/70 text-xs leading-relaxed">
+                Tell me what you want to build — a website, app, or game — and I&apos;ll bring it to life. Share your idea and I&apos;ll start your workspace right away.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {QUICK_PROMPTS.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => onPrompt(p)}
+                  className="text-left text-xs px-3 py-2 rounded-xl border border-primary/10 bg-secondary/40 text-foreground/65 hover:bg-accent hover:text-foreground hover:border-primary/20 transition-colors"
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Share your idea and I&apos;ll bring it to life — websites, apps, games.
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        {QUICK_PROMPTS.map((p) => (
-          <button
-            key={p}
-            type="button"
-            onClick={() => onPrompt(p)}
-            className="text-left text-xs px-3 py-2.5 rounded-lg border border-primary/10 bg-secondary/30 text-foreground/75 hover:bg-accent hover:text-foreground hover:border-primary/20 transition-colors"
-          >
-            {p}
-          </button>
-        ))}
       </div>
     </div>
   )
