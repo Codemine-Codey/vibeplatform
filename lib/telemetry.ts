@@ -27,6 +27,7 @@ export type RepairLayer =
   | 'deploy'            // CF Pages publish
   | 'phase-gate'        // STEP 2 progressive enrichment: phase build gate / rollback
   | 'silent-repair'     // client-triggered silent repair via /api/silent-repair
+  | 'cost-cap'          // per-generation cost kill cap hit — stopped repair/QA loop
 
 export function logRepair(event: {
   layer: RepairLayer
