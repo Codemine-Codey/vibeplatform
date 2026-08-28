@@ -2019,7 +2019,7 @@ async function runAgenticLoop({
   // when data flows — under concurrency that could be a DIFFERENT request's context,
   // which misattributed tokens (the "0 tokens" rows). Creating it inside .run pins the
   // whole stream lifecycle to this request.
-  const tokenBox = { total: 0 }
+  const tokenBox = { total: 0, costUsd: 0 }
   await tokenStore.run(tokenBox, async () => {
     const result = streamText({
       ...getModelOptions(isEdit ? EDIT_MODEL : DEFAULT_MODEL),

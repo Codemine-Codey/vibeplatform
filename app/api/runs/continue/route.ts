@@ -87,7 +87,7 @@ export async function POST(req: Request) {
   const writer = makeLogWriter(runId)
   const designContext = typeof run.brief === 'string' ? run.brief : undefined
 
-  const tokenBox = { total: 0 }
+  const tokenBox = { total: 0, costUsd: 0 }
   let chained = false
   try {
     const res = await tokenStore.run(tokenBox, () =>
