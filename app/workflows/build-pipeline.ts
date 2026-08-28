@@ -119,6 +119,10 @@ interface GenerateResult {
   // the "AI finished but skipped a manifest file" case. buildProject re-chains
   // stepGenerate2 (capped) until this is true or the cap is hit.
   generationComplete: boolean
+  // Accumulated cost (USD) from this step's tokenStore. Passed between steps so
+  // buildProject can enforce the cross-step kill cap even though tokenStore resets
+  // per-invocation. The verify step adds its own cost on top when checking.
+  stepCostUsd: number
 }
 
 // Checkpoint passed from stepVerify → stepVerify2 when the 11-min deadline fires.
@@ -265,27 +269,40 @@ function makeSilenceFilter() {
 export async function buildProject(params: BuildPipelineParams): Promise<void> {
   'use workflow'
 
+  // Cross-step kill cap: accumulate cost across steps (tokenStore resets per invocation).
+  // Each step returns its own stepCostUsd; we sum them here and abort if over the cap.
+  // The cap defaults to COST_KILL_CAP env var ($0.70). Aborting mid-chain is safe —
+  // the workflow terminates cleanly, the run is marked error, the user sees a message.
+  const killCapUsd = parseFloat(process.env.COST_KILL_CAP ?? '0.70')
+  let accumulatedCostUsd = 0
+
+  const overCap = (extra = 0) => {
+    if (accumulatedCostUsd + extra > killCapUsd) {
+      console.warn(`[buildProject] cross-step kill cap $${killCapUsd} exceeded (accumulated $${(accumulatedCostUsd + extra).toFixed(4)}) — aborting workflow`)
+      return true
+    }
+    return false
+  }
+
   // Generation chain (mirrors the verify chain below). Each step gets a fresh 800s
   // Vercel budget. stepGenerate2 completes ONLY the stub files still on disk, reusing
   // the exact same system prompt — so a handoff never re-does completed work and never
   // diverges from round-1's rules. generationComplete is disk truth (no stubs remain),
   // so this loop keeps handing off until the project is genuinely complete.
-  //
-  // Generation chains across fresh ~13-min Vercel budgets so a big build never hits the single-
-  // invocation limit (no "13-min death"). Cap = 3 rounds ≈ 40 min total (user's ceiling); after that
-  // verify's missing-file repair + ensureNavShells finish it deterministically. Verify chains
-  // unlimited (while loop below). If we EXHAUST the rounds still incomplete, the user is told in
-  // plain words (below) — never a silent hang.
   const MAX_CONT_ROUNDS = 3
   let genResult = await stepGenerate(params)
+  accumulatedCostUsd += genResult.stepCostUsd
   let contRounds = 0
-  while (!genResult.generationComplete && contRounds < MAX_CONT_ROUNDS) {
+  while (!genResult.generationComplete && contRounds < MAX_CONT_ROUNDS && !overCap()) {
     genResult = await stepGenerate2(params, genResult)
+    accumulatedCostUsd += genResult.stepCostUsd
     contRounds++
   }
   if (!genResult.generationComplete) {
     console.warn(`[buildProject] generation still incomplete after ${contRounds} continuation round(s) — proceeding to verify (repair backstop will finish it)`)
   }
+
+  if (overCap()) return  // generation alone exceeded cap — abort before verify
 
   // Verify: same unlimited chain via while loop.
   let checkpoint = await stepVerify(params, genResult)
@@ -351,6 +368,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
       userText: params.userText,
       fullSystem: params.systemPrompt,
       generationComplete: true,
+      stepCostUsd: 0,
     }
   }
   const sandboxId = sandbox.sandboxId
@@ -854,6 +872,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     // DISK TRUTH: complete only when zero stubs remain. Unifies the abort path and
     // the skipped-file path — never relies on whether the stream was aborted.
     generationComplete: remainingStubs.length === 0,
+    stepCostUsd: currentCostUsd(),
   }
 }
 
@@ -887,7 +906,7 @@ async function stepGenerate2(params: BuildPipelineParams, partial: GenerateResul
     await flushAndRelease()
     // NOT complete — but buildProject's cap will stop the loop and proceed to verify,
     // whose repair backstop + dead-man's-switch guarantee a working preview.
-    return { ...partial, generationComplete: false }
+    return { ...partial, generationComplete: false, stepCostUsd: 0 }
   }
 
   // Stubs = disk truth via the shared sentinel scanner (no length thresholds).
@@ -895,7 +914,7 @@ async function stepGenerate2(params: BuildPipelineParams, partial: GenerateResul
 
   if (stubPaths.length === 0) {
     await flushAndRelease()
-    return { ...partial, generationComplete: true }
+    return { ...partial, generationComplete: true, stepCostUsd: 0 }
   }
 
   console.log(`[stepGenerate2] completing ${stubPaths.length} stub files:`, stubPaths)
@@ -977,7 +996,7 @@ async function stepGenerate2(params: BuildPipelineParams, partial: GenerateResul
   }
 
   await flushAndRelease()
-  return { ...partial, generationComplete: remainingStubs.length === 0 }
+  return { ...partial, generationComplete: remainingStubs.length === 0, stepCostUsd: currentCostUsd() }
 }
 
 // COMPLETENESS GATE (NEW1) — shared by stepVerify + stepVerify2. A stamped SHELL page
