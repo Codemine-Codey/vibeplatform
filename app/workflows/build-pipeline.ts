@@ -1516,6 +1516,7 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
   const stepStart = Date.now()
   const STEP_DEADLINE_MS = 700_000 // same 11.6-min soft deadline as stepVerify
   const withinBudget = () => Date.now() - stepStart < STEP_DEADLINE_MS
+  const withinCostCap = () => withinCostBudget()
 
   const { sandboxId, resolvedUrl, manifestFilePaths, skill, brandName, projectId, userId, runId, firstUserText, lastUserText, devError } = checkpoint
   const { writer, flushAndRelease } = makeStepWriter(runId)
