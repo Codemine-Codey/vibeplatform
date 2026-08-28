@@ -399,7 +399,10 @@ export async function* getContents(
     let buffer = ''
     try {
       const result = streamText({
-        ...getModelOptions(modelId),
+        // reasoning:true enables limited thinking budget for Kimi K2.6 (4 000 tokens) —
+        // the model plans cross-file contracts before writing, cutting the (0.7)^12 drift.
+        // For other models this is a no-op (they use the standard path).
+        ...getModelOptions(modelId, { reasoning: true }),
         maxOutputTokens: getMaxOutputTokens(modelId),
         system: buildGenSystem(designContext),
         messages: [...messages, { role: 'user' as const, content: instruction }],

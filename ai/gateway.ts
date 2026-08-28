@@ -108,11 +108,9 @@ const openrouterReasoningProvider = createOpenAI({
   },
 })
 
-// OpenRouter — Kimi K2.6 specifically.
-// Kimi uses "thinking: {type: 'disabled'}" to turn off reasoning mode.
-// include_reasoning: false alone does NOT stop Kimi from thinking — it
-// just hides the tokens. Without disabling, Kimi thinks for 5+ minutes
-// before making the first tool call.
+// OpenRouter — Kimi K2.6, thinking DISABLED (repairs / orchestration / edits).
+// include_reasoning:false alone does NOT stop Kimi from thinking — it just hides
+// the tokens. Without disabling, Kimi thinks for 5+ minutes before the first tool call.
 const openrouterKimiProvider = createOpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
   apiKey: process.env.OPENROUTER_API_KEY ?? '',
@@ -122,6 +120,28 @@ const openrouterKimiProvider = createOpenAI({
         const body = JSON.parse(init.body as string)
         body.include_reasoning = false
         body.thinking = { type: 'disabled' }
+        init = { ...init, body: JSON.stringify(body) }
+      } catch { }
+    }
+    return fetch(url, init)
+  },
+})
+
+// OpenRouter — Kimi K2.6 with LIMITED thinking budget (initial file generation only).
+// Budget: 4 000 tokens (~$0.002 overhead per call, negligible). Large enough for
+// Kimi to plan cross-file contracts (which exports each file needs, which imports
+// point where) before writing — the exact step that caused the (0.7)^12 ≈ 1%
+// first-pass rate on DeepSeek. include_reasoning:false hides the thinking tokens
+// from our stream so there's zero output overhead; only the quality improves.
+const openrouterKimiReasoningProvider = createOpenAI({
+  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: process.env.OPENROUTER_API_KEY ?? '',
+  fetch: async (url, init) => {
+    if (init?.body) {
+      try {
+        const body = JSON.parse(init.body as string)
+        body.thinking = { type: 'enabled', budget_tokens: 4000 }
+        body.include_reasoning = false
         init = { ...init, body: JSON.stringify(body) }
       } catch { }
     }
@@ -216,7 +236,16 @@ export function getModelOptions(
       : openrouterKimiProvider.chat(`moonshotai/${modelId}`)
     return { model: instrument(base as LanguageModelV3, modelId) }
   }
-  // OpenRouter-hosted models (anthropic/, deepseek/, moonshotai/, meta-llama/, google/, openai/, etc.)
+  // Kimi K2.6 via OpenRouter — dedicated provider paths (thinking control differs from other OR models)
+  if (modelId.startsWith('moonshotai/')) {
+    // reasoning:true = initial file generation → limited thinking budget (cross-file planning)
+    // reasoning:false = repairs/edits/orchestration → thinking disabled (speed)
+    const base = opts?.reasoning
+      ? openrouterKimiReasoningProvider.chat(modelId)
+      : openrouterKimiProvider.chat(modelId)
+    return { model: instrument(base as LanguageModelV3, modelId) }
+  }
+  // OpenRouter-hosted models (anthropic/, deepseek/, meta-llama/, google/, openai/, etc.)
   if (modelId.includes('/')) {
     // Reasoning-enabled path — only the design/planning step opts in
     const base = opts?.reasoning
