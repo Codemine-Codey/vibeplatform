@@ -111,6 +111,8 @@ const openrouterReasoningProvider = createOpenAI({
 // OpenRouter — Kimi K2.6, thinking DISABLED (repairs / orchestration / edits).
 // include_reasoning:false alone does NOT stop Kimi from thinking — it just hides
 // the tokens. Without disabling, Kimi thinks for 5+ minutes before the first tool call.
+// Provider pinned to Moonshot (first-party) so consecutive calls share the same
+// prefix cache — same technique as DeepSeek Pro pin to GMICloud.
 const openrouterKimiProvider = createOpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
   apiKey: process.env.OPENROUTER_API_KEY ?? '',
@@ -120,6 +122,18 @@ const openrouterKimiProvider = createOpenAI({
         const body = JSON.parse(init.body as string)
         body.include_reasoning = false
         body.thinking = { type: 'disabled' }
+        // Pin to Moonshot's own infra for prefix caching. allow_fallbacks keeps
+        // availability high if Moonshot is degraded.
+        body.provider = { order: ['Moonshot'], allow_fallbacks: true }
+        // Inject cache_control into the system message so Moonshot's prompt cache
+        // activates on the large shared system prompt prefix.
+        if (Array.isArray(body.messages)) {
+          for (const msg of body.messages) {
+            if (msg.role === 'system' && typeof msg.content === 'string') {
+              msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }]
+            }
+          }
+        }
         init = { ...init, body: JSON.stringify(body) }
       } catch { }
     }
@@ -133,6 +147,7 @@ const openrouterKimiProvider = createOpenAI({
 // point where) before writing — the exact step that caused the (0.7)^12 ≈ 1%
 // first-pass rate on DeepSeek. include_reasoning:false hides the thinking tokens
 // from our stream so there's zero output overhead; only the quality improves.
+// Provider pinned to Moonshot for prefix caching (same as the non-reasoning path).
 const openrouterKimiReasoningProvider = createOpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
   apiKey: process.env.OPENROUTER_API_KEY ?? '',
@@ -142,6 +157,14 @@ const openrouterKimiReasoningProvider = createOpenAI({
         const body = JSON.parse(init.body as string)
         body.thinking = { type: 'enabled', budget_tokens: 4000 }
         body.include_reasoning = false
+        body.provider = { order: ['Moonshot'], allow_fallbacks: true }
+        if (Array.isArray(body.messages)) {
+          for (const msg of body.messages) {
+            if (msg.role === 'system' && typeof msg.content === 'string') {
+              msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }]
+            }
+          }
+        }
         init = { ...init, body: JSON.stringify(body) }
       } catch { }
     }
