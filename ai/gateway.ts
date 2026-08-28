@@ -122,9 +122,11 @@ const openrouterKimiProvider = createOpenAI({
         const body = JSON.parse(init.body as string)
         body.include_reasoning = false
         body.thinking = { type: 'disabled' }
-        // Pin to Moonshot's own infra for prefix caching. allow_fallbacks keeps
-        // availability high if Moonshot is degraded.
-        body.provider = { order: ['Moonshot'], allow_fallbacks: true }
+        // Pin to Moonshot's own infra for prefix caching. allow_fallbacks:false is CRITICAL —
+        // if Moonshot is degraded, OpenRouter would silently fall back to whatever model it
+        // picks (e.g. GPT-5.6 Terra at $15/M output), burning credits invisibly. Better to
+        // fail fast with an error than silently rack up a $3+ tab on an unintended model.
+        body.provider = { order: ['Moonshot'], allow_fallbacks: false }
         // Inject cache_control into the system message so Moonshot's prompt cache
         // activates on the large shared system prompt prefix.
         if (Array.isArray(body.messages)) {
@@ -157,7 +159,9 @@ const openrouterKimiReasoningProvider = createOpenAI({
         const body = JSON.parse(init.body as string)
         body.thinking = { type: 'enabled', budget_tokens: 4000 }
         body.include_reasoning = false
-        body.provider = { order: ['Moonshot'], allow_fallbacks: true }
+        // allow_fallbacks:false — same reason as non-reasoning Kimi path: a fallback to
+        // GPT-5.6 Terra or similar would cost 6x more and the user has no visibility.
+        body.provider = { order: ['Moonshot'], allow_fallbacks: false }
         if (Array.isArray(body.messages)) {
           for (const msg of body.messages) {
             if (msg.role === 'system' && typeof msg.content === 'string') {

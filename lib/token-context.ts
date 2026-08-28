@@ -19,7 +19,10 @@ const PRICING: Array<{ pattern: RegExp; inputPerM: number; outputPerM: number }>
   { pattern: /anthropic\/claude-sonnet-5/, inputPerM: 2.00,  outputPerM: 10.00 },
   { pattern: /anthropic\/claude-sonnet/i,  inputPerM: 2.00,  outputPerM: 10.00 },
   { pattern: /google\/gemma/i,             inputPerM: 0.05,  outputPerM: 0.15  },
-  { pattern: /openai\//i,                  inputPerM: 2.00,  outputPerM: 10.00 },
+  // GPT-5.6 Terra/Luna: $5/$15 per M (conservative estimate).
+  // Listed explicitly so the kill cap fires correctly if OpenRouter ever routes here.
+  { pattern: /gpt-5\.6|openai\/gpt-5/i,   inputPerM: 5.00,  outputPerM: 15.00 },
+  { pattern: /openai\//i,                  inputPerM: 5.00,  outputPerM: 15.00 },
 ]
 
 function modelCost(modelId: string, inputTokens: number, outputTokens: number): number {
