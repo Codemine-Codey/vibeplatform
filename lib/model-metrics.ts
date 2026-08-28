@@ -4,7 +4,7 @@ import type {
   LanguageModelV3Usage,
 } from '@ai-sdk/provider'
 import { logModelCall } from './telemetry'
-import { addTokens } from './token-context'
+import { addTokens, addCost } from './token-context'
 
 // V3 usage reports inputTokens/outputTokens as either a plain number or a
 // breakdown object ({ total, noCache, cacheRead, cacheWrite }). Normalize to the
@@ -45,6 +45,7 @@ export function metricsMiddleware(modelId: string): LanguageModelV3Middleware {
       const usage = flattenUsage(res.usage)
       logModelCall({ modelId, kind: 'generate', ttftMs: null, totalMs: Date.now() - start, usage })
       addTokens(usage.inputTokens + usage.outputTokens)
+      addCost(modelId, usage.inputTokens, usage.outputTokens)
       return res
     },
     wrapStream: async ({ doStream }) => {
@@ -62,6 +63,7 @@ export function metricsMiddleware(modelId: string): LanguageModelV3Middleware {
               const usage = flattenUsage(part.usage)
               logModelCall({ modelId, kind: 'stream', ttftMs, totalMs: Date.now() - start, usage })
               addTokens(usage.inputTokens + usage.outputTokens)
+              addCost(modelId, usage.inputTokens, usage.outputTokens)
             }
             controller.enqueue(part)
           },

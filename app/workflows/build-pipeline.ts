@@ -64,7 +64,7 @@ import {
   snapshotProject,
   incrementProjectTokens,
 } from '@/lib/projects-db'
-import { tokenStore } from '@/lib/token-context'
+import { tokenStore, withinCostBudget, currentCostUsd } from '@/lib/token-context'
 import { saveCheckpoint } from '@/ai/tools/checkpoint'
 import type { Skill, ColorTokens, PageSpec } from '@/ai/types/project-brief'
 import type { ChatUIMessage } from '@/components/chat/types'
@@ -167,7 +167,7 @@ function makeStepWriter(runId: string | null): {
   // THIS step's async context; the metrics middleware's addTokens() sums every model
   // call into it, and flushAndRelease (called on every exit path) persists the delta
   // onto the run + project. Read-modify-write mirrors /api/runs/continue.
-  const tokenBox = { total: 0 }
+  const tokenBox = { total: 0, costUsd: 0 }
   tokenStore.enterWith(tokenBox)
 
   // Ordered batch Supabase writes — fixes garbled chat and tool-input-delta errors.
@@ -1113,6 +1113,9 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
 
   // Helper: returns true if we're inside 11 minutes of THIS step's own budget
   const withinBudget = () => Date.now() - stepStart < STEP_DEADLINE_MS
+  // Cost kill cap: COST_KILL_CAP env var (default $0.70). Checked before repair loops + QA
+  // to abort gracefully rather than overbilling. withinCostBudget() reads the live tokenBox.
+  const withinCostCap = () => withinCostBudget()
 
   try {
     // #7: guarantee EVERY nav-linked page exists (not just Home) so no nav link 404s.
@@ -1217,8 +1220,13 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
         writer.write({ id: 'srv-runtime', type: 'data-run-command', data: { sandboxId, command: 'Checking your preview renders correctly', args: [], status: 'executing' } })
         let rt = await headlessRuntimeCheck(resolvedUrl, sandboxId)
         for (let attempt = 1; attempt <= 5 && rt.status === 'broken'; attempt++) {
-          // Budget guard: if close to 11-min deadline, break and let stepVerify2 continue
+          // Budget guard: if close to 11-min deadline OR cost cap hit, stop repairing
           if (!withinBudget()) break
+          if (!withinCostCap()) {
+            console.warn(`[cost-cap] $${currentCostUsd().toFixed(3)} >= cap — stopping repair loop`)
+            logRepair({ layer: 'cost-cap', action: 'repair-abort', detail: `cost $${currentCostUsd().toFixed(3)} exceeded cap`, sandboxId })
+            break
+          }
           let repairedAny = false
 
           // ── Priority 1: Missing module errors (Vite overlay) ──────────────────
@@ -1321,7 +1329,7 @@ async function stepVerify(params: BuildPipelineParams, genResult: GenerateResult
       try {
         const request = firstUserText || lastUserText || ''
         for (let round = 1; round <= 3; round++) {
-          if (!withinBudget()) break
+          if (!withinBudget() || !withinCostCap()) break
           const fv = await functionalVerify(resolvedUrl, request, skill)
           if (fv.ok || fv.issues.length === 0) { if (round === 1) functionalClean = true; break }
           logRepair({ layer: 'runtime-check', action: `functional-issues-r${round}`, detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
@@ -1619,7 +1627,7 @@ async function stepVerify2(checkpoint: VerifyCheckpoint): Promise<VerifyCheckpoi
       try {
         const request = firstUserText || lastUserText || ''
         for (let round = 1; round <= 3; round++) {
-          if (!withinBudget()) break
+          if (!withinBudget() || !withinCostCap()) break
           const fv = await functionalVerify(resolvedUrl, request, skill)
           if (fv.ok || fv.issues.length === 0) break
           logRepair({ layer: 'runtime-check', action: `v2-functional-r${round}`, detail: fv.issues.slice(0, 3).join(' | ').slice(0, 180), sandboxId })
