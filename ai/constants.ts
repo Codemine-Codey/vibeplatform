@@ -29,12 +29,11 @@
 // Pinned to the official DATED slug (…-20260731) for launch stability — the undated
 // alias floats to whatever DeepSeek ships next and can silently change the provider pool.
 export const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash-20260731'
-// Claude Sonnet 5 via OpenRouter: confirmed 200 OK in diag. Cross-file consistent.
-// Thinking disabled via gateway.ts. Caching via cache_control on system message.
-// Env-overridable so we can A/B the initial-generation model (the ONE expensive call —
-// everything else already runs on cheap DeepSeek) from the Vercel env via a free redeploy,
-// without a code change. Default stays Sonnet 5. Set CM_FILE_MODEL to test e.g. all-DeepSeek-Pro.
-export const FILE_GENERATION_MODEL = process.env.CM_FILE_MODEL || 'anthropic/claude-sonnet-5'
+// Kimi K2.6 via OpenRouter: purpose-built for agentic multi-file coding (swarm-trained, single API call).
+// SWE-bench Pro #1 (58.6%), LiveCodeBench 89.6%. $0.60/$2.50 per M → ~$0.33/build vs $1.29 with Sonnet 5.
+// Fallback: CM_FILE_MODEL=deepseek/deepseek-v4-pro-0813 for the proven AKAMI $0.45 path.
+// A/B env-overridable without a code change (set CM_FILE_MODEL in Vercel dashboard).
+export const FILE_GENERATION_MODEL = process.env.CM_FILE_MODEL || 'moonshotai/kimi-k2.6'
 export const EDIT_MODEL = 'deepseek/deepseek-v4-flash-20260731'
 export const ERROR_MODEL = 'deepseek/deepseek-v4-flash-20260731'
 export const ORCHESTRATION_MODEL = 'deepseek/deepseek-v4-flash-20260731'

@@ -1119,6 +1119,11 @@ export async function functionalVerify(url: string, userRequest: string, skill: 
       const brokenImgs = imgs.filter(i => i.complete && i.naturalWidth === 0).map(i => (i.getAttribute('src') || i.getAttribute('alt') || 'image').slice(0, 60))
       const sections = q('section, [data-section], main > div')
       const emptySections = sections.filter(s => ((s as HTMLElement).innerText || '').trim().length < 8 && !s.querySelector('img, canvas, svg, video')).length
+      // Scroll check: overflow:hidden on html or body silently kills scrolling
+      const htmlOF = window.getComputedStyle(document.documentElement)
+      const bodyOF = window.getComputedStyle(document.body)
+      const scrollBlocked = ['hidden', 'clip'].includes(htmlOF.overflow) || ['hidden', 'clip'].includes(bodyOF.overflow) ||
+        ['hidden', 'clip'].includes(htmlOF.overflowY) || ['hidden', 'clip'].includes(bodyOF.overflowY)
       return {
         buttons: q('button, [role=button], a[href]').slice(0, 12).map(label),
         inputs: q('input, textarea, select').slice(0, 8).map(label),
@@ -1129,8 +1134,10 @@ export async function functionalVerify(url: string, userRequest: string, skill: 
         imgCount: imgs.length,
         brokenImgs: brokenImgs.slice(0, 6),
         emptySections,
+        navCount: q('nav, [role="navigation"], header nav').length,
+        scrollBlocked,
       }
-    }).catch(() => ({ buttons: [] as string[], inputs: [] as string[], headings: [] as string[], hasCanvas: false, buttonCount: 0, inputCount: 0, imgCount: 0, brokenImgs: [] as string[], emptySections: 0 }))
+    }).catch(() => ({ buttons: [] as string[], inputs: [] as string[], headings: [] as string[], hasCanvas: false, buttonCount: 0, inputCount: 0, imgCount: 0, brokenImgs: [] as string[], emptySections: 0, navCount: 1, scrollBlocked: false }))
 
     const responded: string[] = []
     const dead: string[] = []
@@ -1172,6 +1179,8 @@ export async function functionalVerify(url: string, userRequest: string, skill: 
       `Controls that did NOT respond (dead): ${dead.join(', ') || '(none)'}\n` +
       `Images: ${inventory.imgCount} total, ${inventory.brokenImgs.length} BROKEN: ${inventory.brokenImgs.join(', ') || '(none)'}\n` +
       `Empty sections: ${inventory.emptySections}\n` +
+      `Navigation bars (<nav>): ${inventory.navCount}\n` +
+      `Scroll blocked (overflow:hidden on html/body): ${inventory.scrollBlocked}\n` +
       `Screen changed during use: ${before !== after}`
 
     let ok = dead.length === 0
@@ -1179,6 +1188,10 @@ export async function functionalVerify(url: string, userRequest: string, skill: 
     const contentIssues: string[] = []
     if (inventory.brokenImgs.length > 0) contentIssues.push(`Broken images: ${inventory.brokenImgs.join(', ')}. Use Unsplash URLs.`)
     if (inventory.emptySections >= 2) contentIssues.push(`${inventory.emptySections} sections are EMPTY. Fill every section with real copy and imagery.`)
+    // Navbar gate: websites MUST have a nav bar — it's the primary navigation for multi-page sites
+    if (skill === 'website' && inventory.navCount === 0) contentIssues.push('No navigation bar found (<nav> element missing). Layout.tsx MUST render a sticky nav with links to all pages. Add it now.')
+    // Scroll gate: overflow:hidden on html/body silently kills all scrolling
+    if (inventory.scrollBlocked) contentIssues.push('Page scroll is BLOCKED — overflow:hidden or overflow:clip is set on <html> or <body>. Remove it. Use overflow:hidden only on specific contained sections, never on the root.')
     try {
       const res = await generateText({
         ...getModelOptions(ERROR_MODEL),

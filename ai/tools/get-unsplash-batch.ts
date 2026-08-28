@@ -72,11 +72,14 @@ export const getUnsplashBatch = () =>
   tool({
     description:
       'Fetch multiple photo URLs in one call — all requests run in parallel. Use this instead of calling getUnsplash multiple times. ' +
-      'Pass all image keywords at once. Returns an array of URLs in the same order as the input keywords.',
+      'Pass all image keywords at once. Returns an array of URLs in the same order as the input keywords. ' +
+      'CRITICAL: every keyword MUST include the specific product/industry/subject. NEVER use generic terms like "shoes", "food", "product", "person", "background". ' +
+      'BAD: "shoes" | "leather" | "product photo" | "lifestyle". ' +
+      'GOOD: "premium handcrafted leather Oxford dress shoes close-up" | "Australian outback tannery leather hides" | "luxury shoe store interior warm lighting" | "leather craftsman stitching footwear workshop".',
     inputSchema: z.object({
       images: z.array(
         z.object({
-          keyword: z.string().describe('Descriptive search term, e.g. "Japanese sushi restaurant warm lighting"'),
+          keyword: z.string().describe('Highly specific keyword including the exact product/industry/subject. Include material, style, setting and mood. Example: "premium leather Oxford shoes polished dark wood background" NOT "shoes" or "product".'),
           orientation: z.enum(['landscape', 'portrait', 'squarish']).optional().default('landscape'),
         })
       ).max(30).optional().default([]).describe('List of all images needed for the project'),
