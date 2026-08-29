@@ -66,8 +66,12 @@ export const LEAF_MODEL = process.env.CM_LEAF_MODEL || 'deepseek/deepseek-v4-pro
 // skeleton body with real content (the bulk, cheap per token). Because the skeleton model defines
 // every export/import/prop contract first, the code-fill CANNOT drift. Env-overridable so the split
 // is testable without a redeploy. Default: Sonnet 5 skeleton, DeepSeek v4 Pro code.
-export const SKELETON_MODEL = process.env.CM_SKELETON_MODEL || 'anthropic/claude-sonnet-5'
-export const CODE_MODEL = process.env.CM_CODE_MODEL || 'deepseek/deepseek-v4-pro'
+// Default OFF Sonnet 5 (2026-08-29): this AKAMI role-split recipe is opt-in and NOT wired
+// into the active pipeline, but a $10/M model must never sit as a default (that class of
+// leftover forced the GPT-5.6 Terra cost catastrophe). Skeleton work = light structural/design
+// planning → Kimi K2.6 is more than capable at a fraction of the price.
+export const SKELETON_MODEL = process.env.CM_SKELETON_MODEL || 'kimi-k2.6'
+export const CODE_MODEL = process.env.CM_CODE_MODEL || 'deepseek/deepseek-v4-pro-0813'
 // Screenshot QA "eyes" — sees the preview, judges broken/fine + design score 1-10.
 // gemma-3-12b-it: $0.05/$0.15 per M, real image support, via OpenRouter (one key),
 // and — unlike gpt-5-nano — does NOT require reasoning (our gateway disables it),
