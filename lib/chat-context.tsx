@@ -17,14 +17,15 @@ interface ChatContextValue {
 
 const ChatContext = createContext<ChatContextValue | undefined>(undefined)
 
-// ── Reconnect to the Supabase-backed run stream when the HTTP polling stream dies ──
-// The pollingStream inside route.ts lives for at most 800s (Vercel maxDuration). When
-// it dies the client stream "terminates" cleanly. But the Workflow steps (stepGenerate
-// + stepVerify) each have their OWN 800s budget and may still be running. Without a
-// reconnect the user sees nothing after 13 minutes even though the build is ongoing.
-//
-// Strategy: when the primary stream ends and we have no URL yet, reconnect to
-// /api/runs/:runId/stream?since=<lastCursor> and continue processing events.
+// ── Tail the durable run by SHORT-POLLING (not a long-lived stream) ──────────────
+// The old reconnect re-opened /api/runs/:id/stream — itself a 740s-capped Vercel SSE
+// connection — and tracked the cursor off `payload.seq`, which the stream never emits
+// (it sends bare UIMessageChunks). Result: every reconnect restarted at since=0 and a
+// long build looked frozen (the exact blank the user hit). This polls /events instead:
+// each request is <1s (no 740s boundary → nothing to "reconnect" to), and the endpoint
+// returns an explicit nextCursor so the cursor actually advances. Loops until the run is
+// terminal (done/error) or a preview URL arrives. This is also the designed fallback
+// layer under the Trigger.dev Realtime migration.
 async function reconnectAndDrain(
   runId: string,
   cursor: number,
@@ -32,69 +33,54 @@ async function reconnectAndDrain(
   abortSignal: AbortSignal
 ) {
   let lastCursor = cursor
-  const MAX_RECONNECTS = 6  // up to 6 × 800s = 80 minutes max reconnects
-  for (let attempt = 0; attempt < MAX_RECONNECTS; attempt++) {
+  const POLL_MS = 1500
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
     if (abortSignal.aborted) break
-    // Check if we already have a URL — no need to keep reconnecting
-    if (useSandboxStore.getState().url) break
+    if (useSandboxStore.getState().url) break // preview arrived — done
 
     try {
-      const res = await fetch(`/api/runs/${runId}/stream?since=${lastCursor}`, {
-        signal: abortSignal,
-        headers: { Accept: 'text/event-stream' },
-      })
-      // A PERMANENT failure (run not found / not owned) means there's nothing to reconnect to —
-      // stop. But a TRANSIENT failure (5xx cold start, a brief window where the run row isn't
-      // visible yet, a 429) must NOT kill the whole loop and abandon the UI — retry with a short
-      // backoff. Killing the loop on any non-ok was a real abandonment path on long builds.
+      const res = await fetch(`/api/runs/${runId}/events?since=${lastCursor}`, { signal: abortSignal })
+      // Permanent (not owned / gone) → stop. Transient (5xx/429/cold start) → back off + retry,
+      // never abandon a live build on a blip.
       if (res.status === 401 || res.status === 404) break
-      if (!res.ok || !res.body) {
-        await new Promise(r => setTimeout(r, 2000))
-        continue
+      if (!res.ok) { await sleep(2000); continue }
+
+      const data = (await res.json()) as {
+        events: Array<{ seq: number; payload: unknown }>
+        nextCursor: number
+        terminal: boolean
       }
 
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-
-      while (true) {
-        if (abortSignal.aborted) { reader.releaseLock(); break }
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const parts = buf.split('\n\n')
-        buf = parts.pop() ?? ''
-        for (const part of parts) {
-          const line = part.trim()
-          if (!line.startsWith('data: ')) continue
-          try {
-            const payload = JSON.parse(line.slice(6))
-            // Track cursor from seq if present
-            if (typeof payload.seq === 'number' && payload.seq > lastCursor) {
-              lastCursor = payload.seq
-              useSandboxStore.getState().advanceRunCursor(payload.seq)
-            }
-            unstable_batchedUpdates(() => {
-              try { mapDataToState(payload) } catch { /* non-fatal */ }
-            })
-          } catch { /* malformed line — skip */ }
-        }
+      if (typeof data.nextCursor === 'number' && data.nextCursor > lastCursor) {
+        lastCursor = data.nextCursor
+        useSandboxStore.getState().advanceRunCursor(data.nextCursor)
       }
-      reader.releaseLock()
+      if (Array.isArray(data.events) && data.events.length > 0) {
+        unstable_batchedUpdates(() => {
+          for (const ev of data.events) {
+            try { mapDataToState(ev.payload as DataUIPart<DataPart>) } catch { /* non-fatal */ }
+          }
+        })
+      }
+
+      if (useSandboxStore.getState().url) break // reveal event just landed
+      if (data.terminal) break // run finished (done/error) AND we're caught up
     } catch (e) {
       if (abortSignal.aborted) break
-      console.warn(`[run-reconnect] attempt ${attempt + 1} failed:`, e instanceof Error ? e.message : e)
-      // Brief delay before retry
-      await new Promise(r => setTimeout(r, 2000))
+      console.warn('[run-poll] poll failed:', e instanceof Error ? e.message : e)
+      await sleep(2000)
+      continue
     }
 
-    if (useSandboxStore.getState().url) break
+    await sleep(POLL_MS)
   }
 
-  // Drain loop ended WITHOUT ever getting a preview URL. For a terminal (failed) run the tail
-  // stream closes immediately on each attempt, so we land here within seconds — surface a
-  // friendly, actionable line so the loader (which stays up while activeRunId && !url) can't
-  // spin forever waiting on the 45-min reaper. A still-live build would not have exited the loop.
+  // Loop ended without a preview URL and not because the user aborted → the run reached a
+  // terminal (error) state with no reveal. Surface a friendly, recoverable line so the loader
+  // (up while activeRunId && !url) can't spin forever.
   if (!abortSignal.aborted && !useSandboxStore.getState().url) {
     useSandboxStore.getState().setStreamError(
       "That one took longer than expected — tap continue and I'll pick up right where I left off."

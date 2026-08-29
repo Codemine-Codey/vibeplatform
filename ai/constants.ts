@@ -88,6 +88,13 @@ export const VISION_MODEL = 'google/gemma-3-12b-it'
 //    single file or edit while keeping the credit reservation small.
 export function getMaxOutputTokens(modelId: string): number {
   if (modelId.startsWith('claude-opus') || modelId.startsWith('claude-fable')) return 128000
+  // Kimi K2.6 (direct Moonshot). Measured 2026-08-29: a 64000 cap makes Moonshot-direct
+  // stream ~45% SLOWER (24 vs 35 tok/s) — the oversized ceiling itself hurts throughput,
+  // and direct Moonshot has NO up-front credit reservation to justify a large cap. 24K
+  // comfortably covers a whole website's files in one pass (~10-15K output tokens) with
+  // headroom; if a large multi-page build ever exceeds it, the stepGenerate2 continuation
+  // loop completes the remaining files. Do NOT drop to 4K — that truncates whole-project gen.
+  if (modelId.startsWith('kimi') || modelId.includes('/kimi')) return 24000
   // DeepSeek V4 via OpenRouter. OpenRouter RESERVES credits upfront for the full
   // max_tokens (a 384K cap reserves ~$0.33/call and, under concurrency, spuriously
   // throws "Insufficient Balance"). Direct DeepSeek (which had no reservation and
