@@ -17,6 +17,12 @@ interface SandboxStore {
   lastRunEventCursor: number
   setActiveRun: (runId: string, cursor?: number) => void
   advanceRunCursor: (seq: number) => void
+  // Trigger.dev Realtime creds (worker mode). When set, the client subscribes to the
+  // 'cm-ui' stream browser↔Trigger directly (no Vercel 740s cap). Captured from the
+  // x-trigger-run-id / x-trigger-public-token response headers on the build POST.
+  triggerRunId: string | null
+  triggerToken: string | null
+  setTriggerCreds: (runId: string, token: string) => void
   authEnabled?: boolean
   authWorkerUrl?: string
   authAppId?: string
@@ -156,6 +162,9 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
   lastRunEventCursor: 0,
   setActiveRun: (runId, cursor = 0) => set(() => ({ activeRunId: runId, lastRunEventCursor: cursor })),
   advanceRunCursor: (seq) => set((s) => seq > s.lastRunEventCursor ? { lastRunEventCursor: seq } : s),
+  triggerRunId: null,
+  triggerToken: null,
+  setTriggerCreds: (runId, token) => set(() => ({ triggerRunId: runId, triggerToken: token })),
   deployStatus: 'idle',
   generatedFiles: new Set<string>(),
   lastFilesUploadedAt: undefined,

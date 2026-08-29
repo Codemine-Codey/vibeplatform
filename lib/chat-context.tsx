@@ -8,6 +8,7 @@ import { DataUIPart, DefaultChatTransport } from 'ai'
 import { createContext, useContext, useMemo, useRef } from 'react'
 import { unstable_batchedUpdates } from 'react-dom'
 import { useDataStateMapper, useSandboxStore } from '@/app/state'
+import { RealtimeBridge } from '@/lib/realtime-bridge'
 import { mutate } from 'swr'
 import { toast } from 'sonner'
 
@@ -113,6 +114,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               if (rid && !useSandboxStore.getState().activeRunId) {
                 useSandboxStore.getState().setActiveRun(rid, 0)
               }
+              // Trigger.dev Realtime creds (worker mode) — when present, the RealtimeBridge
+              // subscribes browser↔Trigger directly for live progress with no 740s cap.
+              const trid = res.headers.get('x-trigger-run-id')
+              const ttok = res.headers.get('x-trigger-public-token')
+              if (trid && ttok) useSandboxStore.getState().setTriggerCreds(trid, ttok)
             } catch { /* header capture is best-effort — data-run event is the backup */ }
             return res
           },
@@ -180,7 +186,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   )
 
   return (
-    <ChatContext.Provider value={{ chat }}>{children}</ChatContext.Provider>
+    <ChatContext.Provider value={{ chat }}>
+      <RealtimeBridge />
+      {children}
+    </ChatContext.Provider>
   )
 }
 
