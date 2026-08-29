@@ -50,7 +50,12 @@ export async function getMoonshotRemaining(): Promise<number | null> {
 // the fix for a stale gate that guarded OpenRouter after generation moved to Moonshot —
 // it would block every build on a low OpenRouter balance even though Moonshot was funded.
 export async function getGenerationProviderRemaining(genModelId: string): Promise<{ provider: string; remaining: number | null }> {
-  if (/kimi/i.test(genModelId)) return { provider: 'moonshot', remaining: await getMoonshotRemaining() }
+  // Route by the SAME logic getModelOptions uses: a bare 'kimi-…' (no slash) hits Moonshot
+  // DIRECT; anything with a '/' (moonshotai/kimi-…, deepseek/…) bills OpenRouter. Keying on the
+  // model NAME (/kimi/) was wrong — 'moonshotai/kimi-k2.6' bills OpenRouter, not Moonshot.
+  if (genModelId.startsWith('kimi-') && !genModelId.includes('/')) {
+    return { provider: 'moonshot', remaining: await getMoonshotRemaining() }
+  }
   return { provider: 'openrouter', remaining: await getOpenRouterRemaining() }
 }
 

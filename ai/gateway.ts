@@ -122,11 +122,13 @@ const openrouterKimiProvider = createOpenAI({
         const body = JSON.parse(init.body as string)
         body.include_reasoning = false
         body.thinking = { type: 'disabled' }
-        // Pin to Moonshot's own infra for prefix caching. allow_fallbacks:false is CRITICAL —
-        // if Moonshot is degraded, OpenRouter would silently fall back to whatever model it
-        // picks (e.g. GPT-5.6 Terra at $15/M output), burning credits invisibly. Better to
-        // fail fast with an error than silently rack up a $3+ tab on an unintended model.
-        body.provider = { order: ['Moonshot'], allow_fallbacks: false }
+        // Pin to OpenRouter's FAST Kimi hosts (measured tok/s: Decart ~107, Inceptron ~93 —
+        // 3-4x Moonshot-direct's 24-35). order = fastest-first; allow_fallbacks:true keeps the
+        // build alive if a fast host is down, BUT the fallback pool is these Kimi hosts only —
+        // it can NEVER cross to another model (that needs the separate `models` array, which we
+        // never set), so the Terra-class silent-model-swap is impossible here. cache_control on
+        // the system prefix (below) gives prefix caching on hosts that support it.
+        body.provider = { order: ['Decart', 'Inceptron', 'Chutes', 'Baidu'], allow_fallbacks: true }
         // Inject cache_control into the system message so Moonshot's prompt cache
         // activates on the large shared system prompt prefix.
         if (Array.isArray(body.messages)) {

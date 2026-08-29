@@ -399,10 +399,10 @@ export async function* getContents(
     let buffer = ''
     try {
       const result = streamText({
-        // reasoning:true enables limited thinking budget for Kimi K2.6 (4 000 tokens) —
-        // the model plans cross-file contracts before writing, cutting the (0.7)^12 drift.
-        // For other models this is a no-op (they use the standard path).
-        ...getModelOptions(modelId, { reasoning: true }),
+        // THINKING DISABLED for generation (user directive 2026-08-30, and it's faster on every
+        // model): reasoning:false → Kimi uses the thinking-disabled OpenRouter provider, DeepSeek
+        // uses reasoning:{enabled:false}. No multi-minute silent think before the first file.
+        ...getModelOptions(modelId, { reasoning: false }),
         maxOutputTokens: getMaxOutputTokens(modelId),
         system: buildGenSystem(designContext),
         messages: [...messages, { role: 'user' as const, content: instruction }],

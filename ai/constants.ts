@@ -38,7 +38,12 @@ export const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash-0731'
 // (direct) when KIMI_API_KEY is set; falls back to OpenRouter's moonshotai/ path if the
 // key is absent. CM_FILE_MODEL env override kept as a deliberate A/B lever ONLY — the
 // prod value that silently forced GPT-5.6 Terra ($15/M) has been removed (2026-08-29).
-export const FILE_GENERATION_MODEL = process.env.CM_FILE_MODEL || 'kimi-k2.6'
+// Kimi K2.6 via OpenRouter's FAST hosts (Decart ~107 / Inceptron ~93 tok/s) — user's choice
+// 2026-08-30. Moonshot-direct serves k2.6 at only 24-35 tok/s (host-slow); the SAME model on
+// OpenRouter's fast quantized hosts is 3-4x faster. Thinking disabled, cache_control on (gateway).
+// 'moonshotai/' prefix → OpenRouter Kimi provider (NOT the direct 'kimi-k2.6' Moonshot route).
+// $0.60 kill cap enforced. Fallback if this underperforms: deepseek/deepseek-v4-pro-0813.
+export const FILE_GENERATION_MODEL = process.env.CM_FILE_MODEL || 'moonshotai/kimi-k2.6'
 // Generation FALLBACK: if the direct Kimi call fails, retry on DeepSeek V4 Pro via
 // OpenRouter (quality-class, ~$1.32/$3.96 per M). Never falls back to a premium model.
 export const FILE_GENERATION_FALLBACK_MODEL = process.env.CM_FILE_FALLBACK || 'deepseek/deepseek-v4-pro-0813'
