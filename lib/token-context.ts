@@ -13,7 +13,9 @@ export function addTokens(n: number): void {
 // Approximate cost per million tokens (input / output) by model family.
 // Used for the per-generation kill cap. Prices are conservative (use peak rates).
 const PRICING: Array<{ pattern: RegExp; inputPerM: number; outputPerM: number }> = [
-  { pattern: /moonshotai\/kimi/i,          inputPerM: 0.60,  outputPerM: 2.50  },
+  // Matches BOTH the OpenRouter id (moonshotai/kimi-k2.6) AND the direct Moonshot id (kimi-k2.6),
+  // so the kill cap measures REAL Kimi cost instead of falling through to the Pro-rate default.
+  { pattern: /kimi/i,                      inputPerM: 0.60,  outputPerM: 2.50  },
   { pattern: /deepseek.*v4-pro/i,          inputPerM: 1.32,  outputPerM: 3.96  },
   { pattern: /deepseek.*v4-flash/i,        inputPerM: 0.22,  outputPerM: 0.66  },
   { pattern: /anthropic\/claude-sonnet-5/, inputPerM: 2.00,  outputPerM: 10.00 },
