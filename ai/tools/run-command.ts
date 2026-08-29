@@ -1,6 +1,7 @@
 import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import type { DataPart } from '../messages/data-parts'
 import { Command, Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { getRichError } from './get-rich-error'
 import { tool } from 'ai'
 import description from './run-command.md.ts'
@@ -75,7 +76,7 @@ export const runCommand = ({ writer }: Params) =>
       let sandbox: Sandbox | null = null
 
       try {
-        sandbox = await Sandbox.get({ sandboxId })
+        sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
       } catch (error) {
         const richError = getRichError({
           action: 'get sandbox by id',

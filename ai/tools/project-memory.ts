@@ -1,4 +1,5 @@
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { tool } from 'ai'
 import z from 'zod/v3'
 import { getAdminSupabase } from '@/lib/supabase/server'
@@ -22,7 +23,7 @@ export const getProjectMemory = () =>
     execute: async ({ sandboxId, projectId }) => {
       // Try sandbox first (warm path)
       try {
-        const sandbox = await Sandbox.get({ sandboxId })
+        const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
         const cmd = await sandbox.runCommand({ cmd: 'cat', args: [MEMORY_PATH], detached: true })
         const done = await cmd.wait()
 
@@ -94,7 +95,7 @@ export const updateProjectMemory = () =>
 
       // Write to sandbox
       try {
-        const sandbox = await Sandbox.get({ sandboxId })
+        const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
         const mkdir = await sandbox.runCommand({ cmd: 'mkdir', args: ['-p', '.codey'], detached: true })
         await mkdir.wait()
         await sandbox.writeFiles([{ path: MEMORY_PATH, content: Buffer.from(content, 'utf8') }])

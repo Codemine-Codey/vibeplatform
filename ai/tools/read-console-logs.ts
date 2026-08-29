@@ -1,4 +1,5 @@
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { tool } from 'ai'
 import z from 'zod/v3'
 
@@ -21,7 +22,7 @@ export const readConsoleLogs = () =>
     }),
     execute: async ({ sandboxId, lines = 60, filter }) => {
       try {
-        const sandbox = await Sandbox.get({ sandboxId })
+        const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
 
         // Try common log locations for Vite dev servers
         const logPaths = [

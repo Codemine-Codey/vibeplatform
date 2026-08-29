@@ -1,5 +1,6 @@
 import { tool, generateText } from 'ai'
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { getModelOptions } from '@/ai/gateway'
 import { ERROR_MODEL } from '@/ai/constants'
 import description from './visual-check.md.ts'
@@ -24,7 +25,7 @@ export const visualCheck = () =>
     execute: async ({ sandboxId, projectDescription, keyFiles }) => {
       let sandbox: Sandbox
       try {
-        sandbox = await Sandbox.get({ sandboxId })
+        sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
       } catch {
         return 'Visual check skipped: sandbox not accessible'
       }

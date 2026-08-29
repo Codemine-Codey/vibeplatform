@@ -35,6 +35,7 @@ import { getSkillCatalog, loadSkillBody, designSkillFor } from '@/ai/skills'
 import { loadSkill } from '@/ai/tools/load-skill'
 import type { Skill } from '@/ai/types/project-brief'
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { SCAFFOLD_FILES, SCAFFOLD_PATH_SET, getScaffoldFiles } from '@/ai/tools/scaffold'
 import { saveCheckpoint } from '@/ai/tools/checkpoint'
 import { getWarmEntry } from '@/ai/warm-pool'
@@ -184,7 +185,7 @@ function buildProjectConstraints(messages: ChatUIMessage[]): string {
 // "no change was made" edits), at a fraction of the tokens of reading every file.
 async function readActiveCodebase(sandboxId: string): Promise<string> {
   try {
-    const sandbox = await Sandbox.get({ sandboxId })
+    const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
     // One command dumps every source file (bounded) with a delimiter, so we can parse
     // structure in TS without a round-trip per file.
     const dumpCmd = await sandbox.runCommand({
@@ -1988,7 +1989,7 @@ async function runAgenticLoop({
     if (sandboxId) {
       editSandboxId = sandboxId
       let alive = false
-      try { await Sandbox.get({ sandboxId }); alive = true } catch { alive = false }
+      try { await Sandbox.get({ ...getSandboxCredentials(), sandboxId }); alive = true } catch { alive = false }
       if (!alive) {
         const reopened = await reopenFromSnapshot(sandboxId, writer, ctxProjectId).catch(() => null)
         if (reopened) editSandboxId = reopened
@@ -2094,7 +2095,7 @@ async function runAgenticLoop({
     const sandboxId = editSandboxId
     if (sandboxId) {
       try {
-        const sandbox = await Sandbox.get({ sandboxId })
+        const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
         await typeCheckGate({ sandbox, sandboxId })
       } catch {
         /* non-fatal — the runtime monitor remains as the final backstop */
@@ -2113,7 +2114,7 @@ async function runAgenticLoop({
           const project = await getProjectBySandboxId(sandboxId)
           if (!project) return
           if (tokenBox.total > 0) await incrementProjectTokens(project.id, tokenBox.total)
-          const sandbox = await Sandbox.get({ sandboxId })
+          const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
           // Refresh the in-sandbox checkpoint to THIS successful edit, so a later broken
           // edit can restore to the most recent good version (not the stale original build).
           await saveCheckpoint(sandbox).catch(() => {})

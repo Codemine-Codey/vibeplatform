@@ -1,6 +1,7 @@
 import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import type { DataPart } from '../messages/data-parts'
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { getContents, type File } from './generate-files/get-contents'
 import { getRichError } from './get-rich-error'
 import { getWriteFiles } from './generate-files/get-write-files'
@@ -345,7 +346,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       // STUB_SENTINEL = __CM_STUB__. On the very first call nothing exists yet, so everything
       // generates; only a repeat call for an already-finished file is skipped.
       try {
-        const sb = await Sandbox.get({ sandboxId })
+        const sb = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
         const dropped: string[] = []
         const keep: string[] = []
         await Promise.all(paths.map(async (p) => {
@@ -386,7 +387,7 @@ export const generateFiles = ({ writer, modelId, designContext, existingPaths, a
       let sandbox: Sandbox | null = null
 
       try {
-        sandbox = await Sandbox.get({ sandboxId })
+        sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
       } catch (error) {
         const richError = getRichError({
           action: 'get sandbox by id',

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 
 export async function POST(
   _request: NextRequest,
@@ -7,7 +8,7 @@ export async function POST(
 ) {
   const { sandboxId } = await params
   try {
-    const sandbox = await Sandbox.get({ sandboxId })
+    const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
 
     // Verify the sandbox can actually execute commands before claiming success
     try {

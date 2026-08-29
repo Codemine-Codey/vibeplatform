@@ -3,6 +3,7 @@ import z from 'zod/v3'
 import type { UIMessage, UIMessageStreamWriter } from 'ai'
 import type { DataPart } from '../messages/data-parts'
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { neon } from '@neondatabase/serverless'
 
 interface Params {
@@ -49,7 +50,7 @@ export const createDatabase = ({ writer }: Params) =>
       // Write DATABASE_URL + VITE_DATABASE_URL into the sandbox .env
       // so the AI can run server-side Node scripts and the SPA can reference it.
       try {
-        const sandbox = await Sandbox.get({ sandboxId })
+        const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
         const envEntry = `DATABASE_URL=${NEON_DATABASE_URL}\nVITE_DATABASE_URL=${NEON_DATABASE_URL}\nVITE_DB_SCHEMA=${schemaName}\n`
         const existing = await (async () => {
           try {

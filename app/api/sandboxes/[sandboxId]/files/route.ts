@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { currentUserOwnsSandbox } from '@/lib/projects-db'
 import z from 'zod/v3'
@@ -39,7 +40,7 @@ export async function GET(
     return NextResponse.json({ error: 'Forbidden path' }, { status: 403 })
   }
 
-  const sandbox = await Sandbox.get(fileParams.data)
+  const sandbox = await Sandbox.get({ ...getSandboxCredentials(), ...fileParams.data })
   const stream = await sandbox.readFile(fileParams.data)
   if (!stream) {
     return NextResponse.json(

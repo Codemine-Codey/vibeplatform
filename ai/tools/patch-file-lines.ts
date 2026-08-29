@@ -1,4 +1,5 @@
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { tool } from 'ai'
 import z from 'zod/v3'
 import { hasReadFile, markFileWritten } from '../edit-tracker'
@@ -34,7 +35,7 @@ export const patchFileLines = () =>
       }
 
       try {
-        const sandbox = await Sandbox.get({ sandboxId })
+        const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
         resetReadBudget(sandboxId)
 
         const readCmd = await sandbox.runCommand({ cmd: 'cat', args: [path], detached: true })

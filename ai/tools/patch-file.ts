@@ -1,4 +1,5 @@
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { tool } from 'ai'
 import z from 'zod/v3'
 import { mergePackageJson } from './scaffold'
@@ -59,7 +60,7 @@ export const patchFile = () =>
           }
         }
 
-        const sandbox = await Sandbox.get({ sandboxId })
+        const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
         // A write begins a fresh edit cycle — reset the read budget so the next
         // change gets a clean allowance of reads.
         resetReadBudget(sandboxId)

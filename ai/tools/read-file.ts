@@ -1,4 +1,5 @@
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { tool } from 'ai'
 import z from 'zod/v3'
 import { logRead } from '@/lib/telemetry'
@@ -25,7 +26,7 @@ export const readFile = () =>
         }
       }
       try {
-        const sandbox = await Sandbox.get({ sandboxId })
+        const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
         const cmd = await sandbox.runCommand({ cmd: 'cat', args: [path], detached: true })
         const done = await cmd.wait()
         const [stdout, stderr] = await Promise.all([done.stdout(), done.stderr()])

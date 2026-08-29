@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 
 interface Params {
   sandboxId: string
@@ -36,7 +37,7 @@ export async function GET(
 
   let command
   try {
-    const sandbox = await Sandbox.get(logParams)
+    const sandbox = await Sandbox.get({ ...getSandboxCredentials(), ...logParams })
     command = await sandbox.getCommand(logParams.cmdId)
   } catch {
     // Sandbox paused/gone or command not found yet — return empty gracefully.

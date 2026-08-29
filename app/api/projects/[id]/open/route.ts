@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { getProject, updateProjectRow, restoreSnapshotInto } from '@/lib/projects-db'
 import { restoreBakedDeps } from '@/lib/baked-deps'
 
@@ -20,7 +21,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (!project.snapshot_path) {
     if (project.sandbox_id) {
       try {
-        const existing = await Sandbox.get({ sandboxId: project.sandbox_id })
+        const existing = await Sandbox.get({ ...getSandboxCredentials(), sandboxId: project.sandbox_id })
         await existing.runCommand({ cmd: 'echo', args: ['alive'] }) // throws if truly dead
         existing.runCommand({
           detached: true, cmd: 'bash',

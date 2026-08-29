@@ -1,4 +1,5 @@
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { tool } from 'ai'
 import z from 'zod/v3'
 
@@ -24,7 +25,7 @@ export const renameFile = () =>
       }
 
       try {
-        const sandbox = await Sandbox.get({ sandboxId })
+        const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
 
         // Ensure target directory exists
         const dir = newPath.includes('/') ? newPath.substring(0, newPath.lastIndexOf('/')) : '.'

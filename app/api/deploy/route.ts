@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { logRepair } from '@/lib/telemetry'
 import { updateProjectBySandboxId, updateProjectRow, currentUserOwnsSandbox, currentUserOwnsProject } from '@/lib/projects-db'
 import { getCurrentUser } from '@/lib/supabase/server'
@@ -80,7 +81,7 @@ export async function POST(req: Request) {
 
   let sandbox: Sandbox
   try {
-    sandbox = await Sandbox.get({ sandboxId })
+    sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
   } catch {
     return NextResponse.json({ error: 'Workspace not found or has expired' }, { status: 404 })
   }

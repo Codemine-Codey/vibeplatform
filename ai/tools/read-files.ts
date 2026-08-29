@@ -1,4 +1,5 @@
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { tool } from 'ai'
 import z from 'zod/v3'
 import { logRead } from '@/lib/telemetry'
@@ -35,7 +36,7 @@ export const readFiles = () =>
         }
       }
       try {
-        const sandbox = await Sandbox.get({ sandboxId })
+        const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
         const files = await Promise.all(
           paths.map(async (path) => {
             try {

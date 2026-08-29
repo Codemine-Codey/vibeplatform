@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 
 // Kill a sandbox early to stop paying for idle provisioned memory. Called by the
 // client "kill-on-leave" beacon when the user closes the tab or navigates away —
@@ -16,7 +17,7 @@ export async function POST(req: Request) {
   if (!sandboxId) return NextResponse.json({ ok: false }, { status: 200 })
 
   try {
-    const sandbox = await Sandbox.get({ sandboxId })
+    const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
     await sandbox.stop()
     return NextResponse.json({ ok: true })
   } catch {

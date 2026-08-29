@@ -1,4 +1,5 @@
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import type { UIMessageStreamWriter, UIMessage } from 'ai'
 import type { DataPart } from '../messages/data-parts'
 import { tool } from 'ai'
@@ -103,7 +104,7 @@ export const restoreCheckpoint = ({ writer }: Params) =>
         data: { sandboxId, command: 'Restoring your last working version', args: [], status: 'executing' },
       })
       try {
-        const sandbox = await Sandbox.get({ sandboxId })
+        const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
         const ok = await restoreCheckpointInSandbox(sandbox)
         writer.write({
           id: toolCallId,

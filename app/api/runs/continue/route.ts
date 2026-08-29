@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import {
   getRun,
   updateRun,
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
   let sandbox: Sandbox | null = null
   if (run.sandbox_id) {
     try {
-      sandbox = await Sandbox.get({ sandboxId: run.sandbox_id })
+      sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId: run.sandbox_id })
     } catch {
       sandbox = null
     }

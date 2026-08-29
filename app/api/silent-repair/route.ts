@@ -9,6 +9,7 @@
 // This is the true Lovable-style silent heal.
 
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { NextResponse } from 'next/server'
 import { readSandboxFile, repairFile } from '@/lib/sandbox-util'
 import { ensureValidCss } from '@/lib/css-guard'
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
   try {
     let sandbox: Sandbox
     try {
-      sandbox = await Sandbox.get({ sandboxId })
+      sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
     } catch {
       // Sandbox expired or unavailable — nothing to repair
       return NextResponse.json({ skipped: 'sandbox-unavailable' }, { status: 200 })

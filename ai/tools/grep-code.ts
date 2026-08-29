@@ -1,4 +1,5 @@
 import { Sandbox } from '@vercel/sandbox'
+import { getSandboxCredentials } from '@/lib/sandbox-credentials'
 import { tool } from 'ai'
 import z from 'zod/v3'
 
@@ -19,7 +20,7 @@ export const grepCode = () =>
     }),
     execute: async ({ sandboxId, pattern, glob }) => {
       try {
-        const sandbox = await Sandbox.get({ sandboxId })
+        const sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId })
         const include = glob ?? '*.{tsx,ts,jsx,js,css,html}'
         const cmd = await sandbox.runCommand({
           cmd: 'grep',
