@@ -176,8 +176,13 @@ const openrouterKimiReasoningProvider = createOpenAI({
   },
 })
 
-// Direct Kimi API (api.moonshot.ai) — used when KIMI_API_KEY is set.
-// Thinking disabled via fetch wrapper — same reasoning as above.
+// Direct Kimi API (api.moonshot.ai) — PRIMARY file-generation path when KIMI_API_KEY
+// is set. Cheapest route (no OpenRouter markup) + Moonshot's native prompt caching.
+// Thinking disabled (fast, no 5-min silent phase; Kimi K2.6 is swarm-trained for
+// multi-file coding and needs no forced think). Caching: Moonshot auto-caches identical
+// prefixes; we also mark the system message with cache_control (OpenAI-standard array
+// form — honored if supported, harmless otherwise) so the large shared system prompt
+// prefix is billed at the cache-read rate on every call of a build.
 const kimiProvider = createOpenAI({
   baseURL: 'https://api.moonshot.ai/v1',
   apiKey: process.env.KIMI_API_KEY ?? '',
@@ -186,6 +191,13 @@ const kimiProvider = createOpenAI({
       try {
         const body = JSON.parse(init.body as string)
         body.thinking = { type: 'disabled' }
+        if (Array.isArray(body.messages)) {
+          for (const msg of body.messages) {
+            if (msg.role === 'system' && typeof msg.content === 'string') {
+              msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }]
+            }
+          }
+        }
         init = { ...init, body: JSON.stringify(body) }
       } catch { }
     }

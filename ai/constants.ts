@@ -28,16 +28,24 @@
 // via /api/diag 2026-08-08. Slash prefix = openrouterProvider in gateway.ts.
 // Pinned to the official DATED slug (…-20260731) for launch stability — the undated
 // alias floats to whatever DeepSeek ships next and can silently change the provider pool.
-export const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash-20260731'
+export const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash-0731'
 // Kimi K2.6 via OpenRouter: purpose-built for agentic multi-file coding (swarm-trained, single API call).
 // SWE-bench Pro #1 (58.6%), LiveCodeBench 89.6%. $0.60/$2.50 per M → ~$0.33/build vs $1.29 with Sonnet 5.
 // Fallback: CM_FILE_MODEL=deepseek/deepseek-v4-pro-0813 for the proven AKAMI $0.45 path.
 // A/B env-overridable without a code change (set CM_FILE_MODEL in Vercel dashboard).
-export const FILE_GENERATION_MODEL = process.env.CM_FILE_MODEL || 'moonshotai/kimi-k2.6'
-export const EDIT_MODEL = 'deepseek/deepseek-v4-flash-20260731'
-export const ERROR_MODEL = 'deepseek/deepseek-v4-flash-20260731'
-export const ORCHESTRATION_MODEL = 'deepseek/deepseek-v4-flash-20260731'
-export const BRIEF_MODEL = 'deepseek/deepseek-v4-flash-20260731'
+// Kimi K2.6 via DIRECT Moonshot API (api.moonshot.ai) — cheapest path + native prompt
+// caching. The 'kimi-' prefix (no 'moonshotai/') routes getModelOptions → kimiProvider
+// (direct) when KIMI_API_KEY is set; falls back to OpenRouter's moonshotai/ path if the
+// key is absent. CM_FILE_MODEL env override kept as a deliberate A/B lever ONLY — the
+// prod value that silently forced GPT-5.6 Terra ($15/M) has been removed (2026-08-29).
+export const FILE_GENERATION_MODEL = process.env.CM_FILE_MODEL || 'kimi-k2.6'
+// Generation FALLBACK: if the direct Kimi call fails, retry on DeepSeek V4 Pro via
+// OpenRouter (quality-class, ~$1.32/$3.96 per M). Never falls back to a premium model.
+export const FILE_GENERATION_FALLBACK_MODEL = process.env.CM_FILE_FALLBACK || 'deepseek/deepseek-v4-pro-0813'
+export const EDIT_MODEL = 'deepseek/deepseek-v4-flash-0731'
+export const ERROR_MODEL = 'deepseek/deepseek-v4-flash-0731'
+export const ORCHESTRATION_MODEL = 'deepseek/deepseek-v4-flash-0731'
+export const BRIEF_MODEL = 'deepseek/deepseek-v4-flash-0731'
 // Single-file repairs + missing-file generation. These are NARROW, error-driven
 // tasks (the model gets the exact error + the full file) — they do NOT need the
 // frontier cross-file reasoning that initial whole-project generation needs. The
@@ -45,12 +53,12 @@ export const BRIEF_MODEL = 'deepseek/deepseek-v4-flash-20260731'
 // to repair ONE file"); pointing them at FILE_GENERATION_MODEL silently upgraded
 // every repair to Sonnet 5 at 20x the cost. This restores the cheap model for the
 // 10+ repair calls a single build can make — the biggest sustainability lever.
-export const REPAIR_MODEL = 'deepseek/deepseek-v4-flash-20260731'
+export const REPAIR_MODEL = 'deepseek/deepseek-v4-flash-0731'
 // FAN-OUT leaf model: Sonnet 5 writes the SPINE (App/Layout/pages/data/types/index.css — cross-file
 // reasoning), DeepSeek v4 PRO writes the LEAF sections (src/components/sections/* — self-contained UI
 // against the spine's pinned contract). Cuts the Sonnet output ~in half → big cost drop on the
 // initial build, while the spine keeps design + cross-file consistency. Website-only.
-export const LEAF_MODEL = process.env.CM_LEAF_MODEL || 'deepseek/deepseek-v4-pro'
+export const LEAF_MODEL = process.env.CM_LEAF_MODEL || 'deepseek/deepseek-v4-pro-0813'
 // ── AKAMI RECIPE (user's PROVEN $0.4-0.5 perfect-design architecture) ──────────
 // ROLE-BASED split (NOT the file-based leaf fan-out above, which drifted): the SKELETON model does
 // the light structural/design work (plan + per-file skeletons: exports, imports, section layout,
