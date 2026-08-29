@@ -143,6 +143,8 @@ interface VerifyCheckpoint {
   rtStatus: 'ok' | 'broken' | 'skipped' | null  // headless check result
   revealChainCount?: number     // G3: # of times reveal was withheld (broken) + chained to a fresh
                                 // stepVerify2 budget. Capped so a permanently-broken build can't loop.
+  stepCostUsd?: number          // cost (USD) accrued in the step that produced THIS checkpoint, so
+                                // buildProject can cost-cap the verify chain (repairs add up).
 }
 
 // ── Helper: make a PipelineWriter backed by getWritable() + run_events ───────
@@ -151,6 +153,7 @@ interface VerifyCheckpoint {
 function makeStepWriter(runId: string | null): {
   writer: PipelineWriter
   flushAndRelease: () => Promise<void>
+  tokenBox: { total: number; costUsd: number }
 } {
   // getWritable() is only available inside a Vercel Workflow step. When called from Trigger.dev
   // (or any non-Workflow context), it throws — we fall back to a no-op writer so all streaming
@@ -211,6 +214,11 @@ function makeStepWriter(runId: string | null): {
     await Promise.all(pending).catch(() => {})
     await flushChain.catch(() => {})
     gWriter.releaseLock()
+    // G6 diagnostic: log the step's measured cost so the FIRST real build proves the
+    // accumulator is non-zero (balance-delta is the ground-truth cross-check). If this
+    // logs $0.0000 on a build that clearly spent money, the ALS capture is broken and
+    // the streamText consumption needs a tokenStore.run() wrap (route.ts pattern).
+    console.log(`[cm-cost] step tokens=${tokenBox.total} costUsd=$${tokenBox.costUsd.toFixed(4)}`)
     // Persist this step's token usage onto the run + project (best-effort).
     if (runId && tokenBox.total > 0) {
       try {
@@ -221,7 +229,7 @@ function makeStepWriter(runId: string | null): {
     }
   }
 
-  return { writer, flushAndRelease }
+  return { writer, flushAndRelease, tokenBox }
 }
 
 // ── Silence filter — suppresses ALL AI text after the first tool call ─────────
@@ -302,11 +310,34 @@ export async function buildProject(params: BuildPipelineParams): Promise<void> {
     console.warn(`[buildProject] generation still incomplete after ${contRounds} continuation round(s) — proceeding to verify (repair backstop will finish it)`)
   }
 
-  if (overCap()) return  // generation alone exceeded cap — abort before verify
+  if (overCap()) { await stepCostKillFail(params.runId); return }  // generation exceeded cap — clean ending, never a silent blank
 
-  // Verify: same unlimited chain via while loop.
+  // Verify: chained, but cost-capped too. stepVerify(2) return their own cost via the
+  // checkpoint; buildProject sums it and stops the chain if the cap trips (repairs can
+  // add up). A tripped cap ends with a plain-words message, never a blank.
   let checkpoint = await stepVerify(params, genResult)
-  while (checkpoint) checkpoint = await stepVerify2(checkpoint)
+  accumulatedCostUsd += checkpoint?.stepCostUsd ?? 0
+  while (checkpoint && !overCap()) {
+    checkpoint = await stepVerify2(checkpoint)
+    accumulatedCostUsd += checkpoint?.stepCostUsd ?? 0
+  }
+  if (checkpoint && overCap()) { await stepCostKillFail(params.runId); return }
+}
+
+// Terminal cost-kill ending. Fires when the accumulated build cost crosses the kill cap.
+// MUST write a durable plain-words event + mark the run 'error' so a reconnecting client
+// always sees an ending — a silent `return` here would reproduce the exact blank-preview
+// the kill cap exists to prevent. getWritable() is step-only, hence its own 'use step'.
+async function stepCostKillFail(runId: string | null): Promise<void> {
+  'use step'
+  const { writer, flushAndRelease } = makeStepWriter(runId)
+  writer.write({
+    id: 'srv-cost-kill',
+    type: 'data-narration',
+    data: { text: "This build grew more complex than expected and I stopped it to protect your credits. Hit send again and I'll pick it right back up — it usually completes cleanly on the next run." },
+  })
+  await flushAndRelease()
+  if (runId) await updateRun(runId, { status: 'error' }).catch(() => {})
 }
 
 // ── Step 1: Scaffold + AI generation ────────────────────────────────────────
@@ -314,7 +345,7 @@ export async function buildProject(params: BuildPipelineParams): Promise<void> {
 async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult> {
   'use step'
 
-  const { writer, flushAndRelease } = makeStepWriter(params.runId)
+  const { writer, flushAndRelease, tokenBox } = makeStepWriter(params.runId)
 
   // Emit the run ID so the client can reconnect via /api/runs/[id]/stream
   if (params.runId) {
@@ -872,7 +903,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
     // DISK TRUTH: complete only when zero stubs remain. Unifies the abort path and
     // the skipped-file path — never relies on whether the stream was aborted.
     generationComplete: remainingStubs.length === 0,
-    stepCostUsd: currentCostUsd(),
+    stepCostUsd: tokenBox.costUsd,
   }
 }
 
@@ -886,7 +917,7 @@ async function stepGenerate(params: BuildPipelineParams): Promise<GenerateResult
 async function stepGenerate2(params: BuildPipelineParams, partial: GenerateResult): Promise<GenerateResult> {
   'use step'
 
-  const { writer, flushAndRelease } = makeStepWriter(partial.runId)
+  const { writer, flushAndRelease, tokenBox } = makeStepWriter(partial.runId)
   writer.write({ id: 'srv-phase-gen2', type: 'data-build-phase', data: { phase: 'generating', label: 'Completing remaining files...' } })
 
   // Reconnect to the sandbox — retry once before giving up (transient network blips
@@ -996,7 +1027,7 @@ async function stepGenerate2(params: BuildPipelineParams, partial: GenerateResul
   }
 
   await flushAndRelease()
-  return { ...partial, generationComplete: remainingStubs.length === 0, stepCostUsd: currentCostUsd() }
+  return { ...partial, generationComplete: remainingStubs.length === 0, stepCostUsd: tokenBox.costUsd }
 }
 
 // COMPLETENESS GATE (NEW1) — shared by stepVerify + stepVerify2. A stamped SHELL page
