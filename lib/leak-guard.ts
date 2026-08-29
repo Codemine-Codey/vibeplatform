@@ -11,7 +11,7 @@ const REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bsandboxes\b/gi, 'workspaces'],
   [/\bsandbox\b/gi, 'workspace'],
   // Model / provider / infrastructure names → neutral. Users must never see the stack.
-  [/\b(deep\s?seek|anthropic|claude\s+sonnet(?:\s+\d[\d.]*)?|openai|chatgpt|gpt-?5[\d.]*|gemini|kimi\b|terra\b)\b/gi, 'the AI'],
+  [/\b(deep\s?seek|anthropic|claude\s+sonnet(?:\s+\d[\d.]*)?|openai|chatgpt|gpt-?5[\d.]*|gemini|kimi\b|moonshot\w*|terra\b|luna\b)\b/gi, 'the AI'],
   [/\bvercel(?:\.run)?\b/gi, 'the platform'],
   [/\b(cloudflare|supabase|neon\s+(?:db|database|postgres)|unsplash|pexels|picsum)\b/gi, 'the platform'],
   // Technical leakage sometimes echoed in prose.

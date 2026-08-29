@@ -58,7 +58,7 @@ import { createProjectRow, getProject, snapshotProject, updateProjectRow, getPro
 import { tokenStore } from '@/lib/token-context'
 import { ensureValidCss } from '@/lib/css-guard'
 import { makeScrubStream } from '@/lib/leak-guard'
-import { getOpenRouterRemaining, minStartBalanceUsd } from '@/lib/cost'
+import { getOpenRouterRemaining, getGenerationProviderRemaining, minStartBalanceUsd, minOrchBalanceUsd } from '@/lib/cost'
 import { trimStaleReadResults } from '@/lib/trim-history'
 import prompt from './prompt.md.ts'
 
@@ -1587,9 +1587,20 @@ export async function POST(req: Request) {
   // surgery half of the kill-cap — it can only prevent a start, never abort a good build.
   const minStart = minStartBalanceUsd()
   if (minStart > 0) {
-    const remaining = await getOpenRouterRemaining()
-    if (remaining !== null && remaining < minStart) {
-      console.warn(`[cost-preflight] balance $${remaining.toFixed(2)} < floor $${minStart} — refusing to start build`)
+    // Check the GENERATION provider's balance (Moonshot for Kimi, OpenRouter for DeepSeek) —
+    // NOT always OpenRouter. Plus a small OpenRouter floor for orchestration when generation
+    // is elsewhere. Fixes the stale gate that blocked every build on a low OpenRouter balance
+    // after generation moved to Moonshot. FAIL-OPEN: null reads never block.
+    const gen = await getGenerationProviderRemaining(FILE_GENERATION_MODEL)
+    const genLow = gen.remaining !== null && gen.remaining < minStart
+    const orchRemaining = gen.provider === 'openrouter' ? gen.remaining : await getOpenRouterRemaining()
+    const orchFloor = minOrchBalanceUsd()
+    const orchLow = gen.provider !== 'openrouter' && orchRemaining !== null && orchRemaining < orchFloor
+    if (genLow || orchLow) {
+      const detail = genLow
+        ? `${gen.provider} $${gen.remaining?.toFixed(2)} < gen floor $${minStart}`
+        : `openrouter $${orchRemaining?.toFixed(2)} < orch floor $${orchFloor}`
+      console.warn(`[cost-preflight] ${detail} — refusing to start build`)
       return createUIMessageStreamResponse({
         stream: createUIMessageStream({
           originalMessages: messages,
