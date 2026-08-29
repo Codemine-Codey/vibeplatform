@@ -1850,11 +1850,20 @@ Then App.tsx renders <GameCanvas/> full-viewport. Every mutable game value lives
     prdContext: prdContext || null,
   }
 
+  // When on the Trigger.dev path, these carry the Realtime subscription creds to the client
+  // (via response headers below) so the browser subscribes browser↔Trigger directly — no
+  // Vercel function in the stream path, no 740s cap, no reconnection.
+  let triggerRunId: string | null = null
+  let triggerPublicToken: string | null = null
   if (USE_TRIGGER) {
     // Trigger.dev path: no 12-min cap, runs for up to 1 hour. Sandbox auth uses
     // CM_VERCEL_TOKEN + CM_VERCEL_TEAM_ID + CM_VERCEL_PROJECT_ID set in Trigger env vars.
     const { triggerBuild } = await import('@/lib/trigger-client')
-    await triggerBuild(buildParams).catch(err => console.error('[chat/route] triggerBuild failed:', err))
+    const handle = await triggerBuild(buildParams).catch(err => {
+      console.error('[chat/route] triggerBuild failed:', err)
+      return null
+    })
+    if (handle) { triggerRunId = handle.id; triggerPublicToken = handle.publicAccessToken }
   } else {
     // Vercel Workflow path (default): durable, but capped at ~12 min visible stream.
     const run = await start(buildProject, [buildParams])
@@ -1941,6 +1950,11 @@ Then App.tsx renders <GameCanvas/> full-viewport. Every mutable game value lives
       'x-vercel-ai-ui-message-stream': 'v1',
       'x-accel-buffering': 'no',
       'x-workflow-run-id': runId,
+      // Trigger.dev Realtime creds (worker mode only). When present, the client subscribes
+      // browser↔Trigger directly for live progress (no 740s cap) and treats this polling
+      // stream as the durable fallback. Absent on the Vercel Workflow path.
+      ...(triggerRunId ? { 'x-trigger-run-id': triggerRunId } : {}),
+      ...(triggerPublicToken ? { 'x-trigger-public-token': triggerPublicToken } : {}),
     },
   })
 }

@@ -41,6 +41,7 @@ import { reviewGeneratedCode } from '@/lib/code-review-gate'
 import { readSandboxFile, repairFile, generateMissingFile, installMissingModules } from '@/lib/sandbox-util'
 import { plannedMissingFiles, SCAFFOLD_RESOLVABLE, localImportBasePath } from '@/lib/gates/checker.mjs'
 import { scrubPart } from '@/lib/leak-guard'
+import { emitToTrigger } from '@/lib/trigger-sink'
 import { logRepair } from '@/lib/telemetry'
 import {
   checkAndStampMissingFiles,
@@ -200,6 +201,10 @@ function makeStepWriter(runId: string | null): {
     write(part: { id?: string; type: string; data?: any }) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       pending.push(gWriter.write(part as Record<string, any>).catch(() => {}))
+      // Mirror to the Trigger.dev Realtime stream (no-op on the Vercel Workflow path where
+      // the sink is unset). This is the browser↔Trigger-direct transport that eliminates the
+      // 740s client cap entirely under CM_ORCHESTRATOR=worker.
+      emitToTrigger(part)
       if (runId) {
         batchQueue.push({ type: part.type, payload: part })
         if (flushTimer === null) flushTimer = setTimeout(flushBatch, 0)
