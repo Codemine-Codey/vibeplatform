@@ -326,11 +326,14 @@ export function Chat({ className }: Props) {
       if (deadmanFiredRef.current) return
       if (!isWorking || previewUrl) return
       if (Date.now() - lastEventAtRef.current < STALL_MS) return
-      // Durable run active → do NOT client-nudge. A build runs server-side (the durable run) and the
-      // reconnect (chat-context onFinish → reconnectAndDrain) re-reads its events + the verify step's
-      // OWN dead-man guarantees a preview. A client "continue" here RE-DRIVES a whole 2nd generation
-      // = the churn + the DOUBLED cost the user saw ($0.86 ≈ 2×). Only nudge an UNTRACKED stall.
-      if (useSandboxStore.getState().activeRunId) return
+      // ENFORCED (user 2026-08-29): NEVER client-re-drive a build. Every build is now a DURABLE
+      // server run (the server guarantees a runId + the x-workflow-run-id header), so an active build
+      // (sandbox exists, no preview yet) ALWAYS has a durable run recovering via reconnect — EVEN IF
+      // activeRunId wasn't captured for some reason. A client "continue" here RE-DRIVES a whole 2nd
+      // generation = the churn + the DOUBLED cost the user saw ($0.86 ≈ 2×). Recovery is the durable
+      // reconnect's job (chat-context onFinish/onError → reconnectAndDrain) + the verify step's own
+      // dead-man — never the client's. Defaulting to "do not re-drive" is the safe, enforced choice.
+      if (useSandboxStore.getState().activeRunId || (sandboxId && !previewUrl)) return
       // Genuine silent stall — nudge exactly once.
       deadmanFiredRef.current = true
       lastEventAtRef.current = Date.now() // avoid immediate re-trigger
@@ -344,9 +347,11 @@ export function Chat({ className }: Props) {
     if (!streamError || isWorking) return
     // Only auto-resume during generation (sandbox exists, no preview URL yet)
     if (!sandboxId || previewUrl) return
-    // Durable run active → the reconnect + verify-step dead-man own recovery; a client "continue"
-    // here re-drives a 2nd generation (churn + doubled cost). Only auto-resume an untracked stall.
-    if (useSandboxStore.getState().activeRunId) return
+    // ENFORCED (user 2026-08-29): same rule as the dead-man above — a build with a sandbox and no
+    // preview is ALWAYS a durable server run; recovery is the reconnect's + verify-step dead-man's
+    // job. Client auto-resume here re-drives a 2nd generation (churn + doubled cost). Never re-drive
+    // a durable build, whether or not activeRunId was captured.
+    if (useSandboxStore.getState().activeRunId || (sandboxId && !previewUrl)) return
     // All retries exhausted — switch to passive URL polling instead
     if (autoResumeCount.current >= 3) {
       if (projectId) setPollingForPreview(true)

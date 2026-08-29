@@ -4,7 +4,7 @@ import { type ChatUIMessage } from '@/components/chat/types'
 import { type ReactNode } from 'react'
 import { Chat } from '@ai-sdk/react'
 import { DataPart } from '@/ai/messages/data-parts'
-import { DataUIPart } from 'ai'
+import { DataUIPart, DefaultChatTransport } from 'ai'
 import { createContext, useContext, useMemo, useRef } from 'react'
 import { unstable_batchedUpdates } from 'react-dom'
 import { useDataStateMapper, useSandboxStore } from '@/app/state'
@@ -113,6 +113,24 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const chat = useMemo(
     () =>
       new Chat<ChatUIMessage>({
+        // GAP A FIX: capture the runId from the `x-workflow-run-id` RESPONSE HEADER the
+        // moment the POST responds — BEFORE any stream event. Previously activeRunId was
+        // set only by the `data-run` stream event, so if the stream dropped before that
+        // event arrived (the exact 12-min blank), the client had no runId to reconnect
+        // to → dead UI. The header is present as soon as headers arrive, even if the body
+        // then drops, so reconnect (onFinish/onError → reconnectAndDrain) can always fire.
+        transport: new DefaultChatTransport<ChatUIMessage>({
+          fetch: async (input, init) => {
+            const res = await fetch(input as RequestInfo, init)
+            try {
+              const rid = res.headers.get('x-workflow-run-id')
+              if (rid && !useSandboxStore.getState().activeRunId) {
+                useSandboxStore.getState().setActiveRun(rid, 0)
+              }
+            } catch { /* header capture is best-effort — data-run event is the backup */ }
+            return res
+          },
+        }),
         onToolCall: () => mutate('/api/auth/info'),
         onData: (data: DataUIPart<DataPart>) => {
           // Defer to next macrotask so this never runs during a React render phase.
