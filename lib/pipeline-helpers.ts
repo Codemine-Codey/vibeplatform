@@ -806,19 +806,37 @@ export async function headlessRuntimeCheck(
   }
 }
 
+// Launch a headless Chromium that works on BOTH runtimes. This is what makes the render-check
+// — the gate that catches "compiles clean but renders BLANK at runtime" — actually run on
+// Trigger.dev instead of silently skipping (which let a cream-blank preview through, the
+// "gate asleep" the user hit).
+//  - Trigger.dev: google-chrome-stable is installed into the deploy image by the puppeteer
+//    build extension (trigger.config.ts), which sets PUPPETEER_EXECUTABLE_PATH.
+//  - Vercel/Lambda: @sparticuz/chromium.
+async function launchChromium(): Promise<unknown> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const puppeteer: any = await import('puppeteer-core')
+  const triggerPath = process.env.PUPPETEER_EXECUTABLE_PATH
+  if (triggerPath) {
+    return puppeteer.launch({
+      executablePath: triggerPath,
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process'],
+    })
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const chromiumMod: any = await import('@sparticuz/chromium')
+  const chromium = chromiumMod.default ?? chromiumMod
+  return puppeteer.launch({ args: chromium.args, executablePath: await chromium.executablePath(), headless: true })
+}
+
 async function headlessRuntimeCheckInner(
   url: string,
   sandboxId?: string
 ): Promise<RuntimeCheckResult> {
   let browser: unknown = null
   try {
-    const chromiumMod = await import('@sparticuz/chromium')
-    const puppeteer = await import('puppeteer-core')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const chromium = (chromiumMod as any).default ?? chromiumMod
-    const execPath = await chromium.executablePath()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    browser = await (puppeteer as any).launch({ args: chromium.args, executablePath: execPath, headless: true })
+    browser = await launchChromium()
     console.log('[runtime-check] chromium launched OK')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const page = await (browser as any).newPage()
@@ -1092,12 +1110,7 @@ async function headlessRuntimeCheckInner(
 export async function functionalVerify(url: string, userRequest: string, skill: Skill): Promise<{ ok: boolean; issues: string[]; detail: string }> {
   let browser: unknown = null
   try {
-    const chromiumMod = await import('@sparticuz/chromium')
-    const puppeteer = await import('puppeteer-core')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const chromium = (chromiumMod as any).default ?? chromiumMod
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    browser = await (puppeteer as any).launch({ args: chromium.args, executablePath: await chromium.executablePath(), headless: true })
+    browser = await launchChromium()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const page = await (browser as any).newPage()
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 15_000 }).catch(() => {})

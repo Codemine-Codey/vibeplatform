@@ -1,4 +1,5 @@
 import { defineConfig } from '@trigger.dev/sdk/v3'
+import { puppeteer } from '@trigger.dev/build/extensions/puppeteer'
 import { resolve } from 'path'
 
 // Resolve @/ path alias (tsconfig paths) for Trigger's esbuild bundler
@@ -22,6 +23,9 @@ export default defineConfig({
     },
   },
   build: {
-    extensions: [pathAliasPlugin],
+    // puppeteer(): installs google-chrome-stable into the deploy image + sets
+    // PUPPETEER_EXECUTABLE_PATH, so the render-check (the "never reveal a blank" gate)
+    // actually runs on Trigger instead of silently skipping.
+    extensions: [pathAliasPlugin, puppeteer()],
   },
 })
