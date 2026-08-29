@@ -1,6 +1,11 @@
 import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
+// NOTE: `next/headers` is imported LAZILY inside getServerSupabase (below), NOT at the top
+// level. This module is in the buildProject import chain, which also runs inside the
+// Trigger.dev task (plain Node, no Next runtime). A top-level `import 'next/headers'` throws
+// at module load there → getAdminSupabase() (used for every run_events write) becomes
+// unreachable → the durable log stays empty → the reaper marks the build abandoned. That was
+// the entire "worker build shows nothing" failure. Keep this import lazy.
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
@@ -10,6 +15,7 @@ const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
 // queries through this client are constrained by Row-Level Security, so a user
 // can only ever read/write their own rows.
 export async function getServerSupabase() {
+  const { cookies } = await import('next/headers')
   const cookieStore = await cookies()
   return createServerClient(URL, ANON, {
     cookies: {
