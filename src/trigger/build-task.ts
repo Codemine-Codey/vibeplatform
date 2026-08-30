@@ -30,6 +30,10 @@ async function diag(runId: string | null, text: string): Promise<void> {
 
 export const buildTask = task({
   id: 'build-project',
+  // The default small-1x machine (~0.5GB) OOM-killed the build (AI-SDK streaming buffers +
+  // @vercel/sandbox + the headless Chromium render-check all in one process). large-1x = 8GB,
+  // ~$0.00013/s → a ~3-min build is ~$0.02. Comfortable headroom for Chromium + generation.
+  machine: 'large-1x',
   maxDuration: 3600,
   retry: { maxAttempts: 1 }, // NEVER retry — billing safety
   run: async (payload: BuildPipelineParams) => {
